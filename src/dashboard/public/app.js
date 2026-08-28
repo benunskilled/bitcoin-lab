@@ -149,9 +149,16 @@ function highlightClassFor(address) {
 // (see /api/peers/add-manual) rather than trusting whatever port it
 // happened to be observed on.
 function actionsCell(p) {
+  // A source-obscured peer's "address" is Docker's own relay gateway, not
+  // the peer's real one (see queries.js) - there's nothing real to probe or
+  // addnode, so "Add as Manual" would just try to add Docker's internal
+  // gateway as a manual peer. Disconnect still works fine though: it's
+  // exactly the address Core itself uses internally for this connection.
   const addOrRemove = p.trusted
     ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Remove</button>`
-    : `<button class="secondary" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`;
+    : (p.sourceObscured
+      ? ''
+      : `<button class="secondary" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`);
   const disconnect = (p.live && !p.trusted)
     ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>`
     : '';
@@ -178,7 +185,16 @@ async function refreshPeers() {
   renderPeerTables(peers);
 }
 
+// A peer that connected in over IPv6 through Docker's docker-proxy relay
+// (rather than a direct/NAT-preserved connection) has its real address
+// replaced by Core with Docker's own internal gateway - showing that raw
+// address would just be confusing/misleading, since it looks like a real
+// peer IP but isn't and can't be acted on (see actionsCell). Label it
+// honestly instead.
 function addressCell(p, includeLabel) {
+  if (p.sourceObscured) {
+    return `<td class="cell-truncate hint" title="Core reports this connection's address as ${escapeHtml(p.address)} - Docker's inbound IPv6 relay (docker-proxy) re-originates the connection from its own internal gateway, so the peer's real address is never visible to Core itself, let alone to us. This is a Docker networking limitation, not an error.">IPv6 peer (address hidden by Docker)</td>`;
+  }
   const label = includeLabel && p.trustedLabel ? ` (${p.trustedLabel})` : '';
   return truncatedCell(`${p.address}${label}`);
 }

@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('./db');
+const config = require('./config');
 
 function peerRanking() {
   const now = Date.now();
@@ -71,8 +72,16 @@ function peerRanking() {
     // too, immediately, without waiting for the background adoption sync
     // (see peer-sync.js adoptExternalManualPeers) to catch up.
     const trusted = Boolean(r.trusted) || r.liveConnectionType === 'manual';
+    // An inbound IPv6 peer relayed through Docker's docker-proxy shows up in
+    // Core's own getpeerinfo as the Docker bridge gateway address, not the
+    // peer's real one - Core itself never learns the true source, so there
+    // is no real address for us to recover or act on here (see config.js).
+    // Flag it so the UI can label it honestly instead of displaying (or
+    // letting the user try to manually add/probe) a meaningless local IP.
+    const sourceObscured = r.address.startsWith(`${config.dockerProxyMaskedAddressHost}:`);
     return {
       address: r.address,
+      sourceObscured,
       firstSeenAt: r.firstSeenAt,
       trusted,
       trustedLabel: r.trustedLabel,

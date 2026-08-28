@@ -86,5 +86,18 @@ module.exports = {
   // not block timing - the relay-profiler never polls).
   peerPollIntervalMs: Number(pick(process.env.PEER_POLL_INTERVAL_MS, '15000')),
 
+  // Docker can only hand an inbound IPv6 connection to our IPv4-only
+  // container by relaying it through docker-proxy (a real userspace TCP
+  // relay, not plain NAT) - and that relay re-originates the connection
+  // from the Docker bridge gateway, so Core's own getpeerinfo sees the
+  // peer's "addr" as this local gateway (with a throwaway port), not the
+  // peer's real IPv6. This is a Docker networking limitation, not
+  // something fixable from inside this app's own containers - the actual
+  // fix (disabling Docker's userland-proxy) is a host-wide daemon setting
+  // that restarts every app's networking, well outside this app's scope.
+  // Umbrel's convention for this gateway is 10.21.0.1; configurable in case
+  // a given install's Docker network differs.
+  dockerProxyMaskedAddressHost: pick(process.env.DOCKER_PROXY_MASKED_HOST, '10.21.0.1'),
+
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };
