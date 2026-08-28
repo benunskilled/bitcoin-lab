@@ -128,6 +128,32 @@ test('stratum ranking respects the block-count range filter and flags the last r
   assert.equal(allTime.find((p) => p.id === poolB.id).wonLastRace, true);
 });
 
+test('deletePool removes a pool that already has observation history without throwing', () => {
+  // Reproduces the "Remove" button's 500 "internal error": stratum_pool has
+  // no ON DELETE CASCADE from stratum_observation, and foreign keys are
+  // enforced, so a bare DELETE on a pool that ever raced (even a manually
+  // added one, like a user's own local pool, that only ever recorded a
+  // miss) throws a FOREIGN KEY constraint failure.
+  const insertPool = db.instance.prepare(
+    `INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES (?, ?, ?, 1, 0, ?)`,
+  );
+  const poolId = insertPool.run('Temp Local Pool', 'gobrrr-pool_ckpool_1', 3333, Date.now()).lastInsertRowid;
+
+  const raceId = db.instance
+    .prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)')
+    .run('delete-pool-prevhash', Date.now()).lastInsertRowid;
+  db.instance
+    .prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)')
+    .run(raceId, poolId);
+
+  assert.doesNotThrow(() => queries.deletePool(poolId));
+
+  const poolRow = db.instance.prepare('SELECT * FROM stratum_pool WHERE id = ?').get(poolId);
+  const obsRows = db.instance.prepare('SELECT * FROM stratum_observation WHERE pool_id = ?').all(poolId);
+  assert.equal(poolRow, undefined);
+  assert.equal(obsRows.length, 0);
+});
+
 test('peer ranking sorts by first% (rate), not raw first count', () => {
   // Peer C: first in 1 of 2 eligible races (50%). Peer D: first in 2 of 10
   // (20%), but with a higher raw count. Ranking by percentage should put C

@@ -194,7 +194,11 @@ async function router(req, res, pathname, url) {
   if (poolMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
     const id = Number(poolMatch[1]);
     if (req.method === 'DELETE') {
-      db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(id);
+      try {
+        queries.deletePool(id);
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, error: err.message });
+      }
       return sendJson(res, 200, { ok: true });
     }
     const { enabled } = await readBody(req);
