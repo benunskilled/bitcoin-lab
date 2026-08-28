@@ -59,18 +59,28 @@ module.exports = {
   // Idle-socket timeout for stratum pool connections - a LAST-RESORT
   // backstop, not the primary way we detect a dead connection (see
   // setKeepAlive in stratum-client.js for that). Block intervals are
-  // exponentially distributed around a ~10 minute mean, so "quiet for a
-  // while" is routine, not a sign anything is wrong: P(no block within 20
-  // min) is still ~13.5%, P(within 60 min) ~0.25%, and even P(within 120
-  // min) is ~0.0006% but NOT zero - long gaps are rare, not bounded. A
-  // timeout anywhere near "a bit more than 10 minutes" (the original
-  // 30000ms hardcoded value included) will misfire on ordinary long gaps,
-  // forcing pointless reconnects that can - in the few seconds the
-  // reconnect takes - cause a pool to be wrongly scored as a miss if a
-  // block lands during that exact window. 2 hours keeps that false-miss
-  // risk astronomically small while TCP keepalive (below) still catches an
-  // actually-dead socket in minutes, not hours.
-  stratumIdleTimeoutMs: Number(pick(process.env.STRATUM_IDLE_TIMEOUT_MS, String(2 * 60 * 60 * 1000))),
+  // exponentially distributed around a ~10 minute mean with no hard upper
+  // bound - the textbook math says a 120-minute gap should be vanishingly
+  // rare (~0.0006% per wait), but real-world observation of this exact
+  // node has shown it happening more than once, so the math is being
+  // deliberately overridden here in favor of what's actually been seen: 6
+  // hours (P(within 360 min) is astronomically smaller still) all but
+  // eliminates false-miss risk from a spurious reconnect, while TCP
+  // keepalive (below) remains the fast path (minutes, not hours) for an
+  // actually-dead socket.
+  stratumIdleTimeoutMs: Number(pick(process.env.STRATUM_IDLE_TIMEOUT_MS, String(6 * 60 * 60 * 1000))),
+
+  // Username sent with mining.authorize - many solo-mining stratum servers
+  // (ckpool-solo in particular, which GoBrrr Pool and most public solo
+  // pools run) validate this as a real Bitcoin address (since solo payouts
+  // go directly to whoever finds the block) and simply never broadcast
+  // mining.notify to a connection that fails authorize. We never submit
+  // shares, so the address doesn't need to be ours - this is a well-known,
+  // valid, real "eater/burn" address used exactly for this kind of
+  // placeholder purpose. A worker-name suffix (address.bitcoinlab) is
+  // supported by ckpool and makes our connections identifiable in pool
+  // logs without needing a real payout address.
+  stratumAuthorizeAddress: pick(process.env.STRATUM_AUTHORIZE_ADDRESS, '1BitcoinEaterAddressDontSendf59kuE'),
 
   // Peer snapshot poll interval for the peer-profiler (session bookkeeping,
   // not block timing - the relay-profiler never polls).
