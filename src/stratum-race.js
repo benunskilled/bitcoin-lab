@@ -47,11 +47,25 @@ function syncConnections() {
       port: pool.port,
       label: pool.label,
       idleTimeoutMs: config.stratumIdleTimeoutMs,
+      authorizeAddress: config.stratumAuthorizeAddress,
     });
     conn.on('notify', ({ prevhash, receivedAtHr }) => handleNotify(pool, prevhash, receivedAtHr));
     conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
     conn.on('authorizeResult', ({ ok, error }) => {
-      if (!ok) logger.debug('pool rejected mining.authorize (notify may still arrive for some pools)', { label: pool.label, error });
+      if (!ok) logger.warn('pool rejected mining.authorize - it will likely never send us a job', { label: pool.label, error });
+    });
+    // Visible, periodic proof of life per pool - the only way to tell "no
+    // data because nothing has happened yet" apart from "no data because
+    // something is silently wrong" without being able to test pool
+    // connectivity live. Check `docker logs` for this if the race still
+    // looks empty after a while.
+    conn.on('heartbeat', ({ connectedMs, notifyCount, authorized }) => {
+      logger.info('pool connection status', {
+        label: pool.label,
+        connectedMinutes: Math.round(connectedMs / 60000),
+        notifyCount,
+        authorized,
+      });
     });
     conn.start();
     active.set(pool.id, { conn, pool });
