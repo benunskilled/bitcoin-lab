@@ -1,0 +1,22 @@
+{
+  "name": "bitcoin-lab",
+  "version": "1.0.0",
+  "description": "Peer relay performance profiler and stratum race for Bitcoin Core nodes on Umbrel.",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dashboard": "node src/dashboard-server.js",
+    "peer-profiler": "node src/peer-profiler.js",
+    "relay-profiler": "node src/relay-profiler.js",
+    "stratum-race": "node src/stratum-race.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "zeromq": "^6.1.2"
+  }
+}

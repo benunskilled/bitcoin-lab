@@ -1,0 +1,73 @@
+# Local development / verification stack - NOT the Umbrel app package.
+# Spins up a regtest bitcoind (so blocks can be generated on demand to
+# exercise the relay-profiler's ZMQ path end-to-end) plus all four
+# Bitcoin Lab services, built from the local Dockerfile.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   ./test/regtest-generate.sh          # mine a block, watch relay-profiler log it
+#
+# Dashboard: http://localhost:8788
+
+version: "3.7"
+
+services:
+  bitcoind:
+    image: ruimarinho/bitcoin-core:23
+    command:
+      - -regtest=1
+      - -server=1
+      - -rpcuser=bitcoinlab
+      - -rpcpassword=bitcoinlab
+      - -rpcallowip=0.0.0.0/0
+      - -rpcbind=0.0.0.0
+      - -zmqpubhashblock=tcp://0.0.0.0:28334
+      - -fallbackfee=0.0002
+      - -txindex=1
+    volumes:
+      - ./dev-data/bitcoind:/home/bitcoin/.bitcoin
+    ports:
+      - "18443:18443" # regtest RPC, exposed for manual bitcoin-cli use while developing
+
+  dashboard:
+    build: .
+    command: ["node", "src/dashboard-server.js"]
+    depends_on: [bitcoind]
+    environment: &bitcoin-env
+      BITCOIN_RPC_HOST: bitcoind
+      BITCOIN_RPC_PORT: "18443"
+      BITCOIN_RPC_USER: bitcoinlab
+      BITCOIN_RPC_PASS: bitcoinlab
+      BITCOIN_ZMQ_HOST: bitcoind
+      BITCOIN_ZMQ_HASHBLOCK_PORT: "28334"
+      BITCOIN_NETWORK: regtest
+      DATA_DIR: /data
+      LOG_LEVEL: debug
+    volumes:
+      - ./dev-data/app:/data
+    ports:
+      - "8788:8788"
+
+  peer-profiler:
+    build: .
+    command: ["node", "src/peer-profiler.js"]
+    depends_on: [bitcoind]
+    environment: *bitcoin-env
+    volumes:
+      - ./dev-data/app:/data
+
+  relay-profiler:
+    build: .
+    command: ["node", "src/relay-profiler.js"]
+    depends_on: [bitcoind]
+    environment: *bitcoin-env
+    volumes:
+      - ./dev-data/app:/data
+
+  stratum-race:
+    build: .
+    command: ["node", "src/stratum-race.js"]
+    depends_on: [bitcoind]
+    environment: *bitcoin-env
+    volumes:
+      - ./dev-data/app:/data
