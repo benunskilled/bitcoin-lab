@@ -131,6 +131,29 @@ test('stratum ranking respects the time-range filter and flags the last race win
   assert.equal(allTime.find((p) => p.id === poolB.id).wonLastRace, true);
 });
 
+test('a live peer Core reports as connection_type "manual" is treated as trusted even without a trusted_peer row', () => {
+  // Simulates a peer addnode'd outside this app (bitcoin-cli, bitcoin.conf,
+  // or added before trusted_peer existed) - Core says "manual", but we
+  // never wrote a trusted_peer row for it.
+  const peer = db.getOrCreatePeer('203.0.113.99:8333');
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'outbound', 'manual', '/Satoshi:27.0.0/', ?, 20, 20)`,
+    )
+    .run(peer.id, 999, Date.now());
+
+  const ranking = queries.peerRanking();
+  const row = ranking.find((r) => r.address === '203.0.113.99:8333');
+
+  assert.equal(row.trusted, true);
+  assert.equal(row.status, 'MANUAL LIVE');
+  // connectionStatus stays the raw Core connection type - used by the
+  // Outbound panel, which this peer should no longer even appear in once
+  // the frontend filters on `trusted`.
+  assert.equal(row.connectionStatus, 'MANUAL');
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

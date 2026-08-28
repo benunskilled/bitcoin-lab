@@ -67,6 +67,55 @@ async function syncTrustedToAddnode() {
   return { trusted: trusted.length, existing: existingAddrs.size, added, queued };
 }
 
+/**
+ * Pulls Core's own addnode list (getaddednodeinfo - the RPC read-back of
+ * whatever `addnode add` has been called for, whether that call came from
+ * us, a direct `bitcoin-cli addnode` by the user, or a `-addnode=` line in
+ * bitcoin.conf) and adopts any address we don't already know about into our
+ * own trusted_peer table.
+ *
+ * We never read or write bitcoin.conf itself - nothing here does. All
+ * "manual" management, ours and Core's own, happens purely through the
+ * `addnode`/`removenode` RPCs (see addTrustedPeer/removeTrustedPeer below
+ * and rpc.js). That RPC-level addnode list lives in Core's memory only -
+ * Core does NOT persist it back into bitcoin.conf, so it's wiped on every
+ * bitcoind restart unless the entry is also a bitcoin.conf `-addnode=`
+ * line. trusted_peer + syncTrustedToAddnode() above exists specifically to
+ * survive that: on our own startup (and every 10 min) we re-issue `addnode
+ * add` for everything we remember. This adoption step is the missing other
+ * half - so a peer that became "manual" some other way still ends up
+ * durably tracked by us too, instead of being invisible to our own
+ * persistence and showing up as an orphan (Core says "manual", we don't
+ * know it, so it fell through the cracks into the Outbound panel instead of
+ * Manual - the bug that prompted this).
+ */
+async function adoptExternalManualPeers() {
+  let addedNodes = [];
+  try {
+    addedNodes = await rpc.getAddedNodeInfo();
+  } catch (err) {
+    logger.warn('getaddednodeinfo failed, skipping external-manual adoption this round', { error: err.message });
+    return { adopted: 0 };
+  }
+
+  const known = new Set(
+    db.instance.prepare(`SELECT address FROM trusted_peer`).all().map((r) => r.address),
+  );
+  const insert = db.instance.prepare(
+    `INSERT OR IGNORE INTO trusted_peer (address, label, created_at) VALUES (?, NULL, ?)`,
+  );
+
+  const now = Date.now();
+  let adopted = 0;
+  for (const { addednode } of addedNodes) {
+    if (!addednode || known.has(addednode)) continue;
+    insert.run(addednode, now);
+    adopted += 1;
+    logger.info('adopted externally-managed manual peer into trusted_peer', { address: addednode });
+  }
+  return { adopted };
+}
+
 async function addTrustedPeer(address, label) {
   db.instance
     .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?) ON CONFLICT(address) DO UPDATE SET label = excluded.label`)
@@ -96,4 +145,4 @@ async function removeTrustedPeer(address) {
   }
 }
 
-module.exports = { syncTrustedToAddnode, addTrustedPeer, removeTrustedPeer };
+module.exports = { syncTrustedToAddnode, adoptExternalManualPeers, addTrustedPeer, removeTrustedPeer };
