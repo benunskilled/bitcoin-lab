@@ -1,0 +1,56 @@
+name: Build and publish multi-arch image
+
+# Triggers on every version tag (v1.0.0, v1.0.1, ...). After a run finishes,
+# check the run's summary/logs for the pushed image digest and pin exactly
+# that `ghcr.io/<owner>/bitcoin-lab:<tag>@sha256:<digest>` reference in the
+# community app store's docker-compose.yml - the App Store rules require a
+# tag+digest pin, never a moving tag alone.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine image tag
+        id: vars
+        run: echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/bitcoin-lab:${{ steps.vars.outputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/bitcoin-lab:latest
+
+      - name: Print pinned reference for the app package
+        run: |
+          echo "Use this exact reference in bitcoin-lab-community-store/bitcoin-lab/docker-compose.yml:"
+          echo "ghcr.io/${{ github.repository_owner }}/bitcoin-lab:${{ steps.vars.outputs.tag }}@${{ steps.push.outputs.digest }}"

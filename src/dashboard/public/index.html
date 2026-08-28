@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bitcoin Lab</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Bitcoin Lab</h1>
+    <div id="status" class="status-pill">loading…</div>
+  </header>
+
+  <main>
+    <section class="card" id="live-summary">
+      <h2>Live Peers</h2>
+      <div class="stat-grid" id="live-stats"></div>
+    </section>
+
+    <section class="card">
+      <h2>Live Peer Ranking</h2>
+      <form id="manual-add-form" class="inline-form">
+        <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
+        <button type="submit">Add Peer</button>
+        <span id="manual-add-result" class="hint"></span>
+      </form>
+      <div class="table-wrap">
+        <table id="peer-table">
+          <thead>
+            <tr>
+              <th>Address</th>
+              <th>Status</th>
+              <th>First</th>
+              <th>Eligible</th>
+              <th>First %</th>
+              <th>Ping</th>
+              <th>Session</th>
+              <th>Total Time</th>
+              <th>Sessions</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Stratum Race</h2>
+      <form id="pool-add-form" class="inline-form">
+        <input type="text" id="pool-label" placeholder="Label (e.g. Bassin)" required />
+        <input type="text" id="pool-host" placeholder="Host" required />
+        <input type="number" id="pool-port" placeholder="Port" min="1" max="65535" required />
+        <button type="submit">Add Pool</button>
+        <span id="pool-add-result" class="hint"></span>
+      </form>
+      <div class="table-wrap">
+        <table id="pool-table">
+          <thead>
+            <tr>
+              <th>Pool</th>
+              <th>Host:Port</th>
+              <th>Wins</th>
+              <th>Win %</th>
+              <th>Avg</th>
+              <th>Median</th>
+              <th>P90</th>
+              <th>Seen</th>
+              <th>Miss</th>
+              <th>Enabled</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
