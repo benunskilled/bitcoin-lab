@@ -104,7 +104,19 @@ async function handleWidgetStats(req, res) {
       { title: 'Live Peers', text: String(live.total), subtext: 'connected' },
       { title: 'Best Peer', text: bestPeer ? `${bestPeer.firstPct.toFixed(0)}%` : '-', subtext: bestPeer ? bestPeer.address : 'n/a' },
       { title: 'Fastest Pool', text: bestPool && bestPool.avgMs != null ? `${bestPool.avgMs.toFixed(0)}ms` : '-', subtext: bestPool ? bestPool.label : 'n/a' },
-      { title: 'Trusted', text: String(ranking.filter((p) => p.trusted).length), subtext: 'manual peers' },
+      // "3/4" rather than just a raw trusted count - a manual peer can drop
+      // and Core's own reconnect can silently stall, so whether they're
+      // ACTUALLY connected right now belongs on the at-a-glance home
+      // widget, not only visible after opening the dashboard.
+      (() => {
+        const trustedPeers = ranking.filter((p) => p.trusted);
+        const onlineTrusted = trustedPeers.filter((p) => p.live).length;
+        return {
+          title: 'Trusted',
+          text: `${onlineTrusted}/${trustedPeers.length}`,
+          subtext: onlineTrusted === trustedPeers.length ? 'manual peers online' : 'manual peers - check dashboard',
+        };
+      })(),
     ],
   });
 }
