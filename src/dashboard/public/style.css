@@ -143,3 +143,86 @@ button.danger { color: var(--bad); }
 .hint { font-size: 12px; color: var(--muted); }
 
 .row-actions { display: flex; gap: 6px; }
+
+/* Hero: current chain height, pulses via .bump when a new block lands */
+.hero-card { padding: 20px 24px; }
+
+.hero-grid {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.hero-stat { min-width: 180px; }
+
+.hero-l {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.hero-n {
+  font-size: 42px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  transition: text-shadow .3s ease;
+}
+
+.hero-n.bump {
+  text-shadow: 0 0 18px rgba(247, 147, 26, .85);
+}
+
+.hero-sub {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.hero-grid .stat-grid { flex: 1; }
+
+/* Full-screen orange wave that rolls across on a new block */
+.block-wave {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.block-wave.roll {
+  animation: block-wave-roll 1.4s ease-out;
+}
+
+@keyframes block-wave-roll {
+  0% {
+    opacity: 0;
+    background: linear-gradient(100deg,
+      transparent 0%,
+      transparent 38%,
+      rgba(247, 147, 26, .55) 48%,
+      rgba(247, 147, 26, .85) 50%,
+      rgba(247, 147, 26, .55) 52%,
+      transparent 62%,
+      transparent 100%);
+    background-size: 300% 100%;
+    background-position: 150% 0;
+  }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% {
+    opacity: 0;
+    background-position: -50% 0;
+  }
+}
+
+/* Row of the peer(s) that delivered the newest block first - fades in,
+   stays tinted for ~2 minutes (see app.js HIGHLIGHT_MS), fades out. */
+tr.row-first-block td {
+  background: rgba(247, 147, 26, .22);
+  transition: background 1.2s ease;
+}
+tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }

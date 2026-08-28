@@ -1,6 +1,15 @@
 'use strict';
 
 const REFRESH_MS = 8000;
+const BLOCK_POLL_MS = 2000;
+const HIGHLIGHT_MS = 2 * 60 * 1000; // how long the first-peer row(s) stay tinted after a new block
+
+// address -> expiry timestamp (ms). Rebuilt into row classes on every
+// refreshPeers() render, since the table bodies are fully re-rendered each
+// poll rather than patched in place.
+const highlightUntil = new Map();
+let lastRaceId = null; // null = "haven't loaded the latest race yet", not "no races"
+let lastKnownHeight = null;
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -43,8 +52,20 @@ async function refreshStatus() {
   const s = await api('/api/status');
   const el = document.getElementById('status');
   el.textContent = s.blockHeight != null
-    ? `Block ${s.blockHeight} · ${s.network} · ${s.live.total} peers connected`
+    ? `${s.network} · ${s.live.total} peers connected`
     : `${s.network} · connecting…`;
+
+  const heightEl = document.getElementById('block-height-number');
+  if (s.blockHeight != null) {
+    heightEl.textContent = s.blockHeight.toLocaleString();
+    if (lastKnownHeight != null && s.blockHeight > lastKnownHeight) {
+      heightEl.classList.remove('bump');
+      // eslint-disable-next-line no-void
+      void heightEl.offsetWidth; // restart the CSS transition
+      heightEl.classList.add('bump');
+    }
+    lastKnownHeight = s.blockHeight;
+  }
 
   const stats = [
     ['Total', s.live.total],
@@ -59,11 +80,69 @@ async function refreshStatus() {
     .join('');
 }
 
+function triggerBlockWave() {
+  const wave = document.getElementById('block-wave');
+  wave.classList.remove('roll');
+  // eslint-disable-next-line no-void
+  void wave.offsetWidth; // restart the CSS animation
+  wave.classList.add('roll');
+}
+
+async function pollLatestBlock() {
+  let race;
+  try {
+    race = await api('/api/blocks/latest');
+  } catch (err) {
+    return; // transient - next poll will retry
+  }
+  if (!race) return;
+
+  const hashEl = document.getElementById('block-hash-short');
+  hashEl.textContent = `${race.blockHash.slice(0, 16)}…`;
+
+  const isNewRace = lastRaceId !== null && race.id !== lastRaceId;
+  lastRaceId = race.id;
+  if (!isNewRace) return;
+
+  triggerBlockWave();
+  const expiry = Date.now() + HIGHLIGHT_MS;
+  for (const peer of race.firstPeers) highlightUntil.set(peer.address, expiry);
+  refreshPeers();
+}
+
+// address -> "row-first-block" if still within its highlight window, pruning
+// expired entries as we go (cheap - the map only ever holds recent misses).
+function highlightClassFor(address) {
+  const expiry = highlightUntil.get(address);
+  if (expiry == null) return '';
+  if (expiry <= Date.now()) {
+    highlightUntil.delete(address);
+    return '';
+  }
+  return 'row-first-block';
+}
+
+function actionsCell(p) {
+  return `
+    ${p.trusted
+      ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Untrust</button>`
+      : `<button class="secondary" data-action="trust" data-address="${p.address}">Trust</button>`}
+    ${p.live ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>` : ''}
+  `;
+}
+
 async function refreshPeers() {
   const peers = await api('/api/peers/ranking');
-  const tbody = document.querySelector('#peer-table tbody');
-  tbody.innerHTML = peers.map((p) => `
-    <tr>
+  renderPeerTables(peers);
+}
+
+function renderPeerTables(peers) {
+  const livePeers = peers.filter((p) => p.live);
+  const outboundPeers = livePeers.filter((p) => p.direction === 'outbound');
+  const manualPeers = peers.filter((p) => p.trusted);
+
+  document.querySelector('#peer-table tbody').innerHTML = livePeers.map((p) => `
+    <tr class="${highlightClassFor(p.address)}">
       <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       <td>${p.first}</td>
@@ -73,14 +152,32 @@ async function refreshPeers() {
       <td>${fmtDuration(p.currentSessionMs)}</td>
       <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
-      <td class="row-actions">
-        ${p.trusted
-          ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Untrust</button>`
-          : `<button class="secondary" data-action="trust" data-address="${p.address}">Trust</button>`}
-        ${p.live ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>` : ''}
-      </td>
+      <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('');
+  `).join('') || `<tr><td colspan="10" class="hint">No peers currently connected.</td></tr>`;
+
+  document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers.map((p) => `
+    <tr class="${highlightClassFor(p.address)}">
+      <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
+      <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
+      <td>${fmtPct(p.firstPct)}</td>
+      <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
+      <td>${fmtDuration(p.currentSessionMs)}</td>
+      <td class="row-actions">${actionsCell(p)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="6" class="hint">No outbound peers currently connected.</td></tr>`;
+
+  document.querySelector('#manual-peer-table tbody').innerHTML = manualPeers.map((p) => `
+    <tr class="${highlightClassFor(p.address)}">
+      <td>${p.address}</td>
+      <td>${p.trustedLabel || '-'}</td>
+      <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
+      <td>${fmtPct(p.firstPct)}</td>
+      <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
+      <td>${fmtDuration(p.currentSessionMs)}</td>
+      <td class="row-actions">${actionsCell(p)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="7" class="hint">No manually trusted peers yet - use Trust above or the manual-add field.</td></tr>`;
 }
 
 async function refreshPools() {
@@ -106,7 +203,7 @@ async function refreshPools() {
 }
 
 async function refreshAll() {
-  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools()]);
+  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), pollLatestBlock()]);
 }
 
 document.getElementById('manual-add-form').addEventListener('submit', async (e) => {
@@ -172,3 +269,7 @@ document.body.addEventListener('change', async (e) => {
 
 refreshAll();
 setInterval(refreshAll, REFRESH_MS);
+// Separate, faster loop just for "did a new block land" - keeps the wave
+// and row highlight responsive without re-querying the full peer/pool
+// tables every couple of seconds.
+setInterval(pollLatestBlock, BLOCK_POLL_MS);

@@ -119,6 +119,10 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, queries.liveSummary());
   }
 
+  if (req.method === 'GET' && pathname === '/api/blocks/latest') {
+    return sendJson(res, 200, queries.latestBlock());
+  }
+
   if (req.method === 'POST' && pathname === '/api/peers/trust') {
     const { address, label } = await readBody(req);
     if (!address) return sendJson(res, 400, { error: 'address required' });
