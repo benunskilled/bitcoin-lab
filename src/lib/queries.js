@@ -48,33 +48,44 @@ function peerRanking() {
     )
     .all({ now });
 
-  return rows.map((r) => ({
-    address: r.address,
-    firstSeenAt: r.firstSeenAt,
-    trusted: Boolean(r.trusted),
-    trustedLabel: r.trustedLabel,
-    eligible: r.eligible,
-    first: r.first,
-    firstPct: r.eligible > 0 ? (100 * r.first) / r.eligible : null,
-    live: Boolean(r.liveDirection),
-    direction: r.liveDirection,
-    connectionType: r.liveConnectionType,
-    client: r.client || null,
-    currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
-    minPingMs: r.liveMinPingMs,
-    lastPingMs: r.liveLastPingMs,
-    sessionsCount: r.sessionsCount,
-    totalConnectionMs: r.totalMs,
-    status: statusFor(r),
-    // Connection-type-only status, ignoring the manual/trusted override -
-    // used where "MANUAL LIVE" would just be redundant noise (e.g. the
-    // Outbound Peers panel, which already implies live).
-    connectionStatus: r.liveDirection ? (r.liveConnectionType || r.liveDirection).toUpperCase() : 'OFFLINE',
-  }));
+  return rows.map((r) => {
+    // "Trusted" isn't only what's in our own trusted_peer table - Core
+    // itself reports connection_type 'manual' for ANY addnode'd peer,
+    // including ones added outside this app entirely (bitcoin-cli addnode,
+    // -addnode= in bitcoin.conf, or a peer added before this table
+    // existed). Treating those as untrusted was the bug behind a manual
+    // peer showing up in the Outbound panel with an "Add as Manual" button
+    // instead of "Remove" - Core already considers it manual, so we should
+    // too, immediately, without waiting for the background adoption sync
+    // (see peer-sync.js adoptExternalManualPeers) to catch up.
+    const trusted = Boolean(r.trusted) || r.liveConnectionType === 'manual';
+    return {
+      address: r.address,
+      firstSeenAt: r.firstSeenAt,
+      trusted,
+      trustedLabel: r.trustedLabel,
+      eligible: r.eligible,
+      first: r.first,
+      firstPct: r.eligible > 0 ? (100 * r.first) / r.eligible : null,
+      live: Boolean(r.liveDirection),
+      direction: r.liveDirection,
+      connectionType: r.liveConnectionType,
+      client: r.client || null,
+      currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
+      minPingMs: r.liveMinPingMs,
+      lastPingMs: r.liveLastPingMs,
+      sessionsCount: r.sessionsCount,
+      totalConnectionMs: r.totalMs,
+      status: statusFor(r, trusted),
+      // Connection-type-only status, ignoring the manual/trusted override -
+      // used where "MANUAL LIVE" would just be redundant noise (e.g. the
+      // Outbound Peers panel, which already implies live).
+      connectionStatus: r.liveDirection ? (r.liveConnectionType || r.liveDirection).toUpperCase() : 'OFFLINE',
+    };
+  });
 }
 
-function statusFor(r) {
-  const trusted = Boolean(r.trusted);
+function statusFor(r, trusted) {
   const live = Boolean(r.liveDirection);
   if (trusted && live) return 'MANUAL LIVE';
   if (trusted && !live) return 'MANUAL OFFLINE';

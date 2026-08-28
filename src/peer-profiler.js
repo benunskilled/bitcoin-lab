@@ -11,7 +11,7 @@ const config = require('./lib/config');
 const db = require('./lib/db');
 const rpc = require('./lib/rpc');
 const logger = require('./lib/logger').make('peer-profiler');
-const { syncTrustedToAddnode } = require('./lib/peer-sync');
+const { syncTrustedToAddnode, adoptExternalManualPeers } = require('./lib/peer-sync');
 
 function upsertSessions(peers) {
   const database = db.instance;
@@ -88,14 +88,26 @@ async function main() {
   db.open();
   logger.info('starting', { intervalMs: config.peerPollIntervalMs });
 
+  // Pull in any peer Core already has addnode'd that we don't know about
+  // yet (added outside this app) before pushing our own list back out -
+  // see adoptExternalManualPeers for why this direction is needed too.
+  const adoptResult = await adoptExternalManualPeers();
+  if (adoptResult.adopted > 0) logger.info('startup: adopted externally-managed manual peers', adoptResult);
+
   const syncResult = await syncTrustedToAddnode();
   logger.info('startup trusted/addnode sync', syncResult);
 
   await pollOnce();
   setInterval(pollOnce, config.peerPollIntervalMs);
-  // Safety net: re-assert trusted peers as addnodes periodically in case
-  // Core forgot them across a restart of the bitcoin app itself.
-  setInterval(() => syncTrustedToAddnode().catch((err) => logger.warn('periodic addnode sync failed', { error: err.message })), 10 * 60 * 1000);
+  // Safety net: re-run both directions periodically - re-assert trusted
+  // peers as addnodes in case Core forgot them across a restart of the
+  // bitcoin app itself, and adopt anything newly addnode'd outside this app
+  // (e.g. a direct `bitcoin-cli addnode` call) since the last pass.
+  setInterval(() => {
+    adoptExternalManualPeers()
+      .then(() => syncTrustedToAddnode())
+      .catch((err) => logger.warn('periodic peer sync failed', { error: err.message }));
+  }, 10 * 60 * 1000);
 }
 
 main().catch((err) => {
