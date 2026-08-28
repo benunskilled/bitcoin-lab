@@ -50,6 +50,9 @@ function syncConnections() {
     });
     conn.on('notify', ({ prevhash, receivedAtHr }) => handleNotify(pool, prevhash, receivedAtHr));
     conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
+    conn.on('authorizeResult', ({ ok, error }) => {
+      if (!ok) logger.debug('pool rejected mining.authorize (notify may still arrive for some pools)', { label: pool.label, error });
+    });
     conn.start();
     active.set(pool.id, { conn, pool });
     logger.info('watching pool', { label: pool.label, host: pool.host, port: pool.port });

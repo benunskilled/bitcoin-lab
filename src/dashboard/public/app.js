@@ -49,6 +49,23 @@ function statusPillClass(status) {
   return 'live';
 }
 
+const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+// subver (Client) is fully attacker-controlled - any P2P peer can set an
+// arbitrary user-agent string - so it must never go into innerHTML
+// unescaped. Applied to address/label too as cheap defense in depth.
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ESCAPE_MAP[c]);
+}
+
+// Address and Client can both be long enough to blow up the whole table's
+// width (a long subver string in particular forces every other column wide
+// too under auto table layout) - cap them visually with an ellipsis and put
+// the full value in a title tooltip instead of just letting them run wide.
+function truncatedCell(text) {
+  const safe = escapeHtml(text);
+  return `<td class="cell-truncate" title="${safe}">${safe}</td>`;
+}
+
 async function refreshStatus() {
   const s = await api('/api/status');
   if (s.maxManualPeers) MAX_MANUAL_PEERS = s.maxManualPeers;
@@ -124,23 +141,33 @@ function highlightClassFor(address) {
   return 'row-first-block';
 }
 
-// context: 'manual' renders "Remove" (forgets the peer) alongside
-// "Disconnect" (just drops the live connection); anywhere else renders
-// "Add as Manual" for peers we don't yet trust. Add-as-Manual always
-// re-probes the peer's host itself (see /api/peers/add-manual) rather than
-// trusting whatever port it happened to be observed on.
-function actionsCell(p, context) {
+// Trusted/manual peers show "Remove" (forgets the peer AND force-disconnects
+// it - see peer-sync.js removeTrustedPeer) instead of "Disconnect": as long
+// as a peer is still addnode'd, Core just reconnects it right back, so a
+// bare Disconnect on a manual peer would do nothing useful. Untrusted peers
+// get "Add as Manual" instead, which always re-probes the peer's host itself
+// (see /api/peers/add-manual) rather than trusting whatever port it
+// happened to be observed on.
+function actionsCell(p) {
   const addOrRemove = p.trusted
     ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Remove</button>`
     : `<button class="secondary" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`;
-  return `
-    ${addOrRemove}
-    ${p.live ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>` : ''}
-  `;
+  const disconnect = (p.live && !p.trusted)
+    ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>`
+    : '';
+  return `${addOrRemove}${disconnect}`;
 }
 
 function clientCell(p) {
-  return p.client ? p.client : '<span class="hint">-</span>';
+  return truncatedCell(p.client || '-');
+}
+
+// Single combined "how good is this peer" column: percentage first, with
+// the raw first/eligible counts as a tooltip - replaces the previous
+// separate First/Elig + First % columns (redundant, and wasted width).
+function firstPctCell(p) {
+  const pctText = fmtPct(p.firstPct);
+  return `<td title="${p.first} of ${p.eligible} eligible blocks">${pctText}<span class="hint"> (${p.first}/${p.eligible})</span></td>`;
 }
 
 async function refreshPeers() {
@@ -148,8 +175,9 @@ async function refreshPeers() {
   renderPeerTables(peers);
 }
 
-function firstEligCell(p) {
-  return `${p.first}<span class="hint">/${p.eligible}</span>`;
+function addressCell(p, includeLabel) {
+  const label = includeLabel && p.trustedLabel ? ` (${p.trustedLabel})` : '';
+  return truncatedCell(`${p.address}${label}`);
 }
 
 function renderPeerTables(peers) {
@@ -161,25 +189,24 @@ function renderPeerTables(peers) {
 
   document.querySelector('#peer-table tbody').innerHTML = livePeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
-      <td>${clientCell(p)}</td>
+      ${addressCell(p, true)}
+      ${clientCell(p)}
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
-      <td>${firstEligCell(p)}</td>
-      <td>${fmtPct(p.firstPct)}</td>
+      ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       <td>${fmtDuration(p.currentSessionMs)}</td>
       <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="10" class="hint">No peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      <td>${p.address}</td>
-      <td>${clientCell(p)}</td>
+      ${addressCell(p, false)}
+      ${clientCell(p)}
       <td><span class="pill ${statusPillClass(p.connectionStatus)}">${p.connectionStatus}</span></td>
-      <td>${fmtPct(p.firstPct)}</td>
+      ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       <td>${fmtDuration(p.currentSessionMs)}</td>
       <td class="row-actions">${actionsCell(p)}</td>
@@ -188,14 +215,14 @@ function renderPeerTables(peers) {
 
   document.querySelector('#manual-peer-table tbody').innerHTML = manualPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      <td>${p.address}</td>
-      <td>${p.trustedLabel || '<span class="hint">-</span>'}</td>
-      <td>${clientCell(p)}</td>
+      ${addressCell(p, false)}
+      <td>${p.trustedLabel ? escapeHtml(p.trustedLabel) : '<span class="hint">-</span>'}</td>
+      ${clientCell(p)}
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
-      <td>${fmtPct(p.firstPct)}</td>
+      ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       <td>${fmtDuration(p.currentSessionMs)}</td>
-      <td class="row-actions">${actionsCell(p, 'manual')}</td>
+      <td class="row-actions">${actionsCell(p)}</td>
     </tr>
   `).join('') || `<tr><td colspan="8" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`;
 

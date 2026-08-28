@@ -92,7 +92,7 @@ test('stratum ranking computes win% and treats NULL latency as a miss', () => {
   assert.equal(row.winPct, 50);
 });
 
-test('stratum ranking respects the time-range filter and flags the last race winner', () => {
+test('stratum ranking respects the block-count range filter and flags the last race winner', () => {
   // Offset past the pool used by the win%/miss test above, which already
   // recorded a win against the first pool - avoid double-counting it here.
   const [poolA, poolB] = db.instance.prepare('SELECT * FROM stratum_pool ORDER BY id LIMIT 2 OFFSET 2').all();
@@ -102,16 +102,13 @@ test('stratum ranking respects the time-range filter and flags the last race win
     'INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)',
   );
 
-  const now = Date.now();
-  const twoHoursAgo = now - 2 * 60 * 60 * 1000;
-
-  // Old race (outside a 1h window): pool A wins.
-  let raceId = insertRace.run('range-prevhash-old', twoHoursAgo).lastInsertRowid;
+  // Older race: pool A wins.
+  let raceId = insertRace.run('range-prevhash-old', Date.now() - 1000).lastInsertRowid;
   insertObs.run(raceId, poolA.id, 0, 1);
   insertObs.run(raceId, poolB.id, 50, 2);
 
-  // Recent race (inside a 1h window, and the newest race overall): pool B wins.
-  raceId = insertRace.run('range-prevhash-new', now).lastInsertRowid;
+  // Newest race overall: pool B wins.
+  raceId = insertRace.run('range-prevhash-new', Date.now()).lastInsertRowid;
   insertObs.run(raceId, poolB.id, 0, 1);
   insertObs.run(raceId, poolA.id, 80, 2);
 
@@ -119,16 +116,46 @@ test('stratum ranking respects the time-range filter and flags the last race win
   const aAllTime = allTime.find((p) => p.id === poolA.id);
   assert.equal(aAllTime.wins, 1); // still counts the old win
 
-  const lastHour = queries.stratumRanking('1h');
-  const aLastHour = lastHour.find((p) => p.id === poolA.id);
-  const bLastHour = lastHour.find((p) => p.id === poolB.id);
-  assert.equal(aLastHour.wins, 0); // old win falls outside the window
-  assert.equal(bLastHour.wins, 1);
+  const lastOne = queries.stratumRanking('1'); // last 1 race only
+  const aLastOne = lastOne.find((p) => p.id === poolA.id);
+  const bLastOne = lastOne.find((p) => p.id === poolB.id);
+  assert.equal(aLastOne.wins, 0); // old win falls outside a 1-race window
+  assert.equal(bLastOne.wins, 1);
 
   // wonLastRace should point at pool B regardless of which range is selected.
-  assert.equal(bLastHour.wonLastRace, true);
-  assert.equal(aLastHour.wonLastRace, false);
+  assert.equal(bLastOne.wonLastRace, true);
+  assert.equal(aLastOne.wonLastRace, false);
   assert.equal(allTime.find((p) => p.id === poolB.id).wonLastRace, true);
+});
+
+test('peer ranking sorts by first% (rate), not raw first count', () => {
+  // Peer C: first in 1 of 2 eligible races (50%). Peer D: first in 2 of 10
+  // (20%), but with a higher raw count. Ranking by percentage should put C
+  // above D even though D has "more firsts" overall.
+  const peerC = db.getOrCreatePeer('198.51.100.30:8333');
+  const peerD = db.getOrCreatePeer('198.51.100.31:8333');
+  const insertRace = db.instance.prepare(
+    'INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)',
+  );
+  const insertObs = db.instance.prepare(
+    'INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)',
+  );
+
+  let raceId = insertRace.run('sort-block-1', 200, Date.now()).lastInsertRowid;
+  insertObs.run(raceId, peerC.id, 1);
+  insertObs.run(raceId, peerD.id, 1);
+  raceId = insertRace.run('sort-block-2', 201, Date.now()).lastInsertRowid;
+  insertObs.run(raceId, peerC.id, 0);
+  insertObs.run(raceId, peerD.id, 1);
+  for (let i = 3; i <= 10; i += 1) {
+    raceId = insertRace.run(`sort-block-${i}`, 200 + i, Date.now()).lastInsertRowid;
+    insertObs.run(raceId, peerD.id, 0);
+  }
+
+  const ranking = queries.peerRanking();
+  const idxC = ranking.findIndex((r) => r.address === '198.51.100.30:8333');
+  const idxD = ranking.findIndex((r) => r.address === '198.51.100.31:8333');
+  assert.ok(idxC < idxD, 'higher first% should rank above higher raw first count');
 });
 
 test('a live peer Core reports as connection_type "manual" is treated as trusted even without a trusted_peer row', () => {

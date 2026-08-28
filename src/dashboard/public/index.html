@@ -28,7 +28,7 @@
 
     <details class="card" open>
       <summary><h2>Live Peer Ranking</h2></summary>
-      <p class="hint">Only currently connected peers. Offline peers are hidden here - manage manually-trusted peers (online or not) in the Manual Peers panel below. "Add as Manual" re-tests the peer's host on ports 8333/9333 itself before adding it - it never trusts whatever port the peer happened to be observed on (important for inbound peers, whose visible port is just a temporary outbound source port). If the peer is currently connected inbound, it still gets queued so it reconnects automatically once that inbound connection eventually drops.</p>
+      <p class="hint">Ranked by First Seen % (how often a peer delivers a new block first, out of the blocks it was around for) - not raw counts, so a peer connected for a long time doesn't automatically outrank a newer one with a better rate. Only currently connected peers are shown here - manage manually-trusted peers (online or not) in the Manual Peers panel below. "Add as Manual" re-tests the peer's host on ports 8333/9333 itself before adding it - it never trusts whatever port the peer happened to be observed on (important for inbound peers, whose visible port is just a temporary outbound source port). If the peer is currently connected inbound, it still gets queued so it reconnects automatically once that inbound connection eventually drops.</p>
       <form id="manual-add-form" class="inline-form">
         <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
         <button type="submit">Add Peer</button>
@@ -41,8 +41,7 @@
               <th>Address</th>
               <th>Client</th>
               <th>Status</th>
-              <th title="First / Eligible">First/Elig</th>
-              <th>First %</th>
+              <th title="% of eligible blocks this peer delivered first (raw count shown on hover)">First Seen %</th>
               <th>Ping</th>
               <th>Session</th>
               <th>Total Time</th>
@@ -65,7 +64,7 @@
               <th>Address</th>
               <th>Client</th>
               <th>Status</th>
-              <th>First %</th>
+              <th>First Seen %</th>
               <th>Ping</th>
               <th>Session</th>
               <th>Actions</th>
@@ -78,7 +77,7 @@
 
     <details class="card" open>
       <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
-      <p class="hint">Peers you've explicitly trusted, online or not. Bitcoin Core only actively maintains a limited number of these at once (see slot count above) - extras stay queued and connect automatically once a slot frees up. "Remove" forgets the peer entirely; "Disconnect" just drops the current connection, Core will reconnect it.</p>
+      <p class="hint">Peers you've explicitly trusted, online or not. Bitcoin Core only actively maintains a limited number of these at once (see slot count above) - extras stay queued and connect automatically once a slot frees up. There's no separate "Disconnect" here on purpose: as long as a peer is still trusted, Core just reconnects it right back, so "Remove" (forgets the peer AND drops the current connection) is the only action that does anything meaningful.</p>
       <div class="table-wrap">
         <table id="manual-peer-table">
           <thead>
@@ -87,7 +86,7 @@
               <th>Label</th>
               <th>Client</th>
               <th>Status</th>
-              <th>First %</th>
+              <th>First Seen %</th>
               <th>Ping</th>
               <th>Session</th>
               <th>Actions</th>
@@ -104,10 +103,7 @@
         <label class="hint" for="stratum-range">Range:</label>
         <select id="stratum-range">
           <option value="10">Last 10 blocks</option>
-          <option value="1h">Last hour</option>
-          <option value="24h">Last 24 hours</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
+          <option value="100">Last 100 blocks</option>
           <option value="all">All time</option>
         </select>
       </div>

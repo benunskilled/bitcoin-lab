@@ -72,6 +72,16 @@ class StratumPoolConnection extends EventEmitter {
       this.buffer = '';
       const subscribe = JSON.stringify({ id: 1, method: 'mining.subscribe', params: ['bitcoin-lab/1.0'] });
       socket.write(`${subscribe}\n`);
+      // Many stratum servers only broadcast mining.notify to sessions that
+      // have authorized a worker - a bare subscribe is not enough for them,
+      // and this was very likely the actual reason the race produced no
+      // data even after the idle-timeout fix kept connections open: the
+      // notify we were waiting for was simply never sent to us. We never
+      // submit shares, so the worker/password don't need to be real - this
+      // is the same "authorize with a throwaway worker" approach read-only
+      // job-spy/timing tools (like the well-known Atlas stratum race) use.
+      const authorize = JSON.stringify({ id: 2, method: 'mining.authorize', params: ['bitcoinlab.observer', 'x'] });
+      socket.write(`${authorize}\n`);
       this.emit('connect');
     });
 
@@ -115,6 +125,13 @@ class StratumPoolConnection extends EventEmitter {
     if (msg.method === 'mining.notify' && Array.isArray(msg.params) && msg.params.length >= 9) {
       const [, prevhash, , , , , , , cleanJobs] = msg.params;
       this.emit('notify', { prevhash, cleanJobs: Boolean(cleanJobs), receivedAtHr });
+      return;
+    }
+    if (msg.id === 2) {
+      // Response to our own mining.authorize call - purely informational.
+      // Some pools don't require it at all and notify regardless; a
+      // rejection here is only useful for debugging, never fatal.
+      this.emit('authorizeResult', { ok: Boolean(msg.result), error: msg.error || null });
     }
   }
 }

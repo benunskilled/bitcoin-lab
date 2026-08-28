@@ -118,6 +118,16 @@ th, td {
   white-space: nowrap;
 }
 
+/* Address/Client can both be long enough (a full subver string especially)
+   to blow up the whole table's width under auto layout, pushing every
+   other column off-screen - cap these two specifically and rely on the
+   title tooltip (set in app.js) for the full value instead. */
+td.cell-truncate {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 
 tr:hover td { background: #0f151b; }

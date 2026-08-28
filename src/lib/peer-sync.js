@@ -143,6 +143,19 @@ async function removeTrustedPeer(address) {
     // "Node has not been added" etc. - not worth failing the remove over.
     logger.debug('addnode remove while untrusting peer', { address, error: err.message });
   }
+  try {
+    // `addnode remove` only stops FUTURE reconnect attempts - Core does not
+    // drop an already-open manual connection just because it left the
+    // addnode list, so getpeerinfo would keep reporting connection_type
+    // 'manual' for it (and our own "effective trust" logic in queries.js
+    // would keep treating it as trusted) until it disconnects on its own.
+    // Force that now so Remove has an immediate, visible effect instead of
+    // silently doing nothing until the peer happens to drop by itself.
+    await rpc.disconnectNode(address);
+  } catch (err) {
+    // Not currently connected, or already gone - not an error worth failing over.
+    logger.debug('disconnect while untrusting peer', { address, error: err.message });
+  }
 }
 
 module.exports = { syncTrustedToAddnode, adoptExternalManualPeers, addTrustedPeer, removeTrustedPeer };

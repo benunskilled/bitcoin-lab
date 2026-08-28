@@ -44,7 +44,14 @@ function peerRanking() {
            ORDER BY started_at DESC LIMIT 1
          )
        ) latest ON latest.peer_id = p.id
-       ORDER BY first DESC, eligible DESC, p.address ASC`,
+       -- Rank by how OFTEN a peer is first, not how often it's merely been
+       -- around (a peer online forever racks up a high raw "first" count
+       -- at a mediocre rate) - percentage first, raw eligible count as the
+       -- tiebreaker, peers never yet eligible sort last.
+       ORDER BY
+         CASE WHEN COALESCE(elig.cnt, 0) > 0 THEN (1.0 * COALESCE(fst.cnt, 0) / elig.cnt) ELSE -1 END DESC,
+         COALESCE(elig.cnt, 0) DESC,
+         p.address ASC`,
     )
     .all({ now });
 
@@ -120,26 +127,18 @@ function liveSummary() {
   return summary;
 }
 
-// Time-range presets for the Stratum Race panel. '10' means "last 10 races"
-// (by id, not wall-clock time - closer to "last 10 blocks" than any fixed
-// window would be); everything else is a rolling wall-clock window;
-// 'all' means no filter at all.
-const STRATUM_RANGE_MS = {
-  '1h': 60 * 60 * 1000,
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-  '30d': 30 * 24 * 60 * 60 * 1000,
-};
-
+// Range presets for the Stratum Race panel are block-count based ("last N
+// races"), not wall-clock windows - blocks (and therefore races) don't
+// arrive on a schedule, so "last 100 blocks" is a far more meaningful,
+// pool-comparable window than "last 24 hours" (which might hold 2 blocks
+// or 20 depending on luck). 'all' means no filter at all.
 function raceIdsForRange(range) {
-  if (range === '10') {
-    return db.instance.prepare(`SELECT id FROM stratum_race ORDER BY id DESC LIMIT 10`).all().map((r) => r.id);
+  if (range === 'all') return null;
+  const n = Number(range);
+  if (Number.isFinite(n) && n > 0) {
+    return db.instance.prepare(`SELECT id FROM stratum_race ORDER BY id DESC LIMIT ?`).all(n).map((r) => r.id);
   }
-  if (range && range !== 'all' && STRATUM_RANGE_MS[range]) {
-    const cutoff = Date.now() - STRATUM_RANGE_MS[range];
-    return db.instance.prepare(`SELECT id FROM stratum_race WHERE created_at >= ?`).all(cutoff).map((r) => r.id);
-  }
-  return null; // no filter - all-time
+  return null; // unrecognized value - fail open to all-time rather than showing nothing
 }
 
 function stratumRanking(range = '10') {
