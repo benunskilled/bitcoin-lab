@@ -28,7 +28,7 @@
 
     <details class="card" open>
       <summary><h2>Live Peer Ranking</h2></summary>
-      <p class="hint">Only currently connected peers. Offline peers are hidden here - manage manually-trusted peers (online or not) in the Manual Peers panel below.</p>
+      <p class="hint">Only currently connected peers. Offline peers are hidden here - manage manually-trusted peers (online or not) in the Manual Peers panel below. "Add as Manual" re-tests the peer's host on ports 8333/9333 itself before adding it - it never trusts whatever port the peer happened to be observed on (important for inbound peers, whose visible port is just a temporary outbound source port). If the peer is currently connected inbound, it still gets queued so it reconnects automatically once that inbound connection eventually drops.</p>
       <form id="manual-add-form" class="inline-form">
         <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
         <button type="submit">Add Peer</button>
@@ -41,8 +41,7 @@
               <th>Address</th>
               <th>Client</th>
               <th>Status</th>
-              <th>First</th>
-              <th>Eligible</th>
+              <th title="First / Eligible">First/Elig</th>
               <th>First %</th>
               <th>Ping</th>
               <th>Session</th>
@@ -58,7 +57,7 @@
 
     <details class="card" open>
       <summary><h2>Outbound Peers</h2></summary>
-      <p class="hint">Peers Bitcoin Core connected out to (excludes inbound connections from others). Status here is the raw Core connection type, not the manual/trusted overlay.</p>
+      <p class="hint">Peers Bitcoin Core connected out to (excludes inbound connections from others). Manually-trusted peers live in the Manual Peers panel instead, not here. Status here is the raw Core connection type, not the manual/trusted overlay.</p>
       <div class="table-wrap">
         <table id="outbound-peer-table">
           <thead>
