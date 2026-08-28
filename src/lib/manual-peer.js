@@ -3,6 +3,7 @@
 const net = require('net');
 const config = require('./config');
 const rpc = require('./rpc');
+const peerSync = require('./peer-sync');
 const logger = require('./logger').make('manual-peer');
 
 function probePort(host, port, timeoutMs = 3000) {
@@ -29,12 +30,23 @@ function looksLikeHost(input) {
 }
 
 /**
- * Manual "add peer by IP" flow for the Peer Profiler. The user supplies a
- * bare IP (no port); we probe the standard Bitcoin P2P port first, then
- * the configured fallback, and only call `addnode` on whichever actually
- * answers a TCP handshake.
+ * Manual "add peer by IP" flow - used both by the free-text IP field and by
+ * "Add as Manual" on an existing peer row. The caller supplies a bare host
+ * (no port); we probe the standard Bitcoin P2P port first, then the
+ * configured fallback, and only persist + `addnode` whichever actually
+ * answers a TCP handshake. This is deliberate even for peers we already see
+ * connected: an inbound peer's getpeerinfo address is its ephemeral
+ * *outbound source* port, not the port its node listens on for incoming P2P
+ * connections, so that port is useless for `addnode` - we always re-derive
+ * the real listening port ourselves rather than trust whatever port we
+ * happened to observe the peer on.
+ *
+ * A successful add is persisted to trusted_peer (not just a one-off addnode
+ * RPC call), so it survives container restarts/updates via
+ * peer-sync.syncTrustedToAddnode() the same way peers trusted from the
+ * dashboard do.
  */
-async function manualAddPeer(rawInput) {
+async function manualAddPeer(rawInput, label) {
   const host = (rawInput || '').trim();
   if (!looksLikeHost(host)) {
     return { ok: false, error: 'invalid host/IP' };
@@ -46,8 +58,10 @@ async function manualAddPeer(rawInput) {
     const port = Number(portStr);
     const reachable = await probePort(addr, port);
     if (!reachable) return { ok: false, error: `${addr}:${port} not reachable` };
-    await rpc.addNode(`${addr}:${port}`, 'add');
-    return { ok: true, address: `${addr}:${port}` };
+    const address = `${addr}:${port}`;
+    const capacity = await peerSync.addTrustedPeer(address, label);
+    logger.info('manually added peer', { address });
+    return { ok: true, address, ...capacityWarning(capacity) };
   }
 
   for (const port of config.manualPeerPorts) {
@@ -55,13 +69,39 @@ async function manualAddPeer(rawInput) {
     const reachable = await probePort(host, port);
     if (reachable) {
       const address = `${host}:${port}`;
-      await rpc.addNode(address, 'add');
+      // eslint-disable-next-line no-await-in-loop
+      const capacity = await peerSync.addTrustedPeer(address, label);
       logger.info('manually added peer', { address, triedPorts: config.manualPeerPorts });
-      return { ok: true, address };
+      return { ok: true, address, ...capacityWarning(capacity) };
     }
   }
 
-  return { ok: false, error: `not reachable on ${config.manualPeerPorts.join(' or ')}` };
+  return {
+    ok: false,
+    error: `node not reachable on ${config.manualPeerPorts.join(' or ')} - not added as manual`,
+  };
 }
 
-module.exports = { manualAddPeer };
+function capacityWarning(capacity) {
+  if (!capacity || !capacity.overCapacity) return {};
+  return {
+    warning:
+      `Bitcoin Core only actively maintains ${capacity.max} manual connections at once ` +
+      `(you now have ${capacity.count}) - this peer is queued and will connect automatically once a slot frees up.`,
+  };
+}
+
+// Best-effort host extraction from a Core-style "addr" string, so callers
+// can turn an existing live peer's address (possibly an ephemeral inbound
+// port) back into a bare host for re-probing. Handles bracketed IPv6
+// ("[2001:db8::1]:8333") and plain "host:port"; falls back to returning the
+// input unchanged if neither pattern matches.
+function hostFromAddress(address) {
+  const bracketed = address.match(/^\[(.+)\]:\d+$/);
+  if (bracketed) return bracketed[1];
+  const simple = address.match(/^([^:]+):\d+$/);
+  if (simple) return simple[1];
+  return address;
+}
+
+module.exports = { manualAddPeer, hostFromAddress };

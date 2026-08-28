@@ -26,8 +26,8 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>Live Peer Ranking</h2>
+    <details class="card" open>
+      <summary><h2>Live Peer Ranking</h2></summary>
       <p class="hint">Only currently connected peers. Offline peers are hidden here - manage manually-trusted peers (online or not) in the Manual Peers panel below.</p>
       <form id="manual-add-form" class="inline-form">
         <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
@@ -39,6 +39,7 @@
           <thead>
             <tr>
               <th>Address</th>
+              <th>Client</th>
               <th>Status</th>
               <th>First</th>
               <th>Eligible</th>
@@ -53,16 +54,17 @@
           <tbody></tbody>
         </table>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2>Outbound Peers</h2>
-      <p class="hint">Peers Bitcoin Core connected out to (excludes inbound connections from others).</p>
+    <details class="card" open>
+      <summary><h2>Outbound Peers</h2></summary>
+      <p class="hint">Peers Bitcoin Core connected out to (excludes inbound connections from others). Status here is the raw Core connection type, not the manual/trusted overlay.</p>
       <div class="table-wrap">
         <table id="outbound-peer-table">
           <thead>
             <tr>
               <th>Address</th>
+              <th>Client</th>
               <th>Status</th>
               <th>First %</th>
               <th>Ping</th>
@@ -73,17 +75,18 @@
           <tbody></tbody>
         </table>
       </div>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2>Manual Peers</h2>
-      <p class="hint">Peers you've explicitly trusted (added via Trust or the manual-add field above), online or not.</p>
+    <details class="card" open>
+      <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
+      <p class="hint">Peers you've explicitly trusted, online or not. Bitcoin Core only actively maintains a limited number of these at once (see slot count above) - extras stay queued and connect automatically once a slot frees up. "Remove" forgets the peer entirely; "Disconnect" just drops the current connection, Core will reconnect it.</p>
       <div class="table-wrap">
         <table id="manual-peer-table">
           <thead>
             <tr>
               <th>Address</th>
               <th>Label</th>
+              <th>Client</th>
               <th>Status</th>
               <th>First %</th>
               <th>Ping</th>
@@ -94,10 +97,21 @@
           <tbody></tbody>
         </table>
       </div>
-    </section>
+    </details>
 
     <section class="card">
       <h2>Stratum Race</h2>
+      <div class="inline-form">
+        <label class="hint" for="stratum-range">Range:</label>
+        <select id="stratum-range">
+          <option value="10">Last 10 blocks</option>
+          <option value="1h">Last hour</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
       <form id="pool-add-form" class="inline-form">
         <input type="text" id="pool-label" placeholder="Label (e.g. Bassin)" required />
         <input type="text" id="pool-host" placeholder="Host" required />

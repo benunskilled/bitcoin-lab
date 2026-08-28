@@ -92,6 +92,45 @@ test('stratum ranking computes win% and treats NULL latency as a miss', () => {
   assert.equal(row.winPct, 50);
 });
 
+test('stratum ranking respects the time-range filter and flags the last race winner', () => {
+  // Offset past the pool used by the win%/miss test above, which already
+  // recorded a win against the first pool - avoid double-counting it here.
+  const [poolA, poolB] = db.instance.prepare('SELECT * FROM stratum_pool ORDER BY id LIMIT 2 OFFSET 2').all();
+
+  const insertRace = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)');
+  const insertObs = db.instance.prepare(
+    'INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)',
+  );
+
+  const now = Date.now();
+  const twoHoursAgo = now - 2 * 60 * 60 * 1000;
+
+  // Old race (outside a 1h window): pool A wins.
+  let raceId = insertRace.run('range-prevhash-old', twoHoursAgo).lastInsertRowid;
+  insertObs.run(raceId, poolA.id, 0, 1);
+  insertObs.run(raceId, poolB.id, 50, 2);
+
+  // Recent race (inside a 1h window, and the newest race overall): pool B wins.
+  raceId = insertRace.run('range-prevhash-new', now).lastInsertRowid;
+  insertObs.run(raceId, poolB.id, 0, 1);
+  insertObs.run(raceId, poolA.id, 80, 2);
+
+  const allTime = queries.stratumRanking('all');
+  const aAllTime = allTime.find((p) => p.id === poolA.id);
+  assert.equal(aAllTime.wins, 1); // still counts the old win
+
+  const lastHour = queries.stratumRanking('1h');
+  const aLastHour = lastHour.find((p) => p.id === poolA.id);
+  const bLastHour = lastHour.find((p) => p.id === poolB.id);
+  assert.equal(aLastHour.wins, 0); // old win falls outside the window
+  assert.equal(bLastHour.wins, 1);
+
+  // wonLastRace should point at pool B regardless of which range is selected.
+  assert.equal(bLastHour.wonLastRace, true);
+  assert.equal(aLastHour.wonLastRace, false);
+  assert.equal(allTime.find((p) => p.id === poolB.id).wonLastRace, true);
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

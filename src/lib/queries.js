@@ -20,7 +20,8 @@ function peerRanking() {
          os.min_ping_ms AS liveMinPingMs,
          os.last_ping_ms AS liveLastPingMs,
          COALESCE(sess.sessionsCount, 0) AS sessionsCount,
-         COALESCE(sess.totalMs, 0) AS totalMs
+         COALESCE(sess.totalMs, 0) AS totalMs,
+         latest.subver AS client
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
        LEFT JOIN (SELECT peer_id, COUNT(*) cnt FROM relay_observation GROUP BY peer_id) elig
@@ -32,6 +33,17 @@ function peerRanking() {
          SELECT peer_id, COUNT(*) sessionsCount, SUM(COALESCE(ended_at, @now) - started_at) totalMs
          FROM peer_session GROUP BY peer_id
        ) sess ON sess.peer_id = p.id
+       LEFT JOIN (
+         -- Most recent session's subver per peer, live or not, so even a
+         -- currently-offline manual peer still shows the client it last ran.
+         SELECT ps.peer_id, ps.subver
+         FROM peer_session ps
+         WHERE ps.id = (
+           SELECT id FROM peer_session ps2
+           WHERE ps2.peer_id = ps.peer_id
+           ORDER BY started_at DESC LIMIT 1
+         )
+       ) latest ON latest.peer_id = p.id
        ORDER BY first DESC, eligible DESC, p.address ASC`,
     )
     .all({ now });
@@ -47,12 +59,17 @@ function peerRanking() {
     live: Boolean(r.liveDirection),
     direction: r.liveDirection,
     connectionType: r.liveConnectionType,
+    client: r.client || null,
     currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
     minPingMs: r.liveMinPingMs,
     lastPingMs: r.liveLastPingMs,
     sessionsCount: r.sessionsCount,
     totalConnectionMs: r.totalMs,
     status: statusFor(r),
+    // Connection-type-only status, ignoring the manual/trusted override -
+    // used where "MANUAL LIVE" would just be redundant noise (e.g. the
+    // Outbound Peers panel, which already implies live).
+    connectionStatus: r.liveDirection ? (r.liveConnectionType || r.liveDirection).toUpperCase() : 'OFFLINE',
   }));
 }
 
@@ -60,7 +77,7 @@ function statusFor(r) {
   const trusted = Boolean(r.trusted);
   const live = Boolean(r.liveDirection);
   if (trusted && live) return 'MANUAL LIVE';
-  if (trusted && !live) return 'TRUSTED (OFFLINE)';
+  if (trusted && !live) return 'MANUAL OFFLINE';
   if (live) return `${(r.liveConnectionType || r.liveDirection || 'LIVE').toUpperCase()}`;
   return 'OFFLINE';
 }
@@ -92,8 +109,38 @@ function liveSummary() {
   return summary;
 }
 
-function stratumRanking() {
+// Time-range presets for the Stratum Race panel. '10' means "last 10 races"
+// (by id, not wall-clock time - closer to "last 10 blocks" than any fixed
+// window would be); everything else is a rolling wall-clock window;
+// 'all' means no filter at all.
+const STRATUM_RANGE_MS = {
+  '1h': 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
+function raceIdsForRange(range) {
+  if (range === '10') {
+    return db.instance.prepare(`SELECT id FROM stratum_race ORDER BY id DESC LIMIT 10`).all().map((r) => r.id);
+  }
+  if (range && range !== 'all' && STRATUM_RANGE_MS[range]) {
+    const cutoff = Date.now() - STRATUM_RANGE_MS[range];
+    return db.instance.prepare(`SELECT id FROM stratum_race WHERE created_at >= ?`).all(cutoff).map((r) => r.id);
+  }
+  return null; // no filter - all-time
+}
+
+function stratumRanking(range = '10') {
   const pools = db.instance.prepare(`SELECT * FROM stratum_pool ORDER BY is_default DESC, label ASC`).all();
+  const raceIds = raceIdsForRange(range);
+
+  // better-sqlite3 needs a concrete placeholder list for IN(); an empty
+  // range (e.g. "last 10 races" before any race has happened yet) still
+  // needs valid, always-false SQL rather than an empty IN() call.
+  const raceFilterSql = raceIds ? `WHERE race_id IN (${raceIds.length ? raceIds.map(() => '?').join(',') : 'NULL'})` : '';
+  const raceFilterParams = raceIds || [];
+
   const stats = db.instance
     .prepare(
       `SELECT
@@ -103,19 +150,29 @@ function stratumRanking() {
          SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
          AVG(latency_ms) AS avgMs
        FROM stratum_observation
+       ${raceFilterSql}
        GROUP BY pool_id`,
     )
-    .all();
+    .all(...raceFilterParams);
   const statsByPool = new Map(stats.map((s) => [s.poolId, s]));
 
   // Median/P90 need the raw sorted samples - fetch per pool (fine at this scale).
   const samplesStmt = db.instance.prepare(
-    `SELECT latency_ms FROM stratum_observation WHERE pool_id = ? AND latency_ms IS NOT NULL ORDER BY latency_ms ASC`,
+    `SELECT latency_ms FROM stratum_observation
+     WHERE pool_id = ? AND latency_ms IS NOT NULL ${raceIds ? `AND race_id IN (${raceIds.length ? raceIds.map(() => '?').join(',') : 'NULL'})` : ''}
+     ORDER BY latency_ms ASC`,
   );
+
+  // Which pool (if any) won the single most recent race - drives the
+  // "last winner" badge regardless of which time range is selected.
+  const lastRace = db.instance.prepare(`SELECT id FROM stratum_race ORDER BY id DESC LIMIT 1`).get();
+  const lastWinnerPoolId = lastRace
+    ? db.instance.prepare(`SELECT pool_id FROM stratum_observation WHERE race_id = ? AND rank = 1`).get(lastRace.id)?.pool_id
+    : null;
 
   return pools.map((pool) => {
     const s = statsByPool.get(pool.id);
-    const samples = samplesStmt.all(pool.id).map((r) => r.latency_ms);
+    const samples = samplesStmt.all(pool.id, ...raceFilterParams).map((r) => r.latency_ms);
     return {
       id: pool.id,
       label: pool.label,
@@ -130,6 +187,7 @@ function stratumRanking() {
       avgMs: s ? s.avgMs : null,
       medianMs: percentile(samples, 0.5),
       p90Ms: percentile(samples, 0.9),
+      wonLastRace: pool.id === lastWinnerPoolId,
     };
   });
 }

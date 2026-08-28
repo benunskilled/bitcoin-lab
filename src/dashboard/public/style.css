@@ -60,6 +60,25 @@ main {
   color: var(--text);
 }
 
+/* Collapsible sections (Live/Outbound/Manual peer panels) */
+details.card summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.card summary::-webkit-details-marker { display: none; }
+details.card summary h2 { margin: 0; flex: 1; }
+details.card summary::before {
+  content: '▸';
+  color: var(--muted);
+  font-size: 11px;
+  transition: transform .15s ease;
+}
+details.card[open] summary::before { transform: rotate(90deg); }
+details.card > *:not(summary) { margin-top: 14px; }
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -141,6 +160,8 @@ button.secondary {
 button.danger { color: var(--bad); }
 
 .hint { font-size: 12px; color: var(--muted); }
+
+.trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
 .row-actions { display: flex; gap: 6px; }
 

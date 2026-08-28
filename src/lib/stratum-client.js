@@ -15,7 +15,7 @@ const { EventEmitter } = require('events');
  *   'connect' / 'disconnect' (err?)
  */
 class StratumPoolConnection extends EventEmitter {
-  constructor({ host, port, label }) {
+  constructor({ host, port, label, idleTimeoutMs = 20 * 60 * 1000 }) {
     super();
     this.host = host;
     this.port = port;
@@ -24,6 +24,10 @@ class StratumPoolConnection extends EventEmitter {
     this.buffer = '';
     this.stopped = false;
     this.reconnectDelayMs = 2000;
+    // Must comfortably exceed the ~10 minute average block interval - a
+    // pool that only sends mining.notify on genuine new work can go quiet
+    // for well over a minute between blocks without anything being wrong.
+    this.idleTimeoutMs = idleTimeoutMs;
   }
 
   start() {
@@ -42,7 +46,12 @@ class StratumPoolConnection extends EventEmitter {
     this.socket = socket;
 
     socket.setNoDelay(true);
-    socket.setTimeout(30000);
+    // NOTE: this used to be a flat 30000ms, which destroyed and reconnected
+    // every pool socket roughly every 30 seconds - long before a real block
+    // (average ~10 minutes apart) had a chance to arrive. That churn is the
+    // most likely reason the race looked like it wasn't working: connections
+    // rarely stayed open long enough to ever witness a genuine mining.notify.
+    socket.setTimeout(this.idleTimeoutMs);
 
     socket.on('connect', () => {
       this.reconnectDelayMs = 2000;

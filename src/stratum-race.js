@@ -42,7 +42,12 @@ function syncConnections() {
   // Start connections for newly enabled pools.
   for (const pool of pools) {
     if (active.has(pool.id)) continue;
-    const conn = new StratumPoolConnection({ host: pool.host, port: pool.port, label: pool.label });
+    const conn = new StratumPoolConnection({
+      host: pool.host,
+      port: pool.port,
+      label: pool.label,
+      idleTimeoutMs: config.stratumIdleTimeoutMs,
+    });
     conn.on('notify', ({ prevhash, receivedAtHr }) => handleNotify(pool, prevhash, receivedAtHr));
     conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
     conn.start();
