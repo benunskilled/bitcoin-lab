@@ -269,6 +269,31 @@ test('stratum ranking sorts pools by win% first, avg latency as the tiebreaker',
   assert.ok(idxSlow < idxLowWin, 'higher win% should outrank lower win%, regardless of latency');
 });
 
+test('peer ranking flags a Docker-proxy-masked inbound IPv6 address as sourceObscured', () => {
+  // Docker can only relay an inbound IPv6 connection to our IPv4-only
+  // container via docker-proxy, which re-originates it from its own
+  // gateway - Core's getpeerinfo then reports the peer's "addr" as that
+  // gateway (default 10.21.0.1, see config.js), never the peer's real
+  // address. The app should recognize and flag this rather than display a
+  // meaningless local IP as if it were a real peer.
+  const maskedPeer = db.getOrCreatePeer('10.21.0.1:54321');
+  const realPeer = db.getOrCreatePeer('198.51.100.50:8333');
+
+  const insertSession = db.instance.prepare(
+    `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
+     VALUES (?, ?, 'inbound', 'inbound', '/Satoshi:27.0.0/', ?, 30, 30)`,
+  );
+  insertSession.run(maskedPeer.id, 5001, Date.now());
+  insertSession.run(realPeer.id, 5002, Date.now());
+
+  const ranking = queries.peerRanking();
+  const masked = ranking.find((r) => r.address === '10.21.0.1:54321');
+  const real = ranking.find((r) => r.address === '198.51.100.50:8333');
+
+  assert.equal(masked.sourceObscured, true);
+  assert.equal(real.sourceObscured, false);
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

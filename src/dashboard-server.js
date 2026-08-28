@@ -75,7 +75,16 @@ function serveStatic(req, res, pathname) {
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      // Without an explicit directive, browsers apply heuristic caching to
+      // these responses and can keep serving a stale index.html/app.js for
+      // a long time after an app update - exactly what made the new "Show
+      // all" button invisible until a hard refresh. no-cache forces a
+      // conditional revalidation on every load instead (cheap for a small
+      // self-hosted dashboard), so updates show up on a normal reload.
+      'Cache-Control': 'no-cache',
+    });
     res.end(data);
   });
 }
