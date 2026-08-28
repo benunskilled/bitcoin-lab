@@ -170,6 +170,9 @@ function firstPctCell(p) {
   return `<td title="${p.first} of ${p.eligible} eligible blocks">${pctText}<span class="hint"> (${p.first}/${p.eligible})</span></td>`;
 }
 
+const LIVE_PEER_LIMIT = 10;
+let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
+
 async function refreshPeers() {
   const peers = await api('/api/peers/ranking');
   renderPeerTables(peers);
@@ -187,7 +190,24 @@ function renderPeerTables(peers) {
   const outboundPeers = livePeers.filter((p) => p.direction === 'outbound' && !p.trusted);
   const manualPeers = peers.filter((p) => p.trusted);
 
-  document.querySelector('#peer-table tbody').innerHTML = livePeers.map((p) => `
+  // The ranking table can get long with a lot of live peers - show only the
+  // top LIVE_PEER_LIMIT (already sorted best-first by the API) by default,
+  // with a toggle to see the rest on demand rather than always scrolling a
+  // huge table.
+  const visibleLivePeers = showAllLivePeers ? livePeers : livePeers.slice(0, LIVE_PEER_LIMIT);
+  const limitToggle = document.getElementById('live-peer-limit-toggle');
+  if (limitToggle) {
+    if (livePeers.length <= LIVE_PEER_LIMIT) {
+      limitToggle.hidden = true;
+    } else {
+      limitToggle.hidden = false;
+      limitToggle.textContent = showAllLivePeers
+        ? `Show top ${LIVE_PEER_LIMIT} only`
+        : `Show all ${livePeers.length} (currently showing top ${LIVE_PEER_LIMIT})`;
+    }
+  }
+
+  document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
       ${addressCell(p, true)}
       ${clientCell(p)}
@@ -260,6 +280,11 @@ async function refreshPools() {
 async function refreshAll() {
   await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), pollLatestBlock()]);
 }
+
+document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
+  showAllLivePeers = !showAllLivePeers;
+  refreshPeers(); // re-fetch+render immediately rather than waiting for the next poll
+});
 
 document.getElementById('manual-add-form').addEventListener('submit', async (e) => {
   e.preventDefault();

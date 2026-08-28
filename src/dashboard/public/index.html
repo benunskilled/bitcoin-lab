@@ -29,7 +29,10 @@
 
     <details class="card" open>
       <summary><h2>Live Peer Ranking</h2></summary>
-      <p class="hint">Ranked by First Seen % (how often a peer delivers a new block first, out of the blocks it was around for) - not raw counts, so a peer connected for a long time doesn't automatically outrank a newer one with a better rate. Only currently connected peers are shown here - manage manually-trusted peers (online or not) in the Manual Peers panel below. "Add as Manual" re-tests the peer's host on ports 8333/9333 itself before adding it - it never trusts whatever port the peer happened to be observed on (important for inbound peers, whose visible port is just a temporary outbound source port). If the peer is currently connected inbound, it still gets queued so it reconnects automatically once that inbound connection eventually drops.</p>
+      <p class="hint">Ranked by First Seen % (how often a peer delivers a new block first, out of the blocks it was around for), then by ping as the tiebreaker - not raw counts, so a peer connected for a long time doesn't automatically outrank a newer one with a better rate. Only currently connected peers are shown here - manage manually-trusted peers (online or not) in the Manual Peers panel below. "Add as Manual" re-tests the peer's host on ports 8333/9333 itself before adding it - it never trusts whatever port the peer happened to be observed on (important for inbound peers, whose visible port is just a temporary outbound source port). If the peer is currently connected inbound, it still gets queued so it reconnects automatically once that inbound connection eventually drops.</p>
+      <div class="inline-form">
+        <button type="button" id="live-peer-limit-toggle" class="secondary" hidden></button>
+      </div>
       <form id="manual-add-form" class="inline-form">
         <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
         <button type="submit">Add Peer</button>
@@ -100,6 +103,7 @@
 
     <section class="card">
       <h2>Stratum Race</h2>
+      <p class="hint">Ranked by Win % (how often this pool is the fastest to report a new job), then by average latency as the tiebreaker - same two-level ranking as the peer tables above.</p>
       <div class="inline-form">
         <label class="hint" for="stratum-range">Range:</label>
         <select id="stratum-range">
