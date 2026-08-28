@@ -235,4 +235,18 @@ function latestBlock() {
   return { ...race, firstPeers };
 }
 
-module.exports = { peerRanking, liveSummary, stratumRanking, latestBlock };
+// stratum_observation.pool_id has no ON DELETE CASCADE and foreign keys are
+// enforced (see db.js) - a pool that has ever raced (even just recorded a
+// "miss") has observation rows referencing it, so a bare DELETE on
+// stratum_pool throws a FOREIGN KEY constraint failure. Delete its
+// observation history first, in one transaction, so removing a pool always
+// works regardless of whether it ever produced data.
+function deletePool(id) {
+  const tx = db.instance.transaction((poolId) => {
+    db.instance.prepare(`DELETE FROM stratum_observation WHERE pool_id = ?`).run(poolId);
+    db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(poolId);
+  });
+  tx(id);
+}
+
+module.exports = { peerRanking, liveSummary, stratumRanking, latestBlock, deletePool };
