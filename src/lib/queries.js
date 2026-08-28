@@ -46,10 +46,15 @@ function peerRanking() {
        ) latest ON latest.peer_id = p.id
        -- Rank by how OFTEN a peer is first, not how often it's merely been
        -- around (a peer online forever racks up a high raw "first" count
-       -- at a mediocre rate) - percentage first, raw eligible count as the
-       -- tiebreaker, peers never yet eligible sort last.
+       -- at a mediocre rate) - percentage first. Ping is the 2nd-level
+       -- tiebreaker (lower is better; peers with no live ping sort after
+       -- ones that have one, rather than winning ties by default), then raw
+       -- eligible count, then address as the final, purely deterministic
+       -- tiebreaker.
        ORDER BY
          CASE WHEN COALESCE(elig.cnt, 0) > 0 THEN (1.0 * COALESCE(fst.cnt, 0) / elig.cnt) ELSE -1 END DESC,
+         CASE WHEN os.min_ping_ms IS NULL THEN 1 ELSE 0 END ASC,
+         os.min_ping_ms ASC,
          COALESCE(elig.cnt, 0) DESC,
          p.address ASC`,
     )
@@ -180,7 +185,7 @@ function stratumRanking(range = '10') {
     ? db.instance.prepare(`SELECT pool_id FROM stratum_observation WHERE race_id = ? AND rank = 1`).get(lastRace.id)?.pool_id
     : null;
 
-  return pools.map((pool) => {
+  const ranked = pools.map((pool) => {
     const s = statsByPool.get(pool.id);
     const samples = samplesStmt.all(pool.id, ...raceFilterParams).map((r) => r.latency_ms);
     return {
@@ -200,6 +205,23 @@ function stratumRanking(range = '10') {
       wonLastRace: pool.id === lastWinnerPoolId,
     };
   });
+
+  // Same two-level ranking as peerRanking(): win% first (how often this
+  // pool is the fastest to report a new job, not just how long it's been
+  // watched), avg latency ("ping") as the tiebreaker - lower is better, and
+  // a pool with no wins/samples yet sorts to the bottom rather than winning
+  // ties by default.
+  ranked.sort((a, b) => {
+    const aRate = a.winPct ?? -1;
+    const bRate = b.winPct ?? -1;
+    if (aRate !== bRate) return bRate - aRate;
+    const aAvg = a.avgMs ?? Infinity;
+    const bAvg = b.avgMs ?? Infinity;
+    if (aAvg !== bAvg) return aAvg - bAvg;
+    return a.label.localeCompare(b.label);
+  });
+
+  return ranked;
 }
 
 function percentile(sortedAsc, p) {

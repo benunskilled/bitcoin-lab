@@ -207,6 +207,68 @@ test('a live peer Core reports as connection_type "manual" is treated as trusted
   assert.equal(row.connectionStatus, 'MANUAL');
 });
 
+test('peer ranking uses ping as the tiebreaker when first% is tied', () => {
+  const peerLowPing = db.getOrCreatePeer('198.51.100.40:8333');
+  const peerHighPing = db.getOrCreatePeer('198.51.100.41:8333');
+  const insertRace = db.instance.prepare(
+    'INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)',
+  );
+  const insertObs = db.instance.prepare(
+    'INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)',
+  );
+  const raceId = insertRace.run('ping-tiebreak-block', 300, Date.now()).lastInsertRowid;
+  insertObs.run(raceId, peerLowPing.id, 1);
+  insertObs.run(raceId, peerHighPing.id, 1);
+
+  const insertSession = db.instance.prepare(
+    `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
+     VALUES (?, ?, 'outbound', 'outbound-full-relay', '/Satoshi:27.0.0/', ?, ?, ?)`,
+  );
+  insertSession.run(peerLowPing.id, 4001, Date.now(), 15, 15);
+  insertSession.run(peerHighPing.id, 4002, Date.now(), 220, 220);
+
+  const ranking = queries.peerRanking();
+  const idxLow = ranking.findIndex((r) => r.address === '198.51.100.40:8333');
+  const idxHigh = ranking.findIndex((r) => r.address === '198.51.100.41:8333');
+  assert.ok(idxLow < idxHigh, 'both peers tied at 100% first - lower ping should rank first');
+});
+
+test('stratum ranking sorts pools by win% first, avg latency as the tiebreaker', () => {
+  const insertPool = db.instance.prepare(
+    `INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES (?, ?, ?, 1, 0, ?)`,
+  );
+  const poolSlow = insertPool.run('Sort Test Slow 100%', 'sort-test-slow.example', 3333, Date.now()).lastInsertRowid;
+  const poolFast = insertPool.run('Sort Test Fast 100%', 'sort-test-fast.example', 3333, Date.now()).lastInsertRowid;
+  const poolLowWin = insertPool.run('Sort Test Low Win%', 'sort-test-lowwin.example', 3333, Date.now()).lastInsertRowid;
+
+  const insertRace = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)');
+  const insertObs = db.instance.prepare(
+    'INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)',
+  );
+
+  // poolSlow and poolFast each win their own race outright (100% win rate
+  // each) but at very different latency - the tiebreaker.
+  let raceId = insertRace.run('sort-test-race-1', Date.now()).lastInsertRowid;
+  insertObs.run(raceId, poolSlow, 500, 1);
+  raceId = insertRace.run('sort-test-race-2', Date.now()).lastInsertRowid;
+  insertObs.run(raceId, poolFast, 50, 1);
+
+  // poolLowWin wins one race and misses another - lower win% than either of
+  // the above despite being present, so it should rank below both.
+  raceId = insertRace.run('sort-test-race-3', Date.now()).lastInsertRowid;
+  insertObs.run(raceId, poolLowWin, 200, 1);
+  raceId = insertRace.run('sort-test-race-4', Date.now()).lastInsertRowid;
+  insertObs.run(raceId, poolLowWin, null, null);
+
+  const ranking = queries.stratumRanking('all');
+  const idxSlow = ranking.findIndex((p) => p.id === poolSlow);
+  const idxFast = ranking.findIndex((p) => p.id === poolFast);
+  const idxLowWin = ranking.findIndex((p) => p.id === poolLowWin);
+
+  assert.ok(idxFast < idxSlow, 'both pools tied at 100% win rate - lower avg latency should rank first');
+  assert.ok(idxSlow < idxLowWin, 'higher win% should outrank lower win%, regardless of latency');
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
