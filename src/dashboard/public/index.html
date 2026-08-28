@@ -7,19 +7,28 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <div id="block-wave" class="block-wave" aria-hidden="true"></div>
+
   <header class="topbar">
     <h1>Bitcoin Lab</h1>
     <div id="status" class="status-pill">loading…</div>
   </header>
 
   <main>
-    <section class="card" id="live-summary">
-      <h2>Live Peers</h2>
-      <div class="stat-grid" id="live-stats"></div>
+    <section class="card hero-card">
+      <div class="hero-grid">
+        <div class="hero-stat">
+          <div class="hero-l">Block Height</div>
+          <div class="hero-n" id="block-height-number">–</div>
+          <div class="hero-sub" id="block-hash-short">waiting for first block…</div>
+        </div>
+        <div class="stat-grid" id="live-stats"></div>
+      </div>
     </section>
 
     <section class="card">
       <h2>Live Peer Ranking</h2>
+      <p class="hint">Only currently connected peers. Offline peers are hidden here - manage manually-trusted peers (online or not) in the Manual Peers panel below.</p>
       <form id="manual-add-form" class="inline-form">
         <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
         <button type="submit">Add Peer</button>
@@ -38,6 +47,47 @@
               <th>Session</th>
               <th>Total Time</th>
               <th>Sessions</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Outbound Peers</h2>
+      <p class="hint">Peers Bitcoin Core connected out to (excludes inbound connections from others).</p>
+      <div class="table-wrap">
+        <table id="outbound-peer-table">
+          <thead>
+            <tr>
+              <th>Address</th>
+              <th>Status</th>
+              <th>First %</th>
+              <th>Ping</th>
+              <th>Session</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Manual Peers</h2>
+      <p class="hint">Peers you've explicitly trusted (added via Trust or the manual-add field above), online or not.</p>
+      <div class="table-wrap">
+        <table id="manual-peer-table">
+          <thead>
+            <tr>
+              <th>Address</th>
+              <th>Label</th>
+              <th>Status</th>
+              <th>First %</th>
+              <th>Ping</th>
+              <th>Session</th>
               <th>Actions</th>
             </tr>
           </thead>

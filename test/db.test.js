@@ -62,6 +62,13 @@ test('relay race first/eligible aggregation matches inserted observations', () =
   assert.equal(b.first, 1);
 });
 
+test('latestBlock returns the newest race and its first-peer(s)', () => {
+  const result = queries.latestBlock();
+  assert.equal(result.blockHash, 'blockhash2');
+  assert.equal(result.blockHeight, 101);
+  assert.deepEqual(result.firstPeers.map((p) => p.address), ['198.51.100.2:8333']);
+});
+
 test('stratum ranking computes win% and treats NULL latency as a miss', () => {
   const pool = db.instance.prepare('SELECT * FROM stratum_pool LIMIT 1').get();
 
