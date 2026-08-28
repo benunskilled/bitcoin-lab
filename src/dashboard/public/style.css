@@ -187,6 +187,22 @@ button.danger { color: var(--bad); }
 
 .row-actions { display: flex; gap: 6px; }
 
+/* Each action cell renders a fixed two-slot layout (primary action, then
+   Disconnect) with an empty placeholder - never an omitted element - for
+   whichever slot doesn't apply to a given row (see actionsCell in app.js).
+   A shared min-width across both real buttons and empty placeholders keeps
+   every row's slots starting at the same x position regardless of which
+   label (or none) occupies the first one - "Add as Manual" is the widest
+   label this needs to fit without wrapping. */
+.action-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 108px;
+  box-sizing: border-box;
+}
+span.action-slot { visibility: hidden; } /* reserves the width, shows nothing */
+
 /* Hero: current chain height, pulses via .bump when a new block lands */
 .hero-card { padding: 20px 24px; }
 
