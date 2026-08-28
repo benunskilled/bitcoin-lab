@@ -81,7 +81,7 @@
 
     <details class="card" open>
       <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
-      <p class="hint">Peers you've explicitly trusted, online or not. Bitcoin Core only actively maintains a limited number of these at once (see slot count above) - extras stay queued and connect automatically once a slot frees up. There's no separate "Disconnect" here on purpose: as long as a peer is still trusted, Core just reconnects it right back, so "Remove" (forgets the peer AND drops the current connection) is the only action that does anything meaningful.</p>
+      <p class="hint">Peers you've explicitly trusted, online or not. Bitcoin Core only actively maintains a limited number of these at once (see slot count above) - extras stay queued and connect automatically once a slot frees up. There's no separate "Disconnect" here on purpose: as long as a peer is still trusted, Core just reconnects it right back, so "Remove" (forgets the peer AND drops the current connection) is the only action that does anything meaningful. Core tries to reconnect a dropped manual peer on its own, but that can silently stall - a peer shown as offline also shows how long it's been that way (and it's checked and logged periodically in the background too, not just when this page happens to be open).</p>
       <div class="table-wrap">
         <table id="manual-peer-table">
           <thead>
@@ -92,7 +92,7 @@
               <th>Status</th>
               <th>First Seen %</th>
               <th>Ping</th>
-              <th>Session</th>
+              <th title="Current session length while connected; time since it dropped while offline">Session / Offline</th>
               <th>Actions</th>
             </tr>
           </thead>

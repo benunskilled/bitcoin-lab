@@ -22,7 +22,8 @@ function peerRanking() {
          os.last_ping_ms AS liveLastPingMs,
          COALESCE(sess.sessionsCount, 0) AS sessionsCount,
          COALESCE(sess.totalMs, 0) AS totalMs,
-         latest.subver AS client
+         latest.subver AS client,
+         latest.latestEndedAt AS latestEndedAt
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
        LEFT JOIN (SELECT peer_id, COUNT(*) cnt FROM relay_observation GROUP BY peer_id) elig
@@ -35,9 +36,13 @@ function peerRanking() {
          FROM peer_session GROUP BY peer_id
        ) sess ON sess.peer_id = p.id
        LEFT JOIN (
-         -- Most recent session's subver per peer, live or not, so even a
-         -- currently-offline manual peer still shows the client it last ran.
-         SELECT ps.peer_id, ps.subver
+         -- Most recent session's subver + end time per peer, live or not, so
+         -- a currently-offline manual peer still shows the client it last
+         -- ran, and how long ago it dropped (ended_at is NULL for the
+         -- session actually still live, in which case there's nothing to
+         -- report here - offline duration only ever comes from a peer's
+         -- most recent CLOSED session).
+         SELECT ps.peer_id, ps.subver, ps.ended_at AS latestEndedAt
          FROM peer_session ps
          WHERE ps.id = (
            SELECT id FROM peer_session ps2
@@ -93,6 +98,14 @@ function peerRanking() {
       connectionType: r.liveConnectionType,
       client: r.client || null,
       currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
+      // How long a trusted-but-not-currently-live peer has been offline -
+      // Core reconnects manuals on its own, but that can fail silently
+      // (peer went dark, network hiccup, slot contention) and a peer that's
+      // been offline for hours is worth surfacing, not just a flat pill.
+      // Only meaningful for a trusted peer that isn't live and has actually
+      // had a session before (never null-vs-0 ambiguity: a peer trusted but
+      // never yet seen connecting has no latestEndedAt at all).
+      offlineSinceMs: !r.liveDirection && r.latestEndedAt != null ? now - r.latestEndedAt : null,
       minPingMs: r.liveMinPingMs,
       lastPingMs: r.liveLastPingMs,
       sessionsCount: r.sessionsCount,

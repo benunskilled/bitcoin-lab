@@ -169,6 +169,20 @@ function clientCell(p) {
   return truncatedCell(p.client || '-');
 }
 
+// Session column: current connected duration when live, otherwise how long
+// a trusted peer has been offline. Core keeps trying to reconnect a manual
+// peer on its own, but that can silently stall (peer went dark, network
+// hiccup, slot contention) - a flat "MANUAL OFFLINE" pill doesn't say
+// whether that happened 30 seconds or 3 days ago, so show the duration
+// instead of just '-'.
+function sessionCell(p) {
+  if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
+  if (p.offlineSinceMs != null) {
+    return `<td class="hint" title="Last seen connected ${fmtDuration(p.offlineSinceMs)} ago">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+  }
+  return `<td>-</td>`;
+}
+
 // Single combined "how good is this peer" column: percentage first, with
 // the raw first/eligible counts as a tooltip - replaces the previous
 // separate First/Elig + First % columns (redundant, and wasted width).
@@ -230,7 +244,7 @@ function renderPeerTables(peers) {
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
-      <td>${fmtDuration(p.currentSessionMs)}</td>
+      ${sessionCell(p)}
       <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
@@ -244,7 +258,7 @@ function renderPeerTables(peers) {
       <td><span class="pill ${statusPillClass(p.connectionStatus)}">${p.connectionStatus}</span></td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
-      <td>${fmtDuration(p.currentSessionMs)}</td>
+      ${sessionCell(p)}
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
   `).join('') || `<tr><td colspan="7" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
@@ -257,7 +271,7 @@ function renderPeerTables(peers) {
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
-      <td>${fmtDuration(p.currentSessionMs)}</td>
+      ${sessionCell(p)}
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
   `).join('') || `<tr><td colspan="8" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`;

@@ -294,6 +294,47 @@ test('peer ranking flags a Docker-proxy-masked inbound IPv6 address as sourceObs
   assert.equal(real.sourceObscured, false);
 });
 
+test('peer ranking computes offlineSinceMs for a trusted peer that dropped and has not reconnected', () => {
+  const address = '203.0.113.77:8333';
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`)
+    .run(address, 'Offline Test Peer', Date.now());
+  const peer = db.getOrCreatePeer(address);
+
+  const endedAt = Date.now() - 45 * 60 * 1000; // dropped 45 minutes ago
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, ended_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'outbound', 'manual', '/Satoshi:27.0.0/', ?, ?, 20, 20)`,
+    )
+    .run(peer.id, 6001, endedAt - 60 * 60 * 1000, endedAt);
+
+  const ranking = queries.peerRanking();
+  const row = ranking.find((r) => r.address === address);
+
+  assert.equal(row.trusted, true);
+  assert.equal(row.live, false);
+  assert.ok(
+    row.offlineSinceMs != null && row.offlineSinceMs >= 44 * 60 * 1000,
+    'offlineSinceMs should reflect time since the most recent session ended',
+  );
+});
+
+test('peer ranking leaves offlineSinceMs null for a trusted peer that has never connected', () => {
+  const address = '203.0.113.78:8333';
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`)
+    .run(address, 'Never Connected Test Peer', Date.now());
+  db.getOrCreatePeer(address);
+
+  const ranking = queries.peerRanking();
+  const row = ranking.find((r) => r.address === address);
+
+  assert.equal(row.trusted, true);
+  assert.equal(row.live, false);
+  assert.equal(row.offlineSinceMs, null);
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

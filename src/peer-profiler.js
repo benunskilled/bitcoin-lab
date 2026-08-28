@@ -12,6 +12,7 @@ const db = require('./lib/db');
 const rpc = require('./lib/rpc');
 const logger = require('./lib/logger').make('peer-profiler');
 const { syncTrustedToAddnode, adoptExternalManualPeers } = require('./lib/peer-sync');
+const queries = require('./lib/queries');
 
 function upsertSessions(peers) {
   const database = db.instance;
@@ -72,6 +73,24 @@ function upsertSessions(peers) {
   tx2();
 }
 
+// Core reconnects a manual/trusted peer on its own, but that can silently
+// stall (peer went dark, network hiccup, a full manual-slot cap) - the
+// dashboard shows this at a glance, but not everyone has it open, so also
+// log it periodically for visibility via `docker logs` and to leave a
+// durable record of when/how long a manual peer was actually down.
+function logOfflineTrustedPeers() {
+  const offline = queries.peerRanking().filter((p) => p.trusted && !p.live);
+  if (offline.length === 0) return;
+
+  for (const p of offline) {
+    logger.warn('trusted peer currently offline', {
+      address: p.address,
+      label: p.trustedLabel || undefined,
+      offlineFor: p.offlineSinceMs != null ? `${Math.round(p.offlineSinceMs / 60000)}m` : 'never seen connecting',
+    });
+  }
+}
+
 async function pollOnce() {
   let peers;
   try {
@@ -107,6 +126,11 @@ async function main() {
     adoptExternalManualPeers()
       .then(() => syncTrustedToAddnode())
       .catch((err) => logger.warn('periodic peer sync failed', { error: err.message }));
+    try {
+      logOfflineTrustedPeers();
+    } catch (err) {
+      logger.warn('offline-trusted-peer check failed', { error: err.message });
+    }
   }, 10 * 60 * 1000);
 }
 
