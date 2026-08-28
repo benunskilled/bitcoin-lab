@@ -227,6 +227,30 @@ button.danger { color: var(--bad); }
 
 .hero-grid .stat-grid { flex: 1; }
 
+/* Status toast for peer/pool row actions (add-manual, remove, disconnect,
+   pool add/remove) - gives an explicit, visible outcome for every button
+   click instead of the row just silently changing (or not) on the next
+   table refresh, which is easy to miss if you're not watching the exact
+   panel a peer moved to/from. */
+.action-toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1000;
+  max-width: 420px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: #0f151b;
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
+.action-toast.pending { color: var(--muted); border-color: var(--border); }
+.action-toast.success { border-color: var(--good); color: var(--good); }
+.action-toast.error { border-color: var(--bad); color: var(--bad); }
+
 /* Full-screen orange wave that rolls across on a new block */
 .block-wave {
   position: fixed;

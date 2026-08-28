@@ -302,24 +302,78 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
 const PEER_ACTIONS = new Set(['add-manual', 'untrust', 'disconnect']);
 const POOL_ACTIONS = new Set(['delete-pool']);
 
+// A successful "Add as Manual" used to give ZERO on-screen feedback: the
+// peer just silently moved out of the Outbound table into the Manual Peers
+// panel on the next refresh. If you weren't looking at that panel, it
+// looked exactly like the button did nothing at all - even though it
+// worked. This toast makes every row action (pending -> success/error)
+// explicit and visible, wherever on the page you're looking.
+let toastTimer = null;
+function showToast(message, kind) {
+  const el = document.getElementById('action-toast');
+  clearTimeout(toastTimer);
+  el.textContent = message;
+  el.className = `action-toast ${kind}`;
+  el.hidden = false;
+  if (kind !== 'pending') {
+    toastTimer = setTimeout(() => { el.hidden = true; }, kind === 'error' ? 9000 : 5000);
+  }
+}
+
 document.body.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const { action, address, id } = btn.dataset;
+  const isPeerOrPoolAction = PEER_ACTIONS.has(action) || POOL_ACTIONS.has(action);
+  const originalLabel = btn.textContent;
+  if (isPeerOrPoolAction) {
+    btn.disabled = true;
+    btn.textContent = '…';
+  }
+
+  // Probing a host on 8333 then 9333 can take up to ~6s (3s timeout per
+  // port) - show what's actually happening instead of leaving the UI
+  // looking frozen/unresponsive during that wait.
+  if (action === 'add-manual') showToast(`Adding ${address} as manual peer - probing port 8333, then 9333…`, 'pending');
+  if (action === 'untrust') showToast(`Removing ${address}…`, 'pending');
+  if (action === 'disconnect') showToast(`Disconnecting ${address}…`, 'pending');
+  if (action === 'delete-pool') showToast('Removing pool…', 'pending');
+
   try {
     if (action === 'add-manual') {
       const result = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
-      if (result.warning) alert(result.warning); // eslint-disable-line no-alert
+      showToast(
+        result.warning
+          ? `Added as manual peer: ${result.address} - ${result.warning}`
+          : `Added as manual peer: ${result.address}. It now shows in the Manual Peers panel below.`,
+        'success',
+      );
     }
-    if (action === 'untrust') await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
-    if (action === 'disconnect') await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
-    if (action === 'delete-pool') await api(`/api/pools/${id}`, { method: 'DELETE' });
+    if (action === 'untrust') {
+      await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
+      showToast(`Removed ${address} as manual peer and disconnected it.`, 'success');
+    }
+    if (action === 'disconnect') {
+      await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
+      showToast(`Disconnected ${address}.`, 'success');
+    }
+    if (action === 'delete-pool') {
+      await api(`/api/pools/${id}`, { method: 'DELETE' });
+      showToast('Pool removed.', 'success');
+    }
 
     if (PEER_ACTIONS.has(action)) refreshPeers();
     if (POOL_ACTIONS.has(action)) refreshPools();
   } catch (err) {
-    // eslint-disable-next-line no-alert
-    alert(err.message);
+    showToast(
+      action === 'add-manual' ? `Could not add ${address} as manual: ${err.message}` : err.message,
+      'error',
+    );
+  } finally {
+    if (isPeerOrPoolAction) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
   }
 });
 
