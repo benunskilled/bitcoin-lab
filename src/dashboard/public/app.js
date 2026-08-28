@@ -148,9 +148,15 @@ async function refreshPeers() {
   renderPeerTables(peers);
 }
 
+function firstEligCell(p) {
+  return `${p.first}<span class="hint">/${p.eligible}</span>`;
+}
+
 function renderPeerTables(peers) {
   const livePeers = peers.filter((p) => p.live);
-  const outboundPeers = livePeers.filter((p) => p.direction === 'outbound');
+  // Manuals get their own dedicated panel below - keep them out of Outbound
+  // entirely rather than showing the same peer in two tables.
+  const outboundPeers = livePeers.filter((p) => p.direction === 'outbound' && !p.trusted);
   const manualPeers = peers.filter((p) => p.trusted);
 
   document.querySelector('#peer-table tbody').innerHTML = livePeers.map((p) => `
@@ -158,8 +164,7 @@ function renderPeerTables(peers) {
       <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
       <td>${clientCell(p)}</td>
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
-      <td>${p.first}</td>
-      <td>${p.eligible}</td>
+      <td>${firstEligCell(p)}</td>
       <td>${fmtPct(p.firstPct)}</td>
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       <td>${fmtDuration(p.currentSessionMs)}</td>
@@ -167,11 +172,11 @@ function renderPeerTables(peers) {
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="11" class="hint">No peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="10" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
+      <td>${p.address}</td>
       <td>${clientCell(p)}</td>
       <td><span class="pill ${statusPillClass(p.connectionStatus)}">${p.connectionStatus}</span></td>
       <td>${fmtPct(p.firstPct)}</td>
@@ -179,7 +184,7 @@ function renderPeerTables(peers) {
       <td>${fmtDuration(p.currentSessionMs)}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="7" class="hint">No outbound peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="7" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
   document.querySelector('#manual-peer-table tbody').innerHTML = manualPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
@@ -197,7 +202,8 @@ function renderPeerTables(peers) {
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
     const used = manualPeers.filter((p) => p.live).length;
-    slotsEl.textContent = `(${used} / ${MAX_MANUAL_PEERS} slots active, ${manualPeers.length} total)`;
+    const free = Math.max(0, MAX_MANUAL_PEERS - used);
+    slotsEl.textContent = `(${free} of ${MAX_MANUAL_PEERS} slots free · ${used} active · ${manualPeers.length} total)`;
   }
 }
 
@@ -262,6 +268,13 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
   }
 });
 
+// Each action only refreshes the table(s) it can actually affect, rather
+// than re-fetching /api/status, /api/peers/ranking, /api/pools and
+// /api/blocks/latest on every single click - those already refresh on
+// their own schedules (REFRESH_MS / BLOCK_POLL_MS above).
+const PEER_ACTIONS = new Set(['add-manual', 'untrust', 'disconnect']);
+const POOL_ACTIONS = new Set(['delete-pool']);
+
 document.body.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
@@ -274,7 +287,9 @@ document.body.addEventListener('click', async (e) => {
     if (action === 'untrust') await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
     if (action === 'disconnect') await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
     if (action === 'delete-pool') await api(`/api/pools/${id}`, { method: 'DELETE' });
-    refreshAll();
+
+    if (PEER_ACTIONS.has(action)) refreshPeers();
+    if (POOL_ACTIONS.has(action)) refreshPools();
   } catch (err) {
     // eslint-disable-next-line no-alert
     alert(err.message);
@@ -286,6 +301,7 @@ document.body.addEventListener('change', async (e) => {
   if (chk) {
     try {
       await api(`/api/pools/${chk.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: chk.checked }) });
+      refreshPools();
     } catch (err) {
       alert(err.message);
       chk.checked = !chk.checked;
