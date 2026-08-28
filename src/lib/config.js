@@ -56,14 +56,21 @@ module.exports = {
   // before it is scored as a miss for that race.
   stratumRaceTimeoutMs: Number(pick(process.env.STRATUM_RACE_TIMEOUT_MS, '8000')),
 
-  // Idle-socket timeout for stratum pool connections. This must comfortably
-  // exceed the average ~10 minute block interval - a pool that only sends
-  // mining.notify on genuine new work can legitimately stay silent for well
-  // over 30s between blocks. (Previously hardcoded to 30000ms in
-  // stratum-client.js, which recycled every connection roughly every 30
-  // seconds - long before most pools ever got a chance to report a real
-  // race. That is the most likely reason the stratum race looked broken.)
-  stratumIdleTimeoutMs: Number(pick(process.env.STRATUM_IDLE_TIMEOUT_MS, String(20 * 60 * 1000))),
+  // Idle-socket timeout for stratum pool connections - a LAST-RESORT
+  // backstop, not the primary way we detect a dead connection (see
+  // setKeepAlive in stratum-client.js for that). Block intervals are
+  // exponentially distributed around a ~10 minute mean, so "quiet for a
+  // while" is routine, not a sign anything is wrong: P(no block within 20
+  // min) is still ~13.5%, P(within 60 min) ~0.25%, and even P(within 120
+  // min) is ~0.0006% but NOT zero - long gaps are rare, not bounded. A
+  // timeout anywhere near "a bit more than 10 minutes" (the original
+  // 30000ms hardcoded value included) will misfire on ordinary long gaps,
+  // forcing pointless reconnects that can - in the few seconds the
+  // reconnect takes - cause a pool to be wrongly scored as a miss if a
+  // block lands during that exact window. 2 hours keeps that false-miss
+  // risk astronomically small while TCP keepalive (below) still catches an
+  // actually-dead socket in minutes, not hours.
+  stratumIdleTimeoutMs: Number(pick(process.env.STRATUM_IDLE_TIMEOUT_MS, String(2 * 60 * 60 * 1000))),
 
   // Peer snapshot poll interval for the peer-profiler (session bookkeeping,
   // not block timing - the relay-profiler never polls).

@@ -24,9 +24,10 @@ class StratumPoolConnection extends EventEmitter {
     this.buffer = '';
     this.stopped = false;
     this.reconnectDelayMs = 2000;
-    // Must comfortably exceed the ~10 minute average block interval - a
-    // pool that only sends mining.notify on genuine new work can go quiet
-    // for well over a minute between blocks without anything being wrong.
+    // Deliberately generous (2h default) - block gaps well over an hour are
+    // rare but expected (exponential distribution, no upper bound), and
+    // this is only a backstop; setKeepAlive below is the fast path for
+    // detecting an actually-dead socket. See config.js for the full math.
     this.idleTimeoutMs = idleTimeoutMs;
   }
 
@@ -46,11 +47,24 @@ class StratumPoolConnection extends EventEmitter {
     this.socket = socket;
 
     socket.setNoDelay(true);
+    // TCP-level keepalive: the real, fast way we notice a connection has
+    // actually died (peer gone, NAT/firewall silently dropped the mapping,
+    // half-open socket after a network blip) - it works entirely at the OS
+    // level and needs no application data, so it isn't fooled by Bitcoin
+    // just taking a while between blocks. First probe after 30s idle, then
+    // OS-default probe interval/retry count (Linux default: ~9 probes,
+    // ~75s apart) - typically well under 15 minutes to detect a truly dead
+    // peer, independent of the app-level idleTimeoutMs backstop below.
+    socket.setKeepAlive(true, 30_000);
     // NOTE: this used to be a flat 30000ms, which destroyed and reconnected
     // every pool socket roughly every 30 seconds - long before a real block
     // (average ~10 minutes apart) had a chance to arrive. That churn is the
     // most likely reason the race looked like it wasn't working: connections
     // rarely stayed open long enough to ever witness a genuine mining.notify.
+    // It is now a generous last-resort backstop (see idleTimeoutMs above),
+    // not the primary dead-connection detector - that job belongs to
+    // setKeepAlive just above, which doesn't get confused by a genuinely
+    // long gap between blocks.
     socket.setTimeout(this.idleTimeoutMs);
 
     socket.on('connect', () => {
