@@ -10,6 +10,7 @@ const HIGHLIGHT_MS = 2 * 60 * 1000; // how long the first-peer row(s) stay tinte
 const highlightUntil = new Map();
 let lastRaceId = null; // null = "haven't loaded the latest race yet", not "no races"
 let lastKnownHeight = null;
+let MAX_MANUAL_PEERS = 8; // overwritten from /api/status once loaded (config.maxManualPeers)
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -43,13 +44,14 @@ function fmtPct(p) {
 }
 
 function statusPillClass(status) {
+  if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
   if (status.includes('MANUAL')) return 'manual';
-  if (status === 'OFFLINE' || status.includes('TRUSTED')) return 'offline';
   return 'live';
 }
 
 async function refreshStatus() {
   const s = await api('/api/status');
+  if (s.maxManualPeers) MAX_MANUAL_PEERS = s.maxManualPeers;
   const el = document.getElementById('status');
   el.textContent = s.blockHeight != null
     ? `${s.network} · ${s.live.total} peers connected`
@@ -122,13 +124,23 @@ function highlightClassFor(address) {
   return 'row-first-block';
 }
 
-function actionsCell(p) {
+// context: 'manual' renders "Remove" (forgets the peer) alongside
+// "Disconnect" (just drops the live connection); anywhere else renders
+// "Add as Manual" for peers we don't yet trust. Add-as-Manual always
+// re-probes the peer's host itself (see /api/peers/add-manual) rather than
+// trusting whatever port it happened to be observed on.
+function actionsCell(p, context) {
+  const addOrRemove = p.trusted
+    ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Remove</button>`
+    : `<button class="secondary" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`;
   return `
-    ${p.trusted
-      ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Untrust</button>`
-      : `<button class="secondary" data-action="trust" data-address="${p.address}">Trust</button>`}
+    ${addOrRemove}
     ${p.live ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>` : ''}
   `;
+}
+
+function clientCell(p) {
+  return p.client ? p.client : '<span class="hint">-</span>';
 }
 
 async function refreshPeers() {
@@ -144,6 +156,7 @@ function renderPeerTables(peers) {
   document.querySelector('#peer-table tbody').innerHTML = livePeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
       <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
+      <td>${clientCell(p)}</td>
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       <td>${p.first}</td>
       <td>${p.eligible}</td>
@@ -154,38 +167,47 @@ function renderPeerTables(peers) {
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="10" class="hint">No peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="11" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
       <td>${p.address}${p.trustedLabel ? ` <span class="hint">(${p.trustedLabel})</span>` : ''}</td>
-      <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
+      <td>${clientCell(p)}</td>
+      <td><span class="pill ${statusPillClass(p.connectionStatus)}">${p.connectionStatus}</span></td>
       <td>${fmtPct(p.firstPct)}</td>
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       <td>${fmtDuration(p.currentSessionMs)}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="6" class="hint">No outbound peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="7" class="hint">No outbound peers currently connected.</td></tr>`;
 
   document.querySelector('#manual-peer-table tbody').innerHTML = manualPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
       <td>${p.address}</td>
-      <td>${p.trustedLabel || '-'}</td>
+      <td>${p.trustedLabel || '<span class="hint">-</span>'}</td>
+      <td>${clientCell(p)}</td>
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       <td>${fmtPct(p.firstPct)}</td>
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       <td>${fmtDuration(p.currentSessionMs)}</td>
-      <td class="row-actions">${actionsCell(p)}</td>
+      <td class="row-actions">${actionsCell(p, 'manual')}</td>
     </tr>
-  `).join('') || `<tr><td colspan="7" class="hint">No manually trusted peers yet - use Trust above or the manual-add field.</td></tr>`;
+  `).join('') || `<tr><td colspan="8" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`;
+
+  const slotsEl = document.getElementById('manual-slots');
+  if (slotsEl) {
+    const used = manualPeers.filter((p) => p.live).length;
+    slotsEl.textContent = `(${used} / ${MAX_MANUAL_PEERS} slots active, ${manualPeers.length} total)`;
+  }
 }
 
 async function refreshPools() {
-  const pools = await api('/api/pools');
+  const range = document.getElementById('stratum-range').value;
+  const pools = await api(`/api/pools?range=${encodeURIComponent(range)}`);
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
     <tr>
-      <td>${p.label}</td>
+      <td>${p.label}${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
       <td>${p.host}:${p.port}</td>
       <td>${p.wins}</td>
       <td>${fmtPct(p.winPct)}</td>
@@ -213,7 +235,7 @@ document.getElementById('manual-add-form').addEventListener('submit', async (e) 
   resultEl.textContent = 'connecting…';
   try {
     const result = await api('/api/peers/manual-add', { method: 'POST', body: JSON.stringify({ host: input.value }) });
-    resultEl.textContent = `added ${result.address}`;
+    resultEl.textContent = result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`;
     input.value = '';
     refreshPeers();
   } catch (err) {
@@ -245,7 +267,10 @@ document.body.addEventListener('click', async (e) => {
   if (!btn) return;
   const { action, address, id } = btn.dataset;
   try {
-    if (action === 'trust') await api('/api/peers/trust', { method: 'POST', body: JSON.stringify({ address }) });
+    if (action === 'add-manual') {
+      const result = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+      if (result.warning) alert(result.warning); // eslint-disable-line no-alert
+    }
     if (action === 'untrust') await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
     if (action === 'disconnect') await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
     if (action === 'delete-pool') await api(`/api/pools/${id}`, { method: 'DELETE' });
@@ -258,13 +283,17 @@ document.body.addEventListener('click', async (e) => {
 
 document.body.addEventListener('change', async (e) => {
   const chk = e.target.closest('input[data-action="toggle-pool"]');
-  if (!chk) return;
-  try {
-    await api(`/api/pools/${chk.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: chk.checked }) });
-  } catch (err) {
-    alert(err.message);
-    chk.checked = !chk.checked;
+  if (chk) {
+    try {
+      await api(`/api/pools/${chk.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: chk.checked }) });
+    } catch (err) {
+      alert(err.message);
+      chk.checked = !chk.checked;
+    }
+    return;
   }
+
+  if (e.target.id === 'stratum-range') refreshPools();
 });
 
 refreshAll();

@@ -18,7 +18,7 @@ const db = require('./lib/db');
 const rpc = require('./lib/rpc');
 const queries = require('./lib/queries');
 const peerSync = require('./lib/peer-sync');
-const { manualAddPeer } = require('./lib/manual-peer');
+const { manualAddPeer, hostFromAddress } = require('./lib/manual-peer');
 const logger = require('./lib/logger').make('dashboard');
 
 const PUBLIC_DIR = path.join(__dirname, 'dashboard', 'public');
@@ -108,7 +108,12 @@ async function router(req, res, pathname, url) {
     } catch (err) {
       logger.debug('getblockcount failed', { error: err.message });
     }
-    return sendJson(res, 200, { blockHeight, network: config.bitcoin.network, live: queries.liveSummary() });
+    return sendJson(res, 200, {
+      blockHeight,
+      network: config.bitcoin.network,
+      live: queries.liveSummary(),
+      maxManualPeers: config.maxManualPeers,
+    });
   }
 
   if (req.method === 'GET' && pathname === '/api/peers/ranking') {
@@ -126,20 +131,33 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/trust') {
     const { address, label } = await readBody(req);
     if (!address) return sendJson(res, 400, { error: 'address required' });
-    await peerSync.addTrustedPeer(address, label);
-    return sendJson(res, 200, { ok: true });
+    const capacity = await peerSync.addTrustedPeer(address, label);
+    return sendJson(res, 200, { ok: true, ...(capacity.overCapacity ? { warning: `queued - Bitcoin Core only maintains ${capacity.max} manual connections at once` } : {}) });
   }
 
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
     const { address } = await readBody(req);
     if (!address) return sendJson(res, 400, { error: 'address required' });
-    peerSync.removeTrustedPeer(address);
+    await peerSync.removeTrustedPeer(address);
     return sendJson(res, 200, { ok: true });
   }
 
   if (req.method === 'POST' && pathname === '/api/peers/manual-add') {
     const { host } = await readBody(req);
     const result = await manualAddPeer(host);
+    return sendJson(res, result.ok ? 200 : 422, result);
+  }
+
+  if (req.method === 'POST' && pathname === '/api/peers/add-manual') {
+    // Same probe-then-persist flow as /api/peers/manual-add, but starting
+    // from an existing peer row's address (live or not) instead of raw user
+    // input - we always re-derive the bare host and re-probe 8333/9333
+    // ourselves rather than trust whatever port that peer happened to be
+    // observed on (see manual-peer.js for why that matters for inbound peers).
+    const { address, label } = await readBody(req);
+    if (!address) return sendJson(res, 400, { error: 'address required' });
+    const host = hostFromAddress(address);
+    const result = await manualAddPeer(host, label);
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
@@ -155,7 +173,8 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'GET' && pathname === '/api/pools') {
-    return sendJson(res, 200, queries.stratumRanking());
+    const range = url.searchParams.get('range') || '10';
+    return sendJson(res, 200, queries.stratumRanking(range));
   }
 
   if (req.method === 'POST' && pathname === '/api/pools') {
