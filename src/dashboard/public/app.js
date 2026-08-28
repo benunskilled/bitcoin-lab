@@ -142,27 +142,45 @@ function highlightClassFor(address) {
 }
 
 // Trusted/manual peers show "Remove" (forgets the peer AND force-disconnects
-// it - see peer-sync.js removeTrustedPeer) instead of "Disconnect": as long
-// as a peer is still addnode'd, Core just reconnects it right back, so a
-// bare Disconnect on a manual peer would do nothing useful. Untrusted peers
-// get "Add as Manual" instead, which always re-probes the peer's host itself
-// (see /api/peers/add-manual) rather than trusting whatever port it
-// happened to be observed on.
-function actionsCell(p) {
+// it - see peer-sync.js removeTrustedPeer) instead of "Add as Manual": as
+// long as a peer is still addnode'd, Core just reconnects it right back, so
+// a bare Disconnect on a manual peer normally wouldn't accomplish anything
+// lasting - that's still true in the dedicated Manual Peers panel below,
+// which is why it only ever gets "Remove" there (options.allowDisconnect
+// stays false for that table). The Live Peer Ranking overview is different:
+// it's the "what's actually connected right now" view, and someone watching
+// it may well want to kick a manual peer's current connection (e.g. to
+// force a reconnect) without forgetting it entirely - so that table passes
+// allowDisconnect: true to also offer Disconnect there even for a trusted
+// peer.
+//
+// Both actions always render into a fixed two-slot layout (primary action,
+// then Disconnect) using an empty placeholder - never an omitted element -
+// for whichever slot doesn't apply to a given row. Without this, a row
+// missing its first slot (e.g. a source-obscured peer with no "Add as
+// Manual") would have Disconnect visually collapse into the first slot's
+// position instead of staying put, making the column misalign row to row.
+function actionsCell(p, options = {}) {
+  const { allowDisconnect = false } = options;
+
   // A source-obscured peer's "address" is Docker's own relay gateway, not
   // the peer's real one (see queries.js) - there's nothing real to probe or
   // addnode, so "Add as Manual" would just try to add Docker's internal
-  // gateway as a manual peer. Disconnect still works fine though: it's
-  // exactly the address Core itself uses internally for this connection.
-  const addOrRemove = p.trusted
-    ? `<button class="secondary" data-action="untrust" data-address="${p.address}">Remove</button>`
+  // gateway as a manual peer.
+  const primary = p.trusted
+    ? `<button class="secondary action-slot" data-action="untrust" data-address="${p.address}">Remove</button>`
     : (p.sourceObscured
-      ? ''
-      : `<button class="secondary" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`);
-  const disconnect = (p.live && !p.trusted)
-    ? `<button class="secondary danger" data-action="disconnect" data-address="${p.address}">Disconnect</button>`
-    : '';
-  return `${addOrRemove}${disconnect}`;
+      ? `<span class="action-slot" aria-hidden="true"></span>`
+      : `<button class="secondary action-slot" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`);
+
+  // Disconnect still works fine for a source-obscured peer: it's exactly
+  // the (masked) address Core itself uses internally for the connection.
+  const canDisconnect = p.live && (allowDisconnect || !p.trusted);
+  const disconnect = canDisconnect
+    ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${p.address}">Disconnect</button>`
+    : `<span class="action-slot" aria-hidden="true"></span>`;
+
+  return `${primary}${disconnect}`;
 }
 
 function clientCell(p) {
@@ -247,7 +265,7 @@ function renderPeerTables(peers) {
       ${sessionCell(p)}
       <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
-      <td class="row-actions">${actionsCell(p)}</td>
+      <td class="row-actions">${actionsCell(p, { allowDisconnect: true })}</td>
     </tr>
   `).join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
 
