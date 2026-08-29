@@ -508,6 +508,46 @@ test('pruneOldData keeps peers with relay history and trusted peers forever, onl
   assert.equal(liveSession.ended_at, null);
 });
 
+test('stratum_observation upsert lets a late-but-real report correct an already-recorded miss, never the reverse', () => {
+  // Exercises the exact SQL pattern stratum-race.js's handleNotify() uses -
+  // reproduces the bug this was written to fix: if a real mining.notify's
+  // write was delayed (e.g. by DB lock contention with the retention
+  // prune/vacuum) past the race timeout, finalizeCurrentRace() may have
+  // already recorded a miss (NULL latency) for that (race, pool) pair. The
+  // late-but-genuine report should still overwrite that miss rather than
+  // being silently dropped by a plain INSERT OR IGNORE.
+  const pool = db.instance.prepare('SELECT id FROM stratum_pool LIMIT 1').get();
+  const raceId = db.instance
+    .prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)')
+    .run('upsert-test-prevhash', Date.now()).lastInsertRowid;
+
+  const upsert = db.instance.prepare(
+    `INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(race_id, pool_id) DO UPDATE SET latency_ms = excluded.latency_ms, rank = excluded.rank
+     WHERE stratum_observation.latency_ms IS NULL`,
+  );
+
+  // finalizeCurrentRace() recorded a miss first (this is the OR IGNORE path
+  // it actually uses - a plain miss insert, never upserted over).
+  db.instance
+    .prepare(`INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`)
+    .run(raceId, pool.id);
+
+  // The late-but-real report arrives afterward and should correct it.
+  upsert.run(raceId, pool.id, 4321, 1);
+  let row = db.instance.prepare('SELECT * FROM stratum_observation WHERE race_id = ? AND pool_id = ?').get(raceId, pool.id);
+  assert.equal(row.latency_ms, 4321);
+  assert.equal(row.rank, 1);
+
+  // A second, later "report" for the same (race, pool) - should never
+  // happen in practice (reportedPoolIds guards against it in-process), but
+  // the SQL itself must still never clobber an already-recorded real value.
+  upsert.run(raceId, pool.id, 9999, 2);
+  row = db.instance.prepare('SELECT * FROM stratum_observation WHERE race_id = ? AND pool_id = ?').get(raceId, pool.id);
+  assert.equal(row.latency_ms, 4321, 'an already-recorded real result must never be overwritten');
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

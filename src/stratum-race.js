@@ -78,16 +78,24 @@ function finalizeCurrentRace() {
   const { id, timer } = currentRace;
   clearTimeout(timer);
 
-  // Anyone still enabled who never reported for this race gets a miss.
-  const insertMiss = db.instance.prepare(
-    `INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`,
-  );
-  const tx = db.instance.transaction(() => {
-    for (const poolId of active.keys()) {
-      if (!reportedPoolIds.has(poolId)) insertMiss.run(id, poolId);
-    }
-  });
-  tx();
+  try {
+    // Anyone still enabled who never reported for this race gets a miss.
+    const insertMiss = db.instance.prepare(
+      `INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`,
+    );
+    const tx = db.instance.transaction(() => {
+      for (const poolId of active.keys()) {
+        if (!reportedPoolIds.has(poolId)) insertMiss.run(id, poolId);
+      }
+    });
+    tx();
+  } catch (err) {
+    // A DB error here must never crash this process - see db.js
+    // busy_timeout for why it should now be rare, but losing the whole
+    // event loop over one race's bookkeeping would silently drop every
+    // pool connection, not just this race.
+    logger.warn('failed to record miss(es) for finalized race', { raceId: id, error: err.message });
+  }
 
   currentRace = null;
   reportedPoolIds = new Set();
@@ -130,11 +138,27 @@ function handleNotify(pool, prevhash, receivedAtHr) {
   const elapsedMs = Number(receivedAtHr - currentRace.startHr) / 1e6;
   const rank = reportedPoolIds.size;
 
-  db.instance
-    .prepare(`INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)`)
-    .run(currentRace.id, pool.id, elapsedMs, rank);
-
-  logger.info('pool reported job', { label: pool.label, rank, elapsedMs: Number(elapsedMs.toFixed(1)) });
+  try {
+    // Upsert rather than a plain INSERT OR IGNORE: if finalizeCurrentRace()
+    // already recorded a miss for this (race, pool) - e.g. this notify's
+    // write was delayed by DB lock contention past the race timeout - a
+    // late-but-real report should still correct it rather than being
+    // silently dropped by the earlier miss row. Never overwrites an
+    // already-recorded real result (the WHERE guards on latency_ms IS NULL).
+    db.instance
+      .prepare(
+        `INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(race_id, pool_id) DO UPDATE SET latency_ms = excluded.latency_ms, rank = excluded.rank
+         WHERE stratum_observation.latency_ms IS NULL`,
+      )
+      .run(currentRace.id, pool.id, elapsedMs, rank);
+    logger.info('pool reported job', { label: pool.label, rank, elapsedMs: Number(elapsedMs.toFixed(1)) });
+  } catch (err) {
+    // Same reasoning as finalizeCurrentRace(): never let a DB hiccup crash
+    // this process and take every pool connection down with it.
+    logger.warn('failed to record pool report', { label: pool.label, error: err.message });
+  }
 }
 
 function main() {
