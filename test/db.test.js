@@ -335,6 +335,54 @@ test('peer ranking leaves offlineSinceMs null for a trusted peer that has never 
   assert.equal(row.offlineSinceMs, null);
 });
 
+test('peer ranking flags a same-host Umbrel app (e.g. electrs) as localUmbrelPeer, not an external peer', () => {
+  // Every Umbrel app container shares the same internal Docker network
+  // (10.21.0.0/16 by convention) - a peer connecting from inside that range
+  // that ISN'T the specific docker-proxy gateway address is a sibling app
+  // container (electrs, mempool's indexer, ...) talking to Core's P2P port
+  // directly, not a real external peer. Matches the user's own real-world
+  // example address/subver.
+  const electrsPeer = db.getOrCreatePeer('10.21.21.10:53400');
+  const externalPeer = db.getOrCreatePeer('198.51.100.60:8333');
+
+  const insertSession = db.instance.prepare(
+    `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
+     VALUES (?, ?, 'inbound', 'inbound', ?, ?, 5, 5)`,
+  );
+  insertSession.run(electrsPeer.id, 7001, '/electrs:0.11.1/', Date.now());
+  insertSession.run(externalPeer.id, 7002, '/Satoshi:27.0.0/', Date.now());
+
+  const ranking = queries.peerRanking();
+  const electrsRow = ranking.find((r) => r.address === '10.21.21.10:53400');
+  const externalRow = ranking.find((r) => r.address === '198.51.100.60:8333');
+
+  assert.equal(electrsRow.localUmbrelPeer, true);
+  assert.equal(electrsRow.localAppName, 'electrs');
+  assert.equal(externalRow.localUmbrelPeer, false);
+  assert.equal(externalRow.localAppName, null);
+});
+
+test('peer ranking treats the docker-proxy masked gateway as sourceObscured, not localUmbrelPeer', () => {
+  // The masked gateway address (10.21.0.1) also falls inside the internal
+  // network CIDR, but it means something different: it's Core's own view of
+  // a real EXTERNAL peer whose true address Docker's relay hid, not a local
+  // sibling app. sourceObscured must take precedence so the UI shows the
+  // "address hidden by Docker" explanation, not a bogus "Local Umbrel app".
+  const maskedPeer = db.getOrCreatePeer('10.21.0.1:41234');
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'inbound', 'inbound', '/Satoshi:27.0.0/', ?, 30, 30)`,
+    )
+    .run(maskedPeer.id, 7003, Date.now());
+
+  const ranking = queries.peerRanking();
+  const row = ranking.find((r) => r.address === '10.21.0.1:41234');
+
+  assert.equal(row.sourceObscured, true);
+  assert.equal(row.localUmbrelPeer, false);
+});
+
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });

@@ -162,6 +162,7 @@ function highlightClassFor(address) {
 // position instead of staying put, making the column misalign row to row.
 function actionsCell(p, options = {}) {
   const { allowDisconnect = false } = options;
+  const placeholder = `<span class="action-slot" aria-hidden="true"></span>`;
 
   // A source-obscured peer's "address" is Docker's own relay gateway, not
   // the peer's real one (see queries.js) - there's nothing real to probe or
@@ -169,16 +170,20 @@ function actionsCell(p, options = {}) {
   // gateway as a manual peer.
   const primary = p.trusted
     ? `<button class="secondary action-slot" data-action="untrust" data-address="${p.address}">Remove</button>`
-    : (p.sourceObscured
-      ? `<span class="action-slot" aria-hidden="true"></span>`
+    : ((p.sourceObscured || p.localUmbrelPeer)
+      ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`);
 
   // Disconnect still works fine for a source-obscured peer: it's exactly
   // the (masked) address Core itself uses internally for the connection.
-  const canDisconnect = p.live && (allowDisconnect || !p.trusted);
+  // A local Umbrel peer (another app on this same host, e.g. electrs) is
+  // different - deliberately disconnecting it could interrupt whatever that
+  // app is doing, and Core would likely just let it right back in anyway,
+  // so there's no real action to offer there either.
+  const canDisconnect = p.live && !p.localUmbrelPeer && (allowDisconnect || !p.trusted);
   const disconnect = canDisconnect
     ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${p.address}">Disconnect</button>`
-    : `<span class="action-slot" aria-hidden="true"></span>`;
+    : placeholder;
 
   return `${primary}${disconnect}`;
 }
@@ -226,6 +231,15 @@ async function refreshPeers() {
 function addressCell(p, includeLabel) {
   if (p.sourceObscured) {
     return `<td class="cell-truncate hint" title="Core reports this connection's address as ${escapeHtml(p.address)} - Docker's inbound IPv6 relay (docker-proxy) re-originates the connection from its own internal gateway, so the peer's real address is never visible to Core itself, let alone to us. This is a Docker networking limitation, not an error.">IPv6 peer (address hidden by Docker)</td>`;
+  }
+  // Not a real external peer at all - another app on this same Umbrel host
+  // (electrs, mempool's indexer, etc.) connecting to Core's P2P port
+  // directly. The address is genuinely accurate here (unlike sourceObscured
+  // above), so it's shown in the tooltip for anyone curious, but the label
+  // itself is far more useful than a bare internal Docker IP.
+  if (p.localUmbrelPeer) {
+    const label = p.localAppName ? `Local Umbrel app: ${p.localAppName}` : 'Local Umbrel app';
+    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - another app container on this Umbrel connecting to Bitcoin Core's P2P port directly, not an external peer.">${escapeHtml(label)}</td>`;
   }
   const label = includeLabel && p.trustedLabel ? ` (${p.trustedLabel})` : '';
   return truncatedCell(`${p.address}${label}`);

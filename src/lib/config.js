@@ -99,5 +99,16 @@ module.exports = {
   // a given install's Docker network differs.
   dockerProxyMaskedAddressHost: pick(process.env.DOCKER_PROXY_MASKED_HOST, '10.21.0.1'),
 
+  // Every Umbrel app container shares the same internal Docker network, so
+  // a peer whose address falls in this range isn't an external node at
+  // all - it's a sibling app on the same host talking to Bitcoin Core's P2P
+  // port directly (electrs and mempool's own indexer both do this to sync).
+  // Distinct from dockerProxyMaskedAddressHost above: that one specific
+  // address masks a genuine EXTERNAL peer whose real address Core never
+  // learned; everything else in this range is a real, local, non-external
+  // connection whose address is perfectly accurate, just not "a peer" in
+  // any useful sense - nothing to add manually or disconnect on purpose.
+  umbrelInternalNetworkCidr: pick(process.env.UMBREL_INTERNAL_NETWORK_CIDR, '10.21.0.0/16'),
+
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };

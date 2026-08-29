@@ -3,6 +3,34 @@
 const db = require('./db');
 const config = require('./config');
 
+// Bare IPv4 "host:port" only - this is purely for recognizing Umbrel's own
+// internal Docker network addresses (always plain IPv4), never used for
+// anything IPv6 or bracketed.
+function ipv4HostFromAddress(address) {
+  const m = String(address || '').match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
+  return m ? m[1] : null;
+}
+
+function ipv4ToInt(ip) {
+  return ip.split('.').reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
+}
+
+function ipv4InCidr(ip, cidr) {
+  const [rangeIp, prefixLenStr] = cidr.split('/');
+  const prefixLen = Number(prefixLenStr);
+  const mask = prefixLen === 0 ? 0 : (0xffffffff << (32 - prefixLen)) >>> 0;
+  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(rangeIp) & mask);
+}
+
+// A subver like "/electrs:0.11.1/" -> "electrs" - just enough to name which
+// local app a same-host peer connection belongs to.
+function localAppNameFromSubver(subver) {
+  if (!subver) return null;
+  const stripped = String(subver).replace(/^\/+|\/+$/g, '');
+  const name = stripped.split(':')[0];
+  return name || null;
+}
+
 function peerRanking() {
   const now = Date.now();
   const rows = db.instance
@@ -84,9 +112,22 @@ function peerRanking() {
     // Flag it so the UI can label it honestly instead of displaying (or
     // letting the user try to manually add/probe) a meaningless local IP.
     const sourceObscured = r.address.startsWith(`${config.dockerProxyMaskedAddressHost}:`);
+    // Everything else inside Umbrel's shared internal Docker network isn't
+    // an external peer at all - it's another app on the same host (electrs,
+    // mempool's indexer, etc.) connecting to Core's P2P port directly, the
+    // same way a real peer would. Its address is perfectly real (unlike
+    // sourceObscured above), just not "a peer" in any useful sense - it's
+    // already connected via the host's own network, so there's nothing to
+    // manually add and nothing worth disconnecting on purpose either.
+    const ipv4Host = ipv4HostFromAddress(r.address);
+    const localUmbrelPeer = !sourceObscured
+      && ipv4Host != null
+      && ipv4InCidr(ipv4Host, config.umbrelInternalNetworkCidr);
     return {
       address: r.address,
       sourceObscured,
+      localUmbrelPeer,
+      localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       firstSeenAt: r.firstSeenAt,
       trusted,
       trustedLabel: r.trustedLabel,
