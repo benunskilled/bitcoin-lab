@@ -103,6 +103,25 @@ async function pollOnce() {
   logger.debug('poll complete', { peers: peers.length });
 }
 
+// Keeps the historical tables (and the SQLite file itself) from growing
+// forever - see config.js dataRetentionDays. Runs once shortly after
+// startup (so a fresh install doesn't wait a full day for its first prune)
+// and then daily; each run is independent and cheap to skip if it fails, so
+// a single bad run never blocks peer polling or leaves the DB stuck.
+function runMaintenance() {
+  try {
+    const result = queries.pruneOldData();
+    logger.info('data retention prune complete', { retentionDays: config.dataRetentionDays, ...result });
+  } catch (err) {
+    logger.warn('data retention prune failed', { error: err.message });
+  }
+  try {
+    if (db.maybeVacuum()) logger.info('vacuumed sqlite database to reclaim pruned space');
+  } catch (err) {
+    logger.warn('vacuum failed', { error: err.message });
+  }
+}
+
 async function main() {
   db.open();
   logger.info('starting', { intervalMs: config.peerPollIntervalMs });
@@ -132,6 +151,9 @@ async function main() {
       logger.warn('offline-trusted-peer check failed', { error: err.message });
     }
   }, 10 * 60 * 1000);
+
+  runMaintenance();
+  setInterval(runMaintenance, 24 * 60 * 60 * 1000);
 }
 
 main().catch((err) => {

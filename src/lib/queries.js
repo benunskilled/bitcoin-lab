@@ -334,4 +334,50 @@ function deletePool(id) {
   tx(id);
 }
 
-module.exports = { peerRanking, liveSummary, stratumRanking, latestBlock, deletePool };
+// Caps unbounded growth of the historical tables - see config.js
+// dataRetentionDays for why this matters beyond just disk space. Runs as
+// one transaction, in dependency order (children before the rows they
+// reference), so a crash mid-prune never leaves an orphaned or
+// FK-violating row behind. Returns how many rows of each kind were
+// removed, purely for logging.
+function pruneOldData(retentionDays = config.dataRetentionDays) {
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const tx = db.instance.transaction(() => {
+    db.instance
+      .prepare(`DELETE FROM relay_observation WHERE race_id IN (SELECT id FROM relay_race WHERE detected_at < ?)`)
+      .run(cutoff);
+    const racesDeleted = db.instance.prepare(`DELETE FROM relay_race WHERE detected_at < ?`).run(cutoff).changes;
+
+    db.instance
+      .prepare(`DELETE FROM stratum_observation WHERE race_id IN (SELECT id FROM stratum_race WHERE created_at < ?)`)
+      .run(cutoff);
+    const stratumRacesDeleted = db.instance.prepare(`DELETE FROM stratum_race WHERE created_at < ?`).run(cutoff).changes;
+
+    // Only ever removes CLOSED sessions (ended_at IS NOT NULL) - a peer
+    // that's currently live is never touched here regardless of how long
+    // ago it first connected (started_at can be old for a peer that's just
+    // been reliably up).
+    const sessionsDeleted = db.instance
+      .prepare(`DELETE FROM peer_session WHERE ended_at IS NOT NULL AND ended_at < ?`)
+      .run(cutoff).changes;
+
+    // A peer left with no session and no relay-observation history after
+    // the deletes above is just dead weight - safe to drop, UNLESS it's
+    // (or ever was) manually trusted, since trusted_peer keys on address
+    // independently of this table and a re-added trusted peer should still
+    // get its own fresh first_seen_at rather than inheriting a stale one.
+    const peersDeleted = db.instance
+      .prepare(
+        `DELETE FROM peer
+         WHERE id NOT IN (SELECT DISTINCT peer_id FROM peer_session)
+           AND id NOT IN (SELECT DISTINCT peer_id FROM relay_observation)
+           AND address NOT IN (SELECT address FROM trusted_peer)`,
+      )
+      .run().changes;
+
+    return { racesDeleted, stratumRacesDeleted, sessionsDeleted, peersDeleted };
+  });
+  return tx();
+}
+
+module.exports = { peerRanking, liveSummary, stratumRanking, latestBlock, deletePool, pruneOldData };

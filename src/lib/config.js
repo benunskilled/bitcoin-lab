@@ -110,5 +110,17 @@ module.exports = {
   // any useful sense - nothing to add manually or disconnect on purpose.
   umbrelInternalNetworkCidr: pick(process.env.UMBREL_INTERNAL_NETWORK_CIDR, '10.21.0.0/16'),
 
+  // How long to keep historical race/session data before it's pruned. Every
+  // one of relay_race/relay_observation, stratum_race/stratum_observation,
+  // and closed peer_session rows otherwise accumulates forever - and each
+  // is scanned/aggregated on every peerRanking()/stratumRanking() call,
+  // which fires on every dashboard refresh AND every Umbrel home-widget
+  // poll, so query cost (and SQLite file size, and RAM the page cache
+  // holds) quietly grows with the node's uptime, not just with how much
+  // it's used. 180 days keeps genuinely "long-term" peer/pool history (the
+  // whole point of this app) while putting a ceiling on it. Never touches
+  // trusted_peer or a currently-live session, regardless of age.
+  dataRetentionDays: Number(pick(process.env.DATA_RETENTION_DAYS, '180')),
+
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };
