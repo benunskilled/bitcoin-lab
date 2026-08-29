@@ -41,8 +41,8 @@ function peerRanking() {
          p.first_seen_at AS firstSeenAt,
          tp.label AS trustedLabel,
          (tp.address IS NOT NULL) AS trusted,
-         COALESCE(elig.cnt, 0) AS eligible,
-         COALESCE(fst.cnt, 0) AS first,
+         COALESCE(prs.eligible, 0) AS eligible,
+         COALESCE(prs.first, 0) AS first,
          os.direction AS liveDirection,
          os.connection_type AS liveConnectionType,
          os.started_at AS liveStartedAt,
@@ -54,10 +54,12 @@ function peerRanking() {
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
-       LEFT JOIN (SELECT peer_id, COUNT(*) cnt FROM relay_observation GROUP BY peer_id) elig
-         ON elig.peer_id = p.id
-       LEFT JOIN (SELECT peer_id, COUNT(*) cnt FROM relay_observation WHERE first = 1 GROUP BY peer_id) fst
-         ON fst.peer_id = p.id
+       -- Two GROUP BY passes over the whole of relay_observation used to sit
+       -- here. That table is deliberately never pruned, so their cost grew
+       -- with every block the node ever saw; peer_relay_stats holds the same
+       -- totals as one row per peer, kept exact by triggers on
+       -- relay_observation itself (see db.js), so it cannot drift.
+       LEFT JOIN peer_relay_stats prs ON prs.peer_id = p.id
        LEFT JOIN peer_session os ON os.peer_id = p.id AND os.ended_at IS NULL
        LEFT JOIN (
          SELECT peer_id, COUNT(*) sessionsCount, SUM(COALESCE(ended_at, @now) - started_at) totalMs
@@ -86,10 +88,10 @@ function peerRanking() {
        -- eligible count, then address as the final, purely deterministic
        -- tiebreaker.
        ORDER BY
-         CASE WHEN COALESCE(elig.cnt, 0) > 0 THEN (1.0 * COALESCE(fst.cnt, 0) / elig.cnt) ELSE -1 END DESC,
+         CASE WHEN COALESCE(prs.eligible, 0) > 0 THEN (1.0 * COALESCE(prs.first, 0) / prs.eligible) ELSE -1 END DESC,
          CASE WHEN os.min_ping_ms IS NULL THEN 1 ELSE 0 END ASC,
          os.min_ping_ms ASC,
-         COALESCE(elig.cnt, 0) DESC,
+         COALESCE(prs.eligible, 0) DESC,
          p.address ASC`,
     )
     .all({ now });
@@ -160,6 +162,36 @@ function peerRanking() {
   });
 }
 
+/**
+ * Trusted peers that are not currently connected, with how long they have
+ * been gone. Previously this was derived by building the entire ranking and
+ * filtering it in JavaScript, every ten minutes, purely to write a log line.
+ * The question is narrow, so the query is too.
+ */
+function offlineTrustedPeers() {
+  const now = Date.now();
+  return db.instance
+    .prepare(
+      `SELECT tp.address, tp.label AS trustedLabel,
+              (SELECT MAX(ended_at) FROM peer_session ps
+                 JOIN peer p ON p.id = ps.peer_id
+                WHERE p.address = tp.address) AS lastEndedAt
+       FROM trusted_peer tp
+       WHERE NOT EXISTS (
+         SELECT 1 FROM peer_session ps
+           JOIN peer p ON p.id = ps.peer_id
+          WHERE p.address = tp.address AND ps.ended_at IS NULL
+       )
+       ORDER BY tp.address`,
+    )
+    .all()
+    .map((r) => ({
+      address: r.address,
+      trustedLabel: r.trustedLabel,
+      offlineSinceMs: r.lastEndedAt != null ? now - r.lastEndedAt : null,
+    }));
+}
+
 function statusFor(r, trusted) {
   const live = Boolean(r.liveDirection);
   if (trusted && live) return 'MANUAL LIVE';
@@ -209,14 +241,98 @@ function raceIdsForRange(range) {
   return null; // unrecognized value - fail open to all-time rather than showing nothing
 }
 
+function percentile(sortedAsc, p) {
+  if (!sortedAsc.length) return null;
+  const idx = Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length));
+  return sortedAsc[idx];
+}
+
+// Two prepared seeks reused for the all-time path below. With the covering
+// index on (pool_id, latency_ms) each is an index walk that materialises a
+// single row - SQLite skips the OFFSET entries inside the index rather than
+// handing them to us.
+let nthLatencyStmt = null;
+function nthLatency(poolId, offset) {
+  if (!nthLatencyStmt) {
+    nthLatencyStmt = db.instance.prepare(
+      `SELECT latency_ms FROM stratum_observation
+        WHERE pool_id = ? AND latency_ms IS NOT NULL
+        ORDER BY latency_ms ASC LIMIT 1 OFFSET ?`,
+    );
+  }
+  const row = nthLatencyStmt.get(poolId, offset);
+  return row ? row.latency_ms : null;
+}
+
+/**
+ * Median and P90 per pool, without ever loading a pool's full latency history
+ * into JavaScript - which is what v1.11.1 did, once per pool, on an endpoint
+ * the dashboard polls every 20 seconds. At a full retention window that was
+ * hundreds of thousands of rows marshalled and sorted per request.
+ *
+ * Two shapes, because the right plan genuinely differs:
+ *
+ *  - A bounded range ("last 10/100 races") is answered by one query for all
+ *    pools at once. race_id leads the primary key, so this is a handful of
+ *    rows, and sorting them here is free.
+ *
+ *  - All-time has no selective filter, so instead of reading every row we ask
+ *    the index directly for the nth smallest value. The sample count comes
+ *    from the aggregate that has already been computed (seen minus misses),
+ *    so this costs two index seeks per pool and nothing else.
+ *
+ * Both paths pick exactly the row the previous implementation did: 0-based
+ * index min(n - 1, floor(p * n)) over the ascending samples.
+ */
+function percentilesByPool({ pools, statsByPool, raceIds, raceFilterSql, raceFilterParams }) {
+  const result = new Map();
+
+  if (raceIds) {
+    const rows = db.instance
+      .prepare(
+        `SELECT pool_id AS poolId, latency_ms AS latencyMs
+           FROM stratum_observation
+          WHERE latency_ms IS NOT NULL ${raceFilterSql}
+          ORDER BY pool_id, latency_ms ASC`,
+      )
+      .all(...raceFilterParams);
+    const byPool = new Map();
+    for (const row of rows) {
+      if (!byPool.has(row.poolId)) byPool.set(row.poolId, []);
+      byPool.get(row.poolId).push(row.latencyMs);
+    }
+    for (const pool of pools) {
+      const samples = byPool.get(pool.id) || [];
+      result.set(pool.id, { medianMs: percentile(samples, 0.5), p90Ms: percentile(samples, 0.9) });
+    }
+    return result;
+  }
+
+  for (const pool of pools) {
+    const s = statsByPool.get(pool.id);
+    const n = s ? s.seen - s.misses : 0;
+    if (n <= 0) {
+      result.set(pool.id, { medianMs: null, p90Ms: null });
+      continue;
+    }
+    result.set(pool.id, {
+      medianMs: nthLatency(pool.id, Math.min(n - 1, Math.floor(0.5 * n))),
+      p90Ms: nthLatency(pool.id, Math.min(n - 1, Math.floor(0.9 * n))),
+    });
+  }
+  return result;
+}
+
 function stratumRanking(range = '10') {
   const pools = db.instance.prepare(`SELECT * FROM stratum_pool ORDER BY is_default DESC, label ASC`).all();
   const raceIds = raceIdsForRange(range);
 
-  // better-sqlite3 needs a concrete placeholder list for IN(); an empty
-  // range (e.g. "last 10 races" before any race has happened yet) still
-  // needs valid, always-false SQL rather than an empty IN() call.
-  const raceFilterSql = raceIds ? `WHERE race_id IN (${raceIds.length ? raceIds.map(() => '?').join(',') : 'NULL'})` : '';
+  // better-sqlite3 needs a concrete placeholder list for IN(); an empty range
+  // (e.g. "last 10 races" before any race has happened yet) still needs valid,
+  // always-false SQL rather than an empty IN() call.
+  const raceFilterSql = raceIds
+    ? `AND race_id IN (${raceIds.length ? raceIds.map(() => '?').join(',') : 'NULL'})`
+    : '';
   const raceFilterParams = raceIds || [];
 
   const stats = db.instance
@@ -228,18 +344,13 @@ function stratumRanking(range = '10') {
          SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
          AVG(latency_ms) AS avgMs
        FROM stratum_observation
-       ${raceFilterSql}
+       WHERE 1 = 1 ${raceFilterSql}
        GROUP BY pool_id`,
     )
     .all(...raceFilterParams);
   const statsByPool = new Map(stats.map((s) => [s.poolId, s]));
 
-  // Median/P90 need the raw sorted samples - fetch per pool (fine at this scale).
-  const samplesStmt = db.instance.prepare(
-    `SELECT latency_ms FROM stratum_observation
-     WHERE pool_id = ? AND latency_ms IS NOT NULL ${raceIds ? `AND race_id IN (${raceIds.length ? raceIds.map(() => '?').join(',') : 'NULL'})` : ''}
-     ORDER BY latency_ms ASC`,
-  );
+  const percentiles = percentilesByPool({ pools, statsByPool, raceIds, raceFilterSql, raceFilterParams });
 
   // Which pool (if any) won the single most recent race - drives the
   // "last winner" badge regardless of which time range is selected.
@@ -250,7 +361,7 @@ function stratumRanking(range = '10') {
 
   const ranked = pools.map((pool) => {
     const s = statsByPool.get(pool.id);
-    const samples = samplesStmt.all(pool.id, ...raceFilterParams).map((r) => r.latency_ms);
+    const pct = percentiles.get(pool.id);
     return {
       id: pool.id,
       label: pool.label,
@@ -263,8 +374,8 @@ function stratumRanking(range = '10') {
       wins: s ? s.wins : 0,
       winPct: s && s.seen > 0 ? (100 * s.wins) / s.seen : null,
       avgMs: s ? s.avgMs : null,
-      medianMs: percentile(samples, 0.5),
-      p90Ms: percentile(samples, 0.9),
+      medianMs: pct ? pct.medianMs : null,
+      p90Ms: pct ? pct.p90Ms : null,
       wonLastRace: pool.id === lastWinnerPoolId,
     };
   });
@@ -285,12 +396,6 @@ function stratumRanking(range = '10') {
   });
 
   return ranked;
-}
-
-function percentile(sortedAsc, p) {
-  if (!sortedAsc.length) return null;
-  const idx = Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length));
-  return sortedAsc[idx];
 }
 
 // Latest relay race (newest block Bitcoin Core told us about via ZMQ) plus
@@ -330,6 +435,13 @@ function deletePool(id) {
   const tx = db.instance.transaction((poolId) => {
     db.instance.prepare(`DELETE FROM stratum_observation WHERE pool_id = ?`).run(poolId);
     db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(poolId);
+    // Races in which this pool was the only participant now have no
+    // observations at all. Left in place they still occupy slots in the
+    // "last N races" windows, so the range selector would quietly show fewer
+    // data points than it claims. Drop the empty shells with the pool.
+    db.instance
+      .prepare(`DELETE FROM stratum_race WHERE id NOT IN (SELECT DISTINCT race_id FROM stratum_observation)`)
+      .run();
   });
   tx(id);
 }
@@ -387,9 +499,23 @@ function pruneOldData({
       )
       .run().changes;
 
+    // Rollup rows only ever exist for peers that appear in relay_observation,
+    // and those peers are never pruned - so this should always be a no-op.
+    // It runs anyway so the summary table can never outlive its peer and
+    // silently resurrect a stale row under a recycled id.
+    db.instance.prepare(`DELETE FROM peer_relay_stats WHERE peer_id NOT IN (SELECT id FROM peer)`).run();
+
     return { stratumRacesDeleted, feelerSessionsDeleted, peersDeleted };
   });
   return tx();
 }
 
-module.exports = { peerRanking, liveSummary, stratumRanking, latestBlock, deletePool, pruneOldData };
+module.exports = {
+  peerRanking,
+  offlineTrustedPeers,
+  liveSummary,
+  stratumRanking,
+  latestBlock,
+  deletePool,
+  pruneOldData,
+};

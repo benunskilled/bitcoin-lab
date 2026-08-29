@@ -18,10 +18,12 @@
  * connected and could in principle have delivered the block).
  */
 
-const zmq = require('zeromq');
 const config = require('./lib/config');
 const db = require('./lib/db');
 const rpc = require('./lib/rpc');
+const health = require('./lib/health');
+const processGuard = require('./lib/process-guard');
+const hashblock = require('./lib/hashblock-subscriber');
 const logger = require('./lib/logger').make('relay-profiler');
 
 // A peer counts as "first" if Core recorded a block from it within this
@@ -50,6 +52,9 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       const peerRow = db.getOrCreatePeer(peer.addr);
       const lastBlockMs = typeof peer.last_block === 'number' ? peer.last_block * 1000 : 0;
       const isFirst = lastBlockMs > 0 && Math.abs(lastBlockMs - detectedAtMs) <= FIRST_WINDOW_MS && lastBlockMs <= detectedAtMs + 1000;
+      // peer_relay_stats (the rollup peerRanking reads instead of aggregating
+      // this table on every request) is updated by a database trigger on this
+      // insert, in this same transaction - see db.js. Nothing to do here.
       insertObservation.run(raceId, peerRow.id, isFirst ? 1 : 0);
     }
     return raceId;
@@ -68,15 +73,7 @@ async function backfillHeightAndPeerCounts(raceId, blockHash) {
   }
 }
 
-async function handleHashBlock(msg) {
-  // Capture the timestamp FIRST, before any parsing or async work.
-  const t0 = process.hrtime.bigint();
-  const detectedAtMs = Date.now();
-
-  // pubhashblock payload is the 32-byte block hash in internal (little-endian)
-  // byte order; reverse for the conventional display/RPC hex string.
-  const blockHash = Buffer.from(msg).reverse().toString('hex');
-
+async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   let peers;
   try {
     peers = await rpc.getPeerInfo();
@@ -88,7 +85,20 @@ async function handleHashBlock(msg) {
     return;
   }
 
-  const raceId = recordRace({ blockHash, detectedAtMs, peers });
+  let raceId;
+  try {
+    raceId = recordRace({ blockHash, detectedAtMs, peers });
+  } catch (err) {
+    // Before v1.12.0 this call sat outside any try/catch inside a
+    // fire-and-forget async function, so a SQLite write failing here (a lock
+    // held past busy_timeout, a full disk) became an unhandled rejection and
+    // terminated the process - the one process whose data cannot be
+    // reconstructed afterwards. Losing a single block's race is bad; losing
+    // every subsequent block until someone notices is far worse.
+    logger.error('failed to record block race', { blockHash, error: err.stack || err.message });
+    return;
+  }
+
   const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6;
 
   if (raceId == null) {
@@ -107,34 +117,36 @@ async function handleHashBlock(msg) {
   backfillHeightAndPeerCounts(raceId, blockHash);
 }
 
-async function main() {
+function main() {
+  let subscription;
+  processGuard.install(logger, { onShutdown: () => subscription && subscription.stop() });
   db.open();
   logger.info('starting', { zmq: config.bitcoin.zmqHashBlockUrl });
 
-  for (;;) {
-    const sock = new zmq.Subscriber();
-    sock.connect(config.bitcoin.zmqHashBlockUrl);
-    sock.subscribe('hashblock');
-    logger.info('subscribed to hashblock', { url: config.bitcoin.zmqHashBlockUrl });
+  subscription = hashblock.start({
+    url: config.bitcoin.zmqHashBlockUrl,
+    logger,
+    // Fire-and-forget so a slow getpeerinfo never delays the next ZMQ message
+    // from being read off the socket. The .catch() is the backstop: every
+    // error path inside handleHashBlock is already handled, and anything that
+    // still escapes gets logged rather than killing the process.
+    onBlock: (event) => {
+      handleHashBlock(event).catch((err) => {
+        logger.error('unexpected error handling hashblock', { error: err.stack || err.message });
+      });
+    },
+  });
 
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      for await (const [, msg] of sock) {
-        // Fire-and-forget so a slow getpeerinfo never delays the next
-        // ZMQ message from being read off the socket, but errors are
-        // caught inside handleHashBlock itself.
-        handleHashBlock(msg);
-      }
-    } catch (err) {
-      logger.error('zmq subscriber error, reconnecting in 5s', { error: err.message });
-      sock.close();
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-  }
+  // Block arrivals are ~10 minutes apart with no upper bound, so "nothing
+  // happened recently" is a healthy state here. The heartbeat therefore runs
+  // on its own clock and reports the ZMQ connection state rather than block
+  // activity.
+  health.start(db, 'relay-profiler', logger, () => ({
+    zmqConnected: subscription.state.connected,
+    lastBlockAtMs: subscription.state.lastBlockAtMs,
+  }));
 }
 
-main().catch((err) => {
-  logger.error('fatal', { error: err.stack || err.message });
-  process.exit(1);
-});
+if (require.main === module) main();
+
+module.exports = { recordRace, handleHashBlock, main, FIRST_WINDOW_MS };

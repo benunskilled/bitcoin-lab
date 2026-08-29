@@ -9,8 +9,6 @@
 #
 # Dashboard: http://localhost:8788
 
-version: "3.7"
-
 services:
   bitcoind:
     image: ruimarinho/bitcoin-core:23
@@ -27,7 +25,10 @@ services:
     volumes:
       - ./dev-data/bitcoind:/home/bitcoin/.bitcoin
     ports:
-      - "18443:18443" # regtest RPC, exposed for manual bitcoin-cli use while developing
+      # Loopback only. This node accepts -rpcallowip=0.0.0.0/0 with fixed,
+      # published credentials, so binding it to every interface put an open
+      # RPC on the whole local network for as long as the dev stack ran.
+      - "127.0.0.1:18443:18443" # regtest RPC, for manual bitcoin-cli use while developing
 
   dashboard:
     build: .

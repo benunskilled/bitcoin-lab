@@ -16,7 +16,22 @@ permissions:
   packages: write
 
 jobs:
+  # The image published here is pinned by digest in the app store package, so
+  # whatever this job builds is exactly what users install. Before v1.12.0 a
+  # tag went straight to build-and-push without the test suite ever running.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

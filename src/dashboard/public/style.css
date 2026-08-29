@@ -302,6 +302,20 @@ table.peer-table { table-layout: fixed; }
 .action-toast.success { border-color: var(--good); color: var(--good); }
 .action-toast.error { border-color: var(--bad); color: var(--bad); }
 
+/* Shown only when a background service stops sending heartbeats. Those three
+   processes have no UI of their own, so without this a stopped collector just
+   looks like a node that happens to be quiet. */
+.service-banner {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: rgba(248, 81, 73, .08);
+  border: 1px solid var(--bad);
+  color: var(--bad);
+}
+
 /* Full-screen orange wave that rolls across on a new block */
 .block-wave {
   position: fixed;

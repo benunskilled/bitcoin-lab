@@ -4,8 +4,13 @@
  * Dashboard - HTTP API + static frontend. Read-only status/ranking data
  * comes straight from SQLite (written by the other three processes);
  * actions (trust/manual-add/disconnect/pool management) call Bitcoin RPC
- * or write small config rows directly. Nothing here touches ZMQ or block
- * timing - this process is purely the operator-facing surface.
+ * or write small config rows directly. Nothing here touches block timing -
+ * this process is purely the operator-facing surface.
+ *
+ * It does subscribe to Core's `pubhashblock` ZMQ topic, but only to push a
+ * "new block" event to connected browsers (see /api/events). That is a
+ * separate socket in a separate process from the relay profiler's, so it
+ * cannot affect what the profiler measures.
  */
 
 const http = require('http');
@@ -18,6 +23,10 @@ const db = require('./lib/db');
 const rpc = require('./lib/rpc');
 const queries = require('./lib/queries');
 const peerSync = require('./lib/peer-sync');
+const health = require('./lib/health');
+const processGuard = require('./lib/process-guard');
+const hashblock = require('./lib/hashblock-subscriber');
+const { validatePool } = require('./lib/validate');
 const { manualAddPeer, hostFromAddress } = require('./lib/manual-peer');
 const logger = require('./lib/logger').make('dashboard');
 
@@ -29,6 +38,16 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+};
+
+// How stale a worker's heartbeat may get before the dashboard reports it as
+// unhealthy. All three write one every 30s (see lib/health.js), so these are
+// generous multiples of that - a single missed beat under load is not a
+// fault, three in a row is.
+const SERVICE_STALE_MS = {
+  'peer-profiler': 120_000,
+  'relay-profiler': 120_000,
+  'stratum-race': 120_000,
 };
 
 function sendJson(res, status, data) {
@@ -89,6 +108,104 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Live block events (Server-Sent Events)
+//
+// Replaces a 5-second poll of /api/blocks/latest - 720 requests an hour to
+// catch an event that happens roughly six times an hour, and which still
+// arrived up to five seconds late. The block wave is now driven by the same
+// ZMQ notification Core sends the relay profiler, so it is both cheaper and
+// visibly more immediate.
+// ---------------------------------------------------------------------------
+
+const sseClients = new Set();
+// Core publishes the hash the moment the block is connected; the relay
+// profiler writes its race row microseconds later, in a different process.
+// Waiting briefly before reading means the payload carries the finished race
+// (including which peer was first) rather than the previous one.
+const BLOCK_SETTLE_MS = 750;
+const SSE_KEEPALIVE_MS = 25_000;
+let lastBroadcastRaceId = null;
+
+function sseBroadcast(event, payload) {
+  const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(frame);
+    } catch {
+      sseClients.delete(res);
+    }
+  }
+}
+
+function broadcastLatestBlock({ force = false } = {}) {
+  let race;
+  try {
+    race = queries.latestBlock();
+  } catch (err) {
+    logger.warn('could not read latest block for event stream', { error: err.message });
+    return;
+  }
+  if (!race) return;
+  if (!force && race.id === lastBroadcastRaceId) return;
+  lastBroadcastRaceId = race.id;
+  sseBroadcast('block', race);
+}
+
+function handleEventStream(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    // Umbrel puts every app behind its own proxy; without this a proxy may
+    // buffer the stream and deliver events in batches, which would defeat
+    // the entire point of switching away from polling.
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(': connected\n\n');
+  sseClients.add(res);
+
+  // Send the current state straight away so a freshly opened dashboard shows
+  // the latest block without waiting for the next one.
+  try {
+    const race = queries.latestBlock();
+    if (race) res.write(`event: block\ndata: ${JSON.stringify(race)}\n\n`);
+  } catch (err) {
+    logger.debug('initial block event failed', { error: err.message });
+  }
+
+  const keepalive = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch {
+      clearInterval(keepalive);
+    }
+  }, SSE_KEEPALIVE_MS);
+  keepalive.unref?.();
+
+  const cleanup = () => {
+    clearInterval(keepalive);
+    sseClients.delete(res);
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+}
+
+// ---------------------------------------------------------------------------
+
+function serviceHealth() {
+  const services = {};
+  let allOk = true;
+  for (const [service, maxAgeMs] of Object.entries(SERVICE_STALE_MS)) {
+    const beat = health.read(db, service);
+    const ageMs = beat ? Date.now() - beat.at : null;
+    const ok = ageMs != null && ageMs <= maxAgeMs;
+    if (!ok) allOk = false;
+    services[service] = { ok, ageMs, ...(beat || {}), at: undefined };
+  }
+  return { allOk, services };
+}
+
 async function handleWidgetStats(req, res) {
   const ranking = queries.peerRanking();
   const stratum = queries.stratumRanking();
@@ -127,6 +244,34 @@ async function handleWidgetStats(req, res) {
 }
 
 async function router(req, res, pathname, url) {
+  if (req.method === 'GET' && pathname === '/api/health') {
+    // 200 means THIS process is serving and can read its database - that is
+    // what the dashboard container's own healthcheck is asking. The state of
+    // the three worker processes is reported alongside it (they have no HTTP
+    // port of their own and are checked via their heartbeats) so the UI can
+    // surface a stuck or crash-looping worker, which was previously
+    // invisible from anywhere.
+    let dbOk = true;
+    try {
+      db.instance.prepare('SELECT 1').get();
+    } catch (err) {
+      dbOk = false;
+      logger.error('health check: database unreadable', { error: err.message });
+    }
+    const { allOk, services } = dbOk ? serviceHealth() : { allOk: false, services: {} };
+    return sendJson(res, dbOk ? 200 : 503, {
+      ok: dbOk,
+      allServicesOk: dbOk && allOk,
+      version: require('../package.json').version,
+      services,
+    });
+  }
+
+  if (req.method === 'GET' && pathname === '/api/events') {
+    handleEventStream(req, res);
+    return true;
+  }
+
   if (req.method === 'GET' && pathname === '/api/status') {
     let blockHeight = null;
     try {
@@ -204,15 +349,21 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'POST' && pathname === '/api/pools') {
-    const { label, host, port } = await readBody(req);
-    if (!label || !host || !port) return sendJson(res, 400, { error: 'label, host and port are required' });
+    const body = await readBody(req);
+    // Validated properly rather than merely checked for truthiness. An
+    // out-of-range port used to be stored happily and then killed the
+    // stratum-race process on every tick, since net.connect() throws
+    // synchronously for one - a crash loop no restart could clear, from a
+    // single typo in this form. See lib/validate.js.
+    const parsed = validatePool(body);
+    if (!parsed.ok) return sendJson(res, 400, { error: parsed.error });
     try {
       db.instance
         .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES (?, ?, ?, 1, 0, ?)`)
-        .run(String(label).slice(0, 64), String(host).slice(0, 255), Number(port), Date.now());
+        .run(parsed.value.label, parsed.value.host, parsed.value.port, Date.now());
       return sendJson(res, 200, { ok: true });
     } catch (err) {
-      return sendJson(res, 409, { ok: false, error: err.message });
+      return sendJson(res, 409, { ok: false, error: 'a pool with this host and port already exists' });
     }
   }
 
@@ -256,7 +407,48 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-db.open();
-server.listen(config.dashboardPort, () => {
-  logger.info('dashboard listening', { port: config.dashboardPort });
-});
+function main() {
+  let subscription = null;
+  let safetyTimer = null;
+  processGuard.install(logger, {
+    onShutdown: () => {
+      if (subscription) subscription.stop();
+      clearInterval(safetyTimer);
+      for (const res of sseClients) {
+        try { res.end(); } catch { /* client already gone */ }
+      }
+      server.close();
+    },
+  });
+
+  db.open();
+  health.start(db, 'dashboard', logger, () => ({ sseClients: sseClients.size }));
+
+  subscription = hashblock.start({
+    url: config.bitcoin.zmqHashBlockUrl,
+    logger,
+    onBlock: () => setTimeout(() => broadcastLatestBlock(), BLOCK_SETTLE_MS),
+  });
+
+  // Safety net for the event stream: if ZMQ is unavailable to THIS process
+  // for any reason, the browser still gets its block events, just a little
+  // later. One indexed single-row read, and it emits nothing unless the race
+  // id actually changed.
+  safetyTimer = setInterval(() => broadcastLatestBlock(), 20_000);
+  safetyTimer.unref?.();
+
+  server.on('error', (err) => {
+    // Previously an EADDRINUSE surfaced as a bare stack trace with no
+    // indication of which port or why.
+    logger.error('http server error', { port: config.dashboardPort, error: err.message });
+    process.exit(1);
+  });
+
+  server.listen(config.dashboardPort, () => {
+    logger.info('dashboard listening', { port: config.dashboardPort });
+  });
+}
+
+if (require.main === module) main();
+
+module.exports = { server, main };
