@@ -191,23 +191,46 @@ button.danger { color: var(--bad); }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
-.row-actions { display: flex; gap: 6px; }
+/* Stacked (primary action above Disconnect) rather than side by side -
+   halves the Actions column's required width, which is what was actually
+   causing it to get clipped at the table's right edge on anything but a
+   wide window (the sticky trick above only helps once the column itself
+   can fit within the visible table area at all). */
+.row-actions { display: flex; flex-direction: column; gap: 4px; }
 
 /* Each action cell renders a fixed two-slot layout (primary action, then
    Disconnect) with an empty placeholder - never an omitted element - for
    whichever slot doesn't apply to a given row (see actionsCell in app.js).
    A shared min-width across both real buttons and empty placeholders keeps
-   every row's slots starting at the same x position regardless of which
+   every row's slots starting at the same position regardless of which
    label (or none) occupies the first one - "Add as Manual" is the widest
    label this needs to fit without wrapping. */
 .action-slot {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 108px;
+  min-width: 100px;
   box-sizing: border-box;
 }
-span.action-slot { visibility: hidden; } /* reserves the width, shows nothing */
+span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
+
+/* Live Peer Ranking, Outbound Peers, and Manual Peers all render the exact
+   same column set in the exact same order (see the shared .col-* classes
+   on each table's <th> in index.html / the row templates in app.js) - a
+   fixed layout with matching widths per column is what makes Address,
+   Actions etc. actually line up vertically across the three panels instead
+   of each table silently sizing its own columns from its own content. */
+table.peer-table { table-layout: fixed; }
+.col-address { width: 17%; }
+.col-label { width: 9%; }
+.col-client { width: 13%; }
+.col-status { width: 11%; }
+.col-pct { width: 11%; }
+.col-ping { width: 6%; }
+.col-session { width: 10%; }
+.col-total { width: 8%; }
+.col-sessions { width: 5%; }
+.col-actions { width: 10%; }
 
 /* Hero: current chain height, pulses via .bump when a new block lands */
 .hero-card { padding: 20px 24px; }

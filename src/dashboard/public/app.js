@@ -239,7 +239,7 @@ async function refreshPeers() {
 // address would just be confusing/misleading, since it looks like a real
 // peer IP but isn't and can't be acted on (see actionsCell). Label it
 // honestly instead.
-function addressCell(p, includeLabel) {
+function addressCell(p) {
   if (p.sourceObscured) {
     return `<td class="cell-truncate hint" title="Core reports this connection's address as ${escapeHtml(p.address)} - Docker's inbound IPv6 relay (docker-proxy) re-originates the connection from its own internal gateway, so the peer's real address is never visible to Core itself, let alone to us. This is a Docker networking limitation, not an error.">IPv6 peer (address hidden by Docker)</td>`;
   }
@@ -252,8 +252,15 @@ function addressCell(p, includeLabel) {
     const label = p.localAppName ? `Local Umbrel app: ${p.localAppName}` : 'Local Umbrel app';
     return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - another app container on this Umbrel connecting to Bitcoin Core's P2P port directly, not an external peer.">${escapeHtml(label)}</td>`;
   }
-  const label = includeLabel && p.trustedLabel ? ` (${p.trustedLabel})` : '';
-  return truncatedCell(`${p.address}${label}`);
+  return truncatedCell(p.address);
+}
+
+// A trusted peer's label, in its own column - used to live inline inside
+// addressCell (Manual Peers only), now broken out so all three peer tables
+// share the exact same column set/order and line up with each other
+// instead of each having its own slightly different shape.
+function labelCell(p) {
+  return `<td>${p.trustedLabel ? escapeHtml(p.trustedLabel) : '<span class="hint">-</span>'}</td>`;
 }
 
 function renderPeerTables(peers) {
@@ -280,9 +287,14 @@ function renderPeerTables(peers) {
     }
   }
 
+  // All three tables below share the exact same column set, order, and
+  // widths (see the shared .col-* classes in the markup / style.css) so
+  // Address/Label/.../Actions line up vertically across panels instead of
+  // each table sizing its columns independently from its own content.
   document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      ${addressCell(p, true)}
+      ${addressCell(p)}
+      ${labelCell(p)}
       ${clientCell(p)}
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       ${firstPctCell(p)}
@@ -292,32 +304,37 @@ function renderPeerTables(peers) {
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p, { allowDisconnect: true })}</td>
     </tr>
-  `).join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="10" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      ${addressCell(p, false)}
+      ${addressCell(p)}
+      ${labelCell(p)}
       ${clientCell(p)}
       <td><span class="pill ${statusPillClass(p.connectionStatus)}">${p.connectionStatus}</span></td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
+      <td>${fmtDuration(p.totalConnectionMs)}</td>
+      <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="7" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
+  `).join('') || `<tr><td colspan="10" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
   document.querySelector('#manual-peer-table tbody').innerHTML = manualPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
-      ${addressCell(p, false)}
-      <td>${p.trustedLabel ? escapeHtml(p.trustedLabel) : '<span class="hint">-</span>'}</td>
+      ${addressCell(p)}
+      ${labelCell(p)}
       ${clientCell(p)}
       <td><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
+      <td>${fmtDuration(p.totalConnectionMs)}</td>
+      <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="8" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`;
+  `).join('') || `<tr><td colspan="10" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`;
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
