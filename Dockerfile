@@ -12,8 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --no-audit --no-fund
+# `npm ci` rather than `npm install`, and no glob on the lockfile: this image
+# is published under a tag+digest that the app store pins as "exactly this
+# artifact", so the build has to actually be reproducible. The old
+# `package-lock.json*` glob meant a missing lockfile still produced a happy
+# build from whatever the registry served that day.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY src ./src
 

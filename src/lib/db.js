@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS peer_session (
 CREATE INDEX IF NOT EXISTS idx_peer_session_peer ON peer_session(peer_id);
 CREATE INDEX IF NOT EXISTS idx_peer_session_open ON peer_session(peer_id, ended_at);
 
+CREATE INDEX IF NOT EXISTS idx_peer_session_peer_started ON peer_session(peer_id, started_at DESC);
+-- Partial index over just the currently-open sessions. liveSummary() runs
+-- a WHERE ended_at IS NULL filter on every /api/status poll and on every
+-- widget refresh; without this it scanned the whole (permanently growing)
+-- session table just to count a few dozen live rows.
+CREATE INDEX IF NOT EXISTS idx_peer_session_live
+  ON peer_session(peer_id, direction, connection_type) WHERE ended_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS trusted_peer (
   address TEXT PRIMARY KEY,
   label TEXT,
@@ -49,6 +57,56 @@ CREATE TABLE IF NOT EXISTS relay_observation (
   PRIMARY KEY (race_id, peer_id)
 );
 CREATE INDEX IF NOT EXISTS idx_relay_obs_peer ON relay_observation(peer_id);
+
+-- Running per-peer totals over relay_observation, maintained incrementally by
+-- the relay profiler as each race is recorded.
+--
+-- relay_observation itself is never time-pruned (it IS the long-term ranking
+-- data - see config.js), which is right, but it also means it grows without
+-- bound: roughly one row per connected peer per block, so a node holding ~50
+-- connections accumulates millions of rows a year. peerRanking() used to
+-- GROUP BY across that entire table twice on every single poll, so the cost
+-- of the main dashboard query grew linearly with the app's own lifetime.
+-- Keeping the raw rows and reading one summary row per peer gives identical
+-- numbers at constant cost. Backfilled once at startup (see runMigrations).
+CREATE TABLE IF NOT EXISTS peer_relay_stats (
+  peer_id INTEGER PRIMARY KEY REFERENCES peer(id),
+  eligible INTEGER NOT NULL DEFAULT 0,
+  first INTEGER NOT NULL DEFAULT 0
+);
+
+-- The rollup is maintained by the database itself rather than by the writer.
+-- A summary table that some code path forgets to update is worse than no
+-- summary at all - it is wrong data that looks authoritative - and
+-- relay_observation is written from the relay profiler, from migrations and
+-- from tests. With these triggers the invariant
+--   peer_relay_stats == SELECT peer_id, COUNT(*), SUM(first) FROM relay_observation
+-- holds by construction, in the same transaction as the row itself.
+CREATE TRIGGER IF NOT EXISTS trg_relay_observation_insert
+AFTER INSERT ON relay_observation
+BEGIN
+  INSERT INTO peer_relay_stats (peer_id, eligible, first)
+  VALUES (NEW.peer_id, 1, NEW.first)
+  ON CONFLICT(peer_id) DO UPDATE SET
+    eligible = peer_relay_stats.eligible + 1,
+    first = peer_relay_stats.first + NEW.first;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_relay_observation_delete
+AFTER DELETE ON relay_observation
+BEGIN
+  UPDATE peer_relay_stats
+     SET eligible = eligible - 1, first = first - OLD.first
+   WHERE peer_id = OLD.peer_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_relay_observation_update
+AFTER UPDATE OF first ON relay_observation
+BEGIN
+  UPDATE peer_relay_stats
+     SET first = first - OLD.first + NEW.first
+   WHERE peer_id = NEW.peer_id;
+END;
 
 CREATE TABLE IF NOT EXISTS stratum_pool (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +133,9 @@ CREATE TABLE IF NOT EXISTS stratum_observation (
   PRIMARY KEY (race_id, pool_id)
 );
 CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool ON stratum_observation(pool_id);
+-- Serves the ORDER BY inside the median/P90 window function, so the
+-- percentile pass is an ordered index walk instead of a sort.
+CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool_latency ON stratum_observation(pool_id, latency_ms);
 
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -121,9 +182,67 @@ function open() {
   // makes every connection wait up to 10s and retry instead.
   db.pragma('busy_timeout = 10000');
   db.exec(SCHEMA);
+  runMigrations();
   seedDefaultPools();
   logger.info('database ready', { path: config.sqlitePath });
   return db;
+}
+
+/**
+ * One-time data migrations, each guarded by its own flag row in `meta` and
+ * run inside a transaction, so all four processes can call this concurrently
+ * at startup and exactly one of them does the work.
+ *
+ * The busy timeout is raised for the duration: a backfill over a database
+ * that has been collecting for months is a single long write, and the other
+ * three processes starting at the same moment must wait it out rather than
+ * failing with SQLITE_BUSY at ten seconds.
+ */
+function runMigrations() {
+  const previousTimeout = 10000;
+  db.pragma('busy_timeout = 120000');
+  try {
+    migrate('rollup_backfill_v1', 'backfilled per-peer relay totals', () => {
+      db.prepare(
+        `INSERT INTO peer_relay_stats (peer_id, eligible, first)
+         SELECT peer_id, COUNT(*), COALESCE(SUM(first), 0)
+         FROM relay_observation
+         GROUP BY peer_id
+         ON CONFLICT(peer_id) DO UPDATE SET eligible = excluded.eligible, first = excluded.first`,
+      ).run();
+    });
+
+    // v1.11.1 and earlier scored a pool as a "miss" whenever any pool
+    // reported a stale prevhash while a race was still open (a lagging pool
+    // re-sending the previous block's job would close the live race early and
+    // mark everyone who had not yet reported). That inflated Win % for
+    // whichever pool was fastest and inflated Miss for every other pool, so
+    // the accumulated stratum statistics are not merely noisy but
+    // systematically biased and cannot be corrected after the fact. Clearing
+    // them once means Win %/Miss start from a correct baseline; the peer
+    // ranking data is untouched and unaffected.
+    migrate('stratum_history_reset_v1_12_0', 'cleared biased pre-v1.12.0 stratum race history', () => {
+      db.prepare(`DELETE FROM stratum_observation`).run();
+      db.prepare(`DELETE FROM stratum_race`).run();
+    });
+  } finally {
+    db.pragma(`busy_timeout = ${previousTimeout}`);
+  }
+}
+
+function migrate(flag, description, work) {
+  const done = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(`migration:${flag}`);
+  if (done) return;
+  const tx = db.transaction(() => {
+    // Re-check inside the transaction: another process may have finished this
+    // same migration between our read above and acquiring the write lock.
+    const raced = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(`migration:${flag}`);
+    if (raced) return false;
+    work();
+    db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)`).run(`migration:${flag}`, String(Date.now()));
+    return true;
+  });
+  if (tx()) logger.info(`migration: ${description}`, { flag });
 }
 
 function seedDefaultPools() {
@@ -165,9 +284,23 @@ function maybeVacuum() {
   return true;
 }
 
+// Recomputes the rollup from the raw observations. Not used on any hot path -
+// it exists so the invariant is testable, and as a repair hatch.
+function rebuildRelayStats() {
+  const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM peer_relay_stats`).run();
+    db.prepare(
+      `INSERT INTO peer_relay_stats (peer_id, eligible, first)
+       SELECT peer_id, COUNT(*), COALESCE(SUM(first), 0) FROM relay_observation GROUP BY peer_id`,
+    ).run();
+  });
+  tx();
+}
+
 module.exports = {
   open,
   get instance() { return db; },
   getOrCreatePeer,
   maybeVacuum,
+  rebuildRelayStats,
 };

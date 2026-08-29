@@ -10,9 +10,18 @@
 const config = require('./lib/config');
 const db = require('./lib/db');
 const rpc = require('./lib/rpc');
+const health = require('./lib/health');
+const processGuard = require('./lib/process-guard');
 const logger = require('./lib/logger').make('peer-profiler');
 const { syncTrustedToAddnode, adoptExternalManualPeers } = require('./lib/peer-sync');
 const queries = require('./lib/queries');
+
+const PEER_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// How often the "still offline" reminder may repeat for a peer that stays
+// down. Transitions are always logged immediately; this only governs the
+// periodic re-statement.
+const OFFLINE_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 
 function upsertSessions(peers) {
   const database = db.instance;
@@ -76,18 +85,42 @@ function upsertSessions(peers) {
 // Core reconnects a manual/trusted peer on its own, but that can silently
 // stall (peer went dark, network hiccup, a full manual-slot cap) - the
 // dashboard shows this at a glance, but not everyone has it open, so also
-// log it periodically for visibility via `docker logs` and to leave a
-// durable record of when/how long a manual peer was actually down.
+// log it for visibility via `docker logs` and to leave a durable record of
+// when a manual peer went down and when it came back.
+//
+// Logged on STATE CHANGE, with an hourly reminder while a peer stays down.
+// It used to emit one warn line per offline peer every ten minutes
+// unconditionally, so a manual peer that was gone for a week produced around
+// a thousand identical lines - which made `docker logs` useless for exactly
+// the diagnosis it was added to support.
+const offlineSince = new Map(); // address -> { firstLoggedAt, lastLoggedAt }
+
 function logOfflineTrustedPeers() {
-  const offline = queries.peerRanking().filter((p) => p.trusted && !p.live);
-  if (offline.length === 0) return;
+  const offline = queries.offlineTrustedPeers();
+  const stillOffline = new Set(offline.map((p) => p.address));
+  const now = Date.now();
+
+  for (const address of [...offlineSince.keys()]) {
+    if (!stillOffline.has(address)) {
+      offlineSince.delete(address);
+      logger.info('trusted peer is back online', { address });
+    }
+  }
 
   for (const p of offline) {
-    logger.warn('trusted peer currently offline', {
+    const seen = offlineSince.get(p.address);
+    const detail = {
       address: p.address,
       label: p.trustedLabel || undefined,
       offlineFor: p.offlineSinceMs != null ? `${Math.round(p.offlineSinceMs / 60000)}m` : 'never seen connecting',
-    });
+    };
+    if (!seen) {
+      offlineSince.set(p.address, { firstLoggedAt: now, lastLoggedAt: now });
+      logger.warn('trusted peer went offline', detail);
+    } else if (now - seen.lastLoggedAt >= OFFLINE_REMINDER_INTERVAL_MS) {
+      seen.lastLoggedAt = now;
+      logger.warn('trusted peer still offline', detail);
+    }
   }
 }
 
@@ -99,8 +132,36 @@ async function pollOnce() {
     logger.warn('getpeerinfo failed', { error: err.message });
     return;
   }
-  upsertSessions(peers);
+  try {
+    upsertSessions(peers);
+  } catch (err) {
+    // Same reasoning as relay-profiler.js: this runs inside an async function
+    // driven by a timer, so an unhandled throw here used to become an
+    // unhandled rejection and terminate the process. One failed snapshot is
+    // recoverable; a dead profiler that stops recording sessions is not
+    // obvious from the outside.
+    logger.error('failed to record peer snapshot', { error: err.stack || err.message });
+    return;
+  }
   logger.debug('poll complete', { peers: peers.length });
+}
+
+/**
+ * Self-scheduling loop rather than setInterval: getpeerinfo has a 10s RPC
+ * timeout and the SQLite write can wait out a 10s busy_timeout behind the
+ * daily prune, which together exceed the 15s poll interval. setInterval
+ * would keep firing regardless and let runs pile up on top of each other;
+ * this simply starts the next wait once the previous pass has finished.
+ */
+function startPolling(intervalMs) {
+  let timer = null;
+  const tick = async () => {
+    await pollOnce();
+    timer = setTimeout(tick, intervalMs);
+    timer.unref?.();
+  };
+  tick();
+  return () => clearTimeout(timer);
 }
 
 // Keeps the "feeler" side of the historical tables (and the SQLite file
@@ -129,20 +190,31 @@ function runMaintenance() {
 }
 
 async function main() {
+  let stopPolling = null;
+  processGuard.install(logger, { onShutdown: () => stopPolling && stopPolling() });
+
   db.open();
   logger.info('starting', { intervalMs: config.peerPollIntervalMs });
+  health.start(db, 'peer-profiler', logger);
 
   // Pull in any peer Core already has addnode'd that we don't know about
   // yet (added outside this app) before pushing our own list back out -
   // see adoptExternalManualPeers for why this direction is needed too.
-  const adoptResult = await adoptExternalManualPeers();
-  if (adoptResult.adopted > 0) logger.info('startup: adopted externally-managed manual peers', adoptResult);
+  try {
+    const adoptResult = await adoptExternalManualPeers();
+    if (adoptResult.adopted > 0) logger.info('startup: adopted externally-managed manual peers', adoptResult);
 
-  const syncResult = await syncTrustedToAddnode();
-  logger.info('startup trusted/addnode sync', syncResult);
+    const syncResult = await syncTrustedToAddnode();
+    logger.info('startup trusted/addnode sync', syncResult);
+  } catch (err) {
+    // Bitcoin Core may simply not be up yet when this container starts. That
+    // is not a reason to refuse to start profiling - the periodic sync below
+    // will pick it up.
+    logger.warn('startup peer sync failed, continuing', { error: err.message });
+  }
 
-  await pollOnce();
-  setInterval(pollOnce, config.peerPollIntervalMs);
+  stopPolling = startPolling(config.peerPollIntervalMs);
+
   // Safety net: re-run both directions periodically - re-assert trusted
   // peers as addnodes in case Core forgot them across a restart of the
   // bitcoin app itself, and adopt anything newly addnode'd outside this app
@@ -156,13 +228,17 @@ async function main() {
     } catch (err) {
       logger.warn('offline-trusted-peer check failed', { error: err.message });
     }
-  }, 10 * 60 * 1000);
+  }, PEER_SYNC_INTERVAL_MS);
 
   runMaintenance();
-  setInterval(runMaintenance, 24 * 60 * 60 * 1000);
+  setInterval(runMaintenance, MAINTENANCE_INTERVAL_MS);
 }
 
-main().catch((err) => {
-  logger.error('fatal', { error: err.stack || err.message });
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    logger.error('fatal', { error: err.stack || err.message });
+    process.exit(1);
+  });
+}
+
+module.exports = { upsertSessions, logOfflineTrustedPeers, pollOnce, runMaintenance, main };

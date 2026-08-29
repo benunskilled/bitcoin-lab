@@ -8,11 +8,11 @@
 // stale the tables are allowed to get from someone else's activity (Core
 // itself connecting/dropping peers) between clicks.
 const REFRESH_MS = 20000;
-// Kept separate and faster than REFRESH_MS purely for the "new block
-// landed" wave/highlight - but doesn't need to be as tight as it once was;
-// a few seconds of extra latency on a once-per-~10-minutes event is
-// unnoticeable, and it cuts this endpoint's call volume by more than half.
-const BLOCK_POLL_MS = 5000;
+// New blocks no longer arrive by polling at all. /api/events is a
+// Server-Sent Events stream the dashboard process feeds from Core's own ZMQ
+// notification, so the wave fires when the block actually lands instead of
+// up to five seconds later - and the old 5s poll (720 requests an hour to
+// catch roughly six events) is gone entirely.
 const HIGHLIGHT_MS = 2 * 60 * 1000; // how long the first-peer row(s) stay tinted after a new block
 
 // address -> expiry timestamp (ms). Rebuilt into row classes on every
@@ -80,13 +80,18 @@ function truncatedCell(text) {
 async function refreshStatus() {
   const s = await api('/api/status');
   if (s.maxManualPeers) MAX_MANUAL_PEERS = s.maxManualPeers;
+  // The peer count comes from SQLite and the block height from a Bitcoin
+  // Core RPC call. Tying them together meant a single RPC hiccup (Core
+  // restarting, still in IBD, a timeout) replaced a perfectly good peer
+  // count with "connecting…" - reporting the app as broken when only the
+  // one cosmetic value was missing.
   const el = document.getElementById('status');
-  el.textContent = s.blockHeight != null
-    ? `${s.network} · ${s.live.total} peers connected`
-    : `${s.network} · connecting…`;
+  el.textContent = `${s.network} · ${s.live.total} peers connected`;
 
   const heightEl = document.getElementById('block-height-number');
-  if (s.blockHeight != null) {
+  if (s.blockHeight == null) {
+    heightEl.textContent = '–';
+  } else {
     heightEl.textContent = s.blockHeight.toLocaleString();
     if (lastKnownHeight != null && s.blockHeight > lastKnownHeight) {
       heightEl.classList.remove('bump');
@@ -118,13 +123,9 @@ function triggerBlockWave() {
   wave.classList.add('roll');
 }
 
-async function pollLatestBlock() {
-  let race;
-  try {
-    race = await api('/api/blocks/latest');
-  } catch (err) {
-    return; // transient - next poll will retry
-  }
+// Called with the payload of a `block` event from /api/events (and once on
+// connect with the current state), so this no longer fetches anything.
+function applyBlockUpdate(race) {
   if (!race) return;
 
   const hashEl = document.getElementById('block-hash-short');
@@ -180,10 +181,10 @@ function actionsCell(p, options = {}) {
   // addnode, so "Add as Manual" would just try to add Docker's internal
   // gateway as a manual peer.
   const primary = p.trusted
-    ? `<button class="secondary action-slot" data-action="untrust" data-address="${p.address}">Remove</button>`
+    ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
     : ((p.sourceObscured || p.localUmbrelPeer)
       ? placeholder
-      : `<button class="secondary action-slot" data-action="add-manual" data-address="${p.address}">Add as Manual</button>`);
+      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
   // Disconnect still works fine for a source-obscured peer: it's exactly
   // the (masked) address Core itself uses internally for the connection.
@@ -193,7 +194,7 @@ function actionsCell(p, options = {}) {
   // so there's no real action to offer there either.
   const canDisconnect = p.live && !p.localUmbrelPeer && (allowDisconnect || !p.trusted);
   const disconnect = canDisconnect
-    ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${p.address}">Disconnect</button>`
+    ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${escapeHtml(p.address)}">Disconnect</button>`
     : placeholder;
 
   return `${primary}${disconnect}`;
@@ -340,8 +341,8 @@ async function refreshPools() {
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
     <tr>
-      <td>${p.label}${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
-      <td>${p.host}:${p.port}</td>
+      <td>${escapeHtml(p.label)}${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
+      <td>${escapeHtml(`${p.host}:${p.port}`)}</td>
       <td>${p.wins}</td>
       <td>${fmtPct(p.winPct)}</td>
       <td>${fmtMs(p.avgMs)}</td>
@@ -358,11 +359,9 @@ async function refreshPools() {
 }
 
 async function refreshAll() {
-  // pollLatestBlock() is NOT included here - it already runs on its own,
-  // faster BLOCK_POLL_MS interval below, so calling it again on every
-  // REFRESH_MS tick as well was a pure duplicate fetch of the exact same
-  // endpoint, not extra freshness.
-  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools()]);
+  // Block updates are not in here: they arrive on their own via the
+  // /api/events stream, not by polling.
+  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), refreshHealth()]);
 }
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
@@ -407,7 +406,7 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
 // Each action only refreshes the table(s) it can actually affect, rather
 // than re-fetching /api/status, /api/peers/ranking, /api/pools and
 // /api/blocks/latest on every single click - those already refresh on
-// their own schedules (REFRESH_MS / BLOCK_POLL_MS above).
+// their own schedule (REFRESH_MS above) or arrive on the event stream.
 const PEER_ACTIONS = new Set(['add-manual', 'untrust', 'disconnect']);
 const POOL_ACTIONS = new Set(['delete-pool']);
 
@@ -502,9 +501,88 @@ document.body.addEventListener('change', async (e) => {
   if (e.target.id === 'stratum-range') refreshPools();
 });
 
-refreshAll();
-setInterval(refreshAll, REFRESH_MS);
-// Separate, faster loop just for "did a new block land" - keeps the wave
-// and row highlight responsive without re-querying the full peer/pool
-// tables every couple of seconds.
-setInterval(pollLatestBlock, BLOCK_POLL_MS);
+// Background services (peer-profiler, relay-profiler, stratum-race) have no
+// HTTP port of their own, so a crashed or wedged one used to be invisible
+// here - the tables simply stopped changing. Each writes a heartbeat, and
+// this surfaces a stale one where it will actually be seen.
+async function refreshHealth() {
+  const banner = document.getElementById('service-banner');
+  if (!banner) return;
+  let report;
+  try {
+    report = await api('/api/health');
+  } catch (err) {
+    banner.hidden = true;
+    return;
+  }
+  const down = Object.entries(report.services || {})
+    .filter(([, v]) => !v.ok)
+    .map(([name]) => name);
+  if (down.length === 0) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  banner.textContent = down.length === 1
+    ? `The ${down[0]} service is not reporting in. Check its container logs - data it collects is not being recorded right now.`
+    : `${down.length} background services are not reporting in (${down.join(', ')}). Check the app's container logs.`;
+}
+
+/**
+ * Self-scheduling refresh loop.
+ *
+ * Two things setInterval got wrong here. It kept firing while a previous
+ * pass was still in flight, so a slow response let requests pile up on top
+ * of each other; and it kept polling forever in a background tab, so a
+ * dashboard left open in some window went on querying the node all day.
+ * This waits for each pass to finish before scheduling the next, pauses
+ * entirely while the page is hidden, and refreshes once immediately when it
+ * becomes visible again so it is never showing stale data on return.
+ */
+function startRefreshLoop() {
+  let timer = null;
+
+  const schedule = () => {
+    clearTimeout(timer);
+    if (document.hidden) return;
+    timer = setTimeout(run, REFRESH_MS);
+  };
+
+  const run = async () => {
+    if (document.hidden) return;
+    try {
+      await refreshAll();
+    } finally {
+      schedule();
+    }
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      clearTimeout(timer);
+    } else {
+      run();
+    }
+  });
+
+  run();
+}
+
+/**
+ * Live block events. EventSource reconnects on its own (including after the
+ * node or this app restarts), and the server replays the current block on
+ * connect, so no state is lost across a drop.
+ */
+function startEventStream() {
+  const source = new EventSource('/api/events');
+  source.addEventListener('block', (e) => {
+    try {
+      applyBlockUpdate(JSON.parse(e.data));
+    } catch (err) {
+      /* malformed frame - the next event supersedes it */
+    }
+  });
+}
+
+startRefreshLoop();
+startEventStream();

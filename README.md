@@ -57,6 +57,35 @@ equivalents (see `docker-compose.dev.yml` for a working example).
 | `DASHBOARD_PORT` | Dashboard HTTP port | `8788` |
 | `STRATUM_RACE_TIMEOUT_MS` | Window a pool has to report before scored a miss | `8000` |
 | `PEER_POLL_INTERVAL_MS` | Peer Profiler session poll interval | `15000` |
+| `STRATUM_HISTORY_RETENTION_DAYS` | How long stratum race history is kept | `180` |
+| `FEELER_PEER_RETENTION_DAYS` | How long sessions of peers with no relay history are kept | `14` |
+| `MAX_MANUAL_PEERS` | Manual/addnode connections Core holds open at once | `8` |
+| `LOG_LEVEL` | `error` / `warn` / `info` / `debug` | `info` |
+
+## Health and liveness
+
+Three of the four processes have no HTTP port, so each writes a heartbeat
+into the shared `meta` table every 30 seconds. Two things read it:
+
+- `GET /api/health` reports this process plus the state of all three
+  workers. The dashboard shows a banner when one stops reporting.
+- The container `healthcheck` for each worker runs
+  `node -e "require('/app/src/lib/health').assertFresh('<service>', 120000)"`,
+  which opens the database read-only and exits non-zero on a stale beat.
+
+The heartbeat runs on its own timer rather than as a side effect of work,
+because the relay profiler is event-driven: with ~10 minutes between blocks,
+"nothing happened recently" is a healthy state and must not read as a fault.
+
+## Live block events
+
+`GET /api/events` is a Server-Sent Events stream. The dashboard process
+subscribes to Core's `pubhashblock` topic on its own socket (separate
+process, separate socket from the relay profiler, so it cannot perturb what
+the profiler measures) and pushes a `block` event when one lands. The
+browser therefore does no block polling at all. A slow database-backed
+re-check runs alongside it so events still arrive if ZMQ is unavailable to
+this process.
 
 ## Design principles
 
