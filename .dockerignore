@@ -5,3 +5,4 @@ data
 .github
 test
 docker-compose.dev.yml
+scripts
