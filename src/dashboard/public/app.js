@@ -428,10 +428,32 @@ function showToast(message, kind) {
   }
 }
 
+// A local Umbrel pool app isn't reachable at umbrel.local, and the port a
+// miner on the LAN connects to is the app's externally-published port, not
+// its internal one - Bitcoin Lab is already a container on the same network
+// as the pool, so it needs the pool's container name and its INTERNAL
+// stratum port instead. Verified against real installs (`docker ps`): both
+// publish container-internal 3333 externally under a different number
+// (GoBrrr as 21420, Bassin as 3456) - only 3333 works from in here.
+const LOCAL_POOL_TEMPLATES = {
+  gobrrr: { label: 'GoBrrr', host: 'gobrrr-pool_ckpool_1', port: 3333 },
+  bassin: { label: 'Bassin', host: 'bassin_ckpool_1', port: 3333 },
+};
+
 document.body.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
-  const { action, address, id } = btn.dataset;
+  const { action, address, id, template } = btn.dataset;
+
+  if (action === 'fill-pool-template') {
+    const t = LOCAL_POOL_TEMPLATES[template];
+    if (!t) return;
+    document.getElementById('pool-label').value = t.label;
+    document.getElementById('pool-host').value = t.host;
+    document.getElementById('pool-port').value = t.port;
+    document.getElementById('pool-add-form').querySelector('button[type="submit"]').focus();
+    return;
+  }
   const isPeerOrPoolAction = PEER_ACTIONS.has(action) || POOL_ACTIONS.has(action);
   const originalLabel = btn.textContent;
   if (isPeerOrPoolAction) {

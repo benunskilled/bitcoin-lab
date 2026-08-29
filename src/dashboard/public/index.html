@@ -112,10 +112,29 @@
           <option value="all">All time</option>
         </select>
       </div>
+      <div class="inline-form" id="pool-quickfill">
+        <span class="hint">Local Umbrel pool:</span>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="gobrrr">GoBrrr</button>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="bassin">Bassin</button>
+      </div>
       <form id="pool-add-form" class="inline-form">
-        <input type="text" id="pool-label" placeholder="Label (e.g. Bassin)" required />
-        <input type="text" id="pool-host" placeholder="Host" required />
-        <input type="number" id="pool-port" placeholder="Port" min="1" max="65535" required />
+        <input type="text" id="pool-label" placeholder="Label" required />
+        <input
+          type="text"
+          id="pool-host"
+          placeholder="Host"
+          title="A local Umbrel pool app isn't reached at umbrel.local - use its container name instead (e.g. gobrrr-pool_ckpool_1), same network as this app."
+          required
+        />
+        <input
+          type="number"
+          id="pool-port"
+          placeholder="Port"
+          min="1"
+          max="65535"
+          title="A local Umbrel pool app's internal stratum port (usually 3333) - not the port your miner connects to on the LAN, that's a different, externally-published port."
+          required
+        />
         <button type="submit">Add Pool</button>
         <span id="pool-add-result" class="hint"></span>
       </form>
