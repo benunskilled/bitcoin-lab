@@ -383,102 +383,124 @@ test('peer ranking treats the docker-proxy masked gateway as sourceObscured, not
   assert.equal(row.localUmbrelPeer, false);
 });
 
-test('pruneOldData removes stale race/session history but keeps recent, live, and trusted-peer data', () => {
+test('pruneOldData keeps peers with relay history and trusted peers forever, only ages out feelers and stale stratum history', () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
-  const oldTs = Date.now() - 200 * DAY_MS; // outside the default 180-day retention window
-  const recentTs = Date.now() - 5 * DAY_MS; // well inside it
+  const veryOldTs = Date.now() - 200 * DAY_MS; // outside even the old flat 180-day window
+  const staleFeelerTs = Date.now() - 20 * DAY_MS; // outside the default 14-day feeler window
+  const freshFeelerTs = Date.now() - 2 * DAY_MS; // inside the default 14-day feeler window
 
-  // Untrusted peer with only old, closed history - should be fully pruned,
-  // peer row included, once nothing references it any more.
-  const staleAddress = '198.51.100.90:8333';
-  const stalePeer = db.getOrCreatePeer(staleAddress);
+  // Has relay_observation history, even ancient - must never be pruned:
+  // neither the peer row, nor its session, nor the relay_race/observation
+  // themselves (which are never time-pruned at all - that IS the app).
+  const rankedAddress = '198.51.100.90:8333';
+  const rankedPeer = db.getOrCreatePeer(rankedAddress);
   const oldRaceId = db.instance
     .prepare('INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)')
-    .run('prune-old-block', 900, oldTs).lastInsertRowid;
+    .run('prune-ranked-block', 900, veryOldTs).lastInsertRowid;
   db.instance
     .prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 1)')
-    .run(oldRaceId, stalePeer.id);
+    .run(oldRaceId, rankedPeer.id);
   db.instance
     .prepare(
       `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, ended_at, min_ping_ms, last_ping_ms)
        VALUES (?, ?, 'inbound', 'inbound', '/Satoshi:27.0.0/', ?, ?, 10, 10)`,
     )
-    .run(stalePeer.id, 8001, oldTs - 3600_000, oldTs);
+    .run(rankedPeer.id, 8001, veryOldTs - 3600_000, veryOldTs);
 
-  // Recent peer - its relay observation and session must survive untouched.
-  const recentAddress = '198.51.100.91:8333';
-  const recentPeer = db.getOrCreatePeer(recentAddress);
-  const recentRaceId = db.instance
-    .prepare('INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)')
-    .run('prune-recent-block', 901, recentTs).lastInsertRowid;
-  db.instance
-    .prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 0)')
-    .run(recentRaceId, recentPeer.id);
+  // No relay history at all, not trusted, closed session older than the
+  // feeler window - a pure "feeler" that should be fully pruned, peer row
+  // included, once its session goes with it.
+  const feelerAddress = '198.51.100.91:8333';
+  const feelerPeer = db.getOrCreatePeer(feelerAddress);
   db.instance
     .prepare(
       `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, ended_at, min_ping_ms, last_ping_ms)
        VALUES (?, ?, 'inbound', 'inbound', '/Satoshi:27.0.0/', ?, ?, 10, 10)`,
     )
-    .run(recentPeer.id, 8002, recentTs - 3600_000, recentTs);
+    .run(feelerPeer.id, 8002, staleFeelerTs - 3600_000, staleFeelerTs);
 
-  // Trusted peer with only OLD history - session/observation rows should
-  // still be pruned, but the peer row itself must survive because it's
-  // referenced by trusted_peer.
-  const trustedAddress = '198.51.100.92:8333';
+  // Same as above but its closed session is still inside the feeler
+  // window - too young to prune yet.
+  const freshFeelerAddress = '198.51.100.92:8333';
+  const freshFeelerPeer = db.getOrCreatePeer(freshFeelerAddress);
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, ended_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'inbound', 'inbound', '/Satoshi:27.0.0/', ?, ?, 10, 10)`,
+    )
+    .run(freshFeelerPeer.id, 8003, freshFeelerTs - 3600_000, freshFeelerTs);
+
+  // Trusted, no relay history, only an ancient closed session - peer row
+  // AND session must both survive: trusted peers are never touched here,
+  // regardless of relay history or age.
+  const trustedAddress = '198.51.100.93:8333';
   db.instance
     .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`)
-    .run(trustedAddress, 'Prune Test Trusted', oldTs);
+    .run(trustedAddress, 'Prune Test Trusted', veryOldTs);
   const trustedPeer = db.getOrCreatePeer(trustedAddress);
   db.instance
     .prepare(
       `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, ended_at, min_ping_ms, last_ping_ms)
        VALUES (?, ?, 'outbound', 'manual', '/Satoshi:27.0.0/', ?, ?, 10, 10)`,
     )
-    .run(trustedPeer.id, 8003, oldTs - 3600_000, oldTs);
+    .run(trustedPeer.id, 8004, veryOldTs - 3600_000, veryOldTs);
 
-  // A peer whose session is old but still LIVE (ended_at IS NULL) must
+  // A feeler whose session is old but still LIVE (ended_at IS NULL) must
   // never be touched, no matter how long ago it started.
-  const longLivedAddress = '198.51.100.93:8333';
+  const longLivedAddress = '198.51.100.94:8333';
   const longLivedPeer = db.getOrCreatePeer(longLivedAddress);
   db.instance
     .prepare(
       `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
        VALUES (?, ?, 'outbound', 'outbound-full-relay', '/Satoshi:27.0.0/', ?, 10, 10)`,
     )
-    .run(longLivedPeer.id, 8004, oldTs);
+    .run(longLivedPeer.id, 8005, veryOldTs);
 
-  // Old stratum race/observation - should be pruned the same way.
+  // Old stratum race/observation - this history still ages out on its own
+  // (much longer, default 180-day) schedule, unaffected by the peer changes.
   const oldStratumPool = db.instance.prepare('SELECT id FROM stratum_pool LIMIT 1').get();
   const oldStratumRaceId = db.instance
     .prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)')
-    .run('prune-old-prevhash', oldTs).lastInsertRowid;
+    .run('prune-old-prevhash', veryOldTs).lastInsertRowid;
   db.instance
     .prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, 100, 1)')
     .run(oldStratumRaceId, oldStratumPool.id);
 
   const result = queries.pruneOldData();
-  assert.equal(result.racesDeleted, 1);
   assert.equal(result.stratumRacesDeleted, 1);
-  assert.ok(result.sessionsDeleted >= 2, 'both the stale peer and trusted peer old sessions should be pruned');
+  assert.ok(result.feelerSessionsDeleted >= 1, 'the stale feeler session should be pruned');
   // >=1 rather than an exact count: earlier tests in this shared DB may
-  // have left their own history-less peer rows behind (e.g. a peer created
-  // but never given a session or observation), which are legitimately
-  // orphaned too and correctly swept up here alongside staleAddress below.
-  assert.ok(result.peersDeleted >= 1, 'the fully-orphaned untrusted stale peer should be dropped');
+  // have left their own history-less peer rows behind, which are
+  // legitimately orphaned too and correctly swept up alongside feelerAddress.
+  assert.ok(result.peersDeleted >= 1, 'the stale feeler peer should be dropped');
 
-  assert.equal(db.instance.prepare('SELECT * FROM peer WHERE address = ?').get(staleAddress), undefined);
-  assert.equal(db.instance.prepare('SELECT * FROM relay_race WHERE block_hash = ?').get('prune-old-block'), undefined);
-  assert.equal(db.instance.prepare('SELECT * FROM stratum_race WHERE prevhash = ?').get('prune-old-prevhash'), undefined);
+  // Ranked peer (has relay history): everything survives, however old.
+  assert.ok(db.instance.prepare('SELECT * FROM peer WHERE address = ?').get(rankedAddress));
+  assert.ok(db.instance.prepare('SELECT * FROM relay_race WHERE block_hash = ?').get('prune-ranked-block'));
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM peer_session WHERE peer_id = ?').get(rankedPeer.id).n,
+    1,
+  );
 
-  assert.ok(db.instance.prepare('SELECT * FROM peer WHERE address = ?').get(recentAddress));
-  assert.ok(db.instance.prepare('SELECT * FROM relay_race WHERE block_hash = ?').get('prune-recent-block'));
+  // Stale feeler: fully gone.
+  assert.equal(db.instance.prepare('SELECT * FROM peer WHERE address = ?').get(feelerAddress), undefined);
 
-  // Trusted peer row survives even though its (old) session was pruned.
+  // Fresh feeler: still inside its retention window, untouched.
+  assert.ok(db.instance.prepare('SELECT * FROM peer WHERE address = ?').get(freshFeelerAddress));
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM peer_session WHERE peer_id = ?').get(freshFeelerPeer.id).n,
+    1,
+  );
+
+  // Trusted peer: peer row AND its ancient session both survive.
   assert.ok(db.instance.prepare('SELECT * FROM peer WHERE address = ?').get(trustedAddress));
   assert.equal(
     db.instance.prepare('SELECT COUNT(*) AS n FROM peer_session WHERE peer_id = ?').get(trustedPeer.id).n,
-    0,
+    1,
   );
+
+  // Old stratum race: pruned on its own (much longer) schedule.
+  assert.equal(db.instance.prepare('SELECT * FROM stratum_race WHERE prevhash = ?').get('prune-old-prevhash'), undefined);
 
   // Still-live old session survives untouched.
   const liveSession = db.instance.prepare('SELECT * FROM peer_session WHERE peer_id = ?').get(longLivedPeer.id);

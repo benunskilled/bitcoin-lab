@@ -110,17 +110,32 @@ module.exports = {
   // any useful sense - nothing to add manually or disconnect on purpose.
   umbrelInternalNetworkCidr: pick(process.env.UMBREL_INTERNAL_NETWORK_CIDR, '10.21.0.0/16'),
 
-  // How long to keep historical race/session data before it's pruned. Every
-  // one of relay_race/relay_observation, stratum_race/stratum_observation,
-  // and closed peer_session rows otherwise accumulates forever - and each
-  // is scanned/aggregated on every peerRanking()/stratumRanking() call,
-  // which fires on every dashboard refresh AND every Umbrel home-widget
-  // poll, so query cost (and SQLite file size, and RAM the page cache
-  // holds) quietly grows with the node's uptime, not just with how much
-  // it's used. 180 days keeps genuinely "long-term" peer/pool history (the
-  // whole point of this app) while putting a ceiling on it. Never touches
-  // trusted_peer or a currently-live session, regardless of age.
-  dataRetentionDays: Number(pick(process.env.DATA_RETENTION_DAYS, '180')),
+  // relay_race/relay_observation IS the long-term peer-ranking data this
+  // app exists to build up - First/Eligible/First% is computed across ALL
+  // of it, unfiltered by age, so silently aging it out would erode the
+  // app's own core feature over time. It is never time-pruned. Its growth
+  // is bounded on its own terms anyway: one race per block (~144/day) with
+  // a roughly constant number of eligible-peer rows each - nothing like the
+  // unbounded churn of transient peer connections below.
+
+  // Stratum pool history (win%/avg latency) is the same kind of long-term
+  // ranking data for the Stratum Race feature, kept far longer than the
+  // peer-session data below - it's inherently small (a handful of pools)
+  // and exists specifically to answer "which pool wins over months".
+  stratumHistoryRetentionDays: Number(pick(process.env.STRATUM_HISTORY_RETENTION_DAYS, '180')),
+
+  // A peer that has EVER appeared in relay_observation (i.e. was actually
+  // connected at the moment a block landed, at least once) is one of the
+  // relatively few long-lived connections the ranking is actually about -
+  // its peer row and full session history are never pruned, no matter how
+  // old, same as a manually trusted peer. Everything else - crawler bots,
+  // one-off inbound probes, feelers and addr-fetch connections that came
+  // and went without ever once being around for a block - has no
+  // analytical value here. Bitcoin Core's P2P layer churns through
+  // thousands of these; keeping their session history for months was the
+  // actual source of unbounded growth, not the real ranking data, so they
+  // get a much shorter window.
+  feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
 
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };

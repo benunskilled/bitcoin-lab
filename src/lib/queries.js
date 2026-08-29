@@ -334,38 +334,50 @@ function deletePool(id) {
   tx(id);
 }
 
-// Caps unbounded growth of the historical tables - see config.js
-// dataRetentionDays for why this matters beyond just disk space. Runs as
-// one transaction, in dependency order (children before the rows they
-// reference), so a crash mid-prune never leaves an orphaned or
+// Caps unbounded growth WITHOUT touching the two things that give this app
+// its long-term value: relay_race/relay_observation (the actual
+// peer-ranking data - never time-pruned, see config.js) and any peer that
+// has ever appeared in it, or is manually trusted (kept forever, sessions
+// included). Only "feeler" peers - no relay history, ever, not trusted -
+// and old stratum-pool history are pruned by age. Runs as one transaction,
+// in dependency order, so a crash mid-prune never leaves an orphaned or
 // FK-violating row behind. Returns how many rows of each kind were
 // removed, purely for logging.
-function pruneOldData(retentionDays = config.dataRetentionDays) {
-  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+function pruneOldData({
+  feelerPeerRetentionDays = config.feelerPeerRetentionDays,
+  stratumHistoryRetentionDays = config.stratumHistoryRetentionDays,
+} = {}) {
+  const feelerCutoff = Date.now() - feelerPeerRetentionDays * 24 * 60 * 60 * 1000;
+  const stratumCutoff = Date.now() - stratumHistoryRetentionDays * 24 * 60 * 60 * 1000;
+
   const tx = db.instance.transaction(() => {
     db.instance
-      .prepare(`DELETE FROM relay_observation WHERE race_id IN (SELECT id FROM relay_race WHERE detected_at < ?)`)
-      .run(cutoff);
-    const racesDeleted = db.instance.prepare(`DELETE FROM relay_race WHERE detected_at < ?`).run(cutoff).changes;
-
-    db.instance
       .prepare(`DELETE FROM stratum_observation WHERE race_id IN (SELECT id FROM stratum_race WHERE created_at < ?)`)
-      .run(cutoff);
-    const stratumRacesDeleted = db.instance.prepare(`DELETE FROM stratum_race WHERE created_at < ?`).run(cutoff).changes;
+      .run(stratumCutoff);
+    const stratumRacesDeleted = db.instance.prepare(`DELETE FROM stratum_race WHERE created_at < ?`).run(stratumCutoff).changes;
 
-    // Only ever removes CLOSED sessions (ended_at IS NOT NULL) - a peer
-    // that's currently live is never touched here regardless of how long
-    // ago it first connected (started_at can be old for a peer that's just
-    // been reliably up).
-    const sessionsDeleted = db.instance
-      .prepare(`DELETE FROM peer_session WHERE ended_at IS NOT NULL AND ended_at < ?`)
-      .run(cutoff).changes;
+    // Only a CLOSED session (ended_at IS NOT NULL - a currently-live one is
+    // never touched regardless of age) belonging to a "feeler" peer - one
+    // with NO relay_observation row, ever, and not (or never) manually
+    // trusted - gets removed here, and only once it's older than the much
+    // shorter feeler window. A peer with real relay history, or a trusted
+    // one, keeps every session forever, no matter its age.
+    const feelerSessionsDeleted = db.instance
+      .prepare(
+        `DELETE FROM peer_session
+         WHERE ended_at IS NOT NULL AND ended_at < ?
+           AND peer_id IN (
+             SELECT id FROM peer p
+             WHERE p.id NOT IN (SELECT DISTINCT peer_id FROM relay_observation)
+               AND p.address NOT IN (SELECT address FROM trusted_peer)
+           )`,
+      )
+      .run(feelerCutoff).changes;
 
     // A peer left with no session and no relay-observation history after
-    // the deletes above is just dead weight - safe to drop, UNLESS it's
-    // (or ever was) manually trusted, since trusted_peer keys on address
-    // independently of this table and a re-added trusted peer should still
-    // get its own fresh first_seen_at rather than inheriting a stale one.
+    // the delete above is pure dead weight - drop it, unless it's (or ever
+    // was) manually trusted, since trusted_peer keys on address
+    // independently of this table.
     const peersDeleted = db.instance
       .prepare(
         `DELETE FROM peer
@@ -375,7 +387,7 @@ function pruneOldData(retentionDays = config.dataRetentionDays) {
       )
       .run().changes;
 
-    return { racesDeleted, stratumRacesDeleted, sessionsDeleted, peersDeleted };
+    return { stratumRacesDeleted, feelerSessionsDeleted, peersDeleted };
   });
   return tx();
 }
