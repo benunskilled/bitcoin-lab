@@ -60,7 +60,6 @@
 
     <details class="card" open>
       <summary><h2>Outbound Peers</h2></summary>
-      <p class="hint">Peers Bitcoin Core connected out to (excludes inbound connections from others). Manually-trusted peers live in the Manual Peers panel instead, not here. Status here is the raw Core connection type, not the manual/trusted overlay.</p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
@@ -83,7 +82,6 @@
 
     <details class="card" open>
       <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
-      <p class="hint">Peers you've explicitly trusted, online or not. Bitcoin Core only actively maintains a limited number of these at once (see slot count above) - extras stay queued and connect automatically once a slot frees up. There's no separate "Disconnect" here on purpose: as long as a peer is still trusted, Core just reconnects it right back, so "Remove" (forgets the peer AND drops the current connection) is the only action that does anything meaningful. Core tries to reconnect a dropped manual peer on its own, but that can silently stall - a peer shown as offline also shows how long it's been that way (and it's checked and logged periodically in the background too, not just when this page happens to be open).</p>
       <div class="table-wrap">
         <table id="manual-peer-table" class="peer-table">
           <thead>
@@ -106,7 +104,6 @@
 
     <section class="card">
       <h2>Stratum Race</h2>
-      <p class="hint">Ranked by Win % (how often this pool is the fastest to report a new job), then by average latency as the tiebreaker - same two-level ranking as the peer tables above.</p>
       <div class="inline-form">
         <label class="hint" for="stratum-range">Range:</label>
         <select id="stratum-range">
