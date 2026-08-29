@@ -221,15 +221,21 @@ span.action-slot { visibility: hidden; } /* reserves the height, shows nothing *
    Actions etc. actually line up vertically across the three panels instead
    of each table silently sizing its own columns from its own content. */
 table.peer-table { table-layout: fixed; }
-.col-address { width: 17%; }
-.col-label { width: 9%; }
-.col-client { width: 13%; }
-.col-status { width: 11%; }
-.col-pct { width: 11%; }
+.col-address { width: 16%; }
+.col-client { width: 14%; }
+/* Widest of the 9 columns on purpose - "OUTBOUND-FULL-RELAY" is the
+   longest pill value and needs real room, which is exactly what was
+   missing before (the pill visibly ran into First Seen %). overflow:hidden
+   is belt-and-suspenders alongside that width - applied to both the <th>
+   and (via the same class on its <td>, see app.js) the data cell, so even
+   a future longer status value clips instead of spilling into the next
+   column again. */
+.col-status { width: 17%; overflow: hidden; text-overflow: ellipsis; }
+.col-pct { width: 12%; }
 .col-ping { width: 6%; }
 .col-session { width: 10%; }
-.col-total { width: 8%; }
-.col-sessions { width: 5%; }
+.col-total { width: 9%; }
+.col-sessions { width: 6%; }
 .col-actions { width: 10%; }
 
 /* Hero: current chain height, pulses via .bump when a new block lands */
