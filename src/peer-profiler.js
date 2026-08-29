@@ -103,15 +103,21 @@ async function pollOnce() {
   logger.debug('poll complete', { peers: peers.length });
 }
 
-// Keeps the historical tables (and the SQLite file itself) from growing
-// forever - see config.js dataRetentionDays. Runs once shortly after
-// startup (so a fresh install doesn't wait a full day for its first prune)
-// and then daily; each run is independent and cheap to skip if it fails, so
-// a single bad run never blocks peer polling or leaves the DB stuck.
+// Keeps the "feeler" side of the historical tables (and the SQLite file
+// itself) from growing forever, without ever touching real peer-ranking
+// data - see config.js feelerPeerRetentionDays/stratumHistoryRetentionDays
+// for what's actually pruned and why. Runs once shortly after startup (so a
+// fresh install doesn't wait a full day for its first prune) and then
+// daily; each run is independent and cheap to skip if it fails, so a single
+// bad run never blocks peer polling or leaves the DB stuck.
 function runMaintenance() {
   try {
     const result = queries.pruneOldData();
-    logger.info('data retention prune complete', { retentionDays: config.dataRetentionDays, ...result });
+    logger.info('data retention prune complete', {
+      feelerPeerRetentionDays: config.feelerPeerRetentionDays,
+      stratumHistoryRetentionDays: config.stratumHistoryRetentionDays,
+      ...result,
+    });
   } catch (err) {
     logger.warn('data retention prune failed', { error: err.message });
   }

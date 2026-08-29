@@ -109,7 +109,13 @@ details.card > *:not(summary) { margin-top: 14px; }
 }
 .table-wrap table tr:hover td:last-child { background: #0f151b; }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* separate + border-spacing:0 rather than collapse - visually identical
+   here (every cell already draws its own border-bottom below) but
+   border-collapse:collapse silently breaks `position: sticky` on table
+   cells in every major browser, which is exactly why the sticky Actions
+   column above wasn't actually sticking and got clipped at the table's
+   right edge instead of staying reachable. */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 
 th, td {
   text-align: left;
