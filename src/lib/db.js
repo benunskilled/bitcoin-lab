@@ -106,6 +106,20 @@ function open() {
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
+  // Four separate processes (dashboard, peer-profiler, relay-profiler,
+  // stratum-race) each hold their OWN connection to this same file. WAL
+  // mode lets them read concurrently, but a writer can still briefly block
+  // another writer - and since v1.9.0, peer-profiler's daily retention
+  // prune (a multi-statement transaction) and its weekly VACUUM hold a
+  // write lock far longer than the single-row inserts every other process
+  // normally does. Without a busy_timeout, any OTHER connection's write
+  // that lands during that window fails immediately with SQLITE_BUSY
+  // instead of just waiting the (usually well under a second) for it to
+  // clear - for stratum-race.js specifically, an unhandled failure there
+  // used to crash the whole process, silently dropping every pool
+  // connection and losing in-flight race data (see stratum-race.js). This
+  // makes every connection wait up to 10s and retry instead.
+  db.pragma('busy_timeout = 10000');
   db.exec(SCHEMA);
   seedDefaultPools();
   logger.info('database ready', { path: config.sqlitePath });
