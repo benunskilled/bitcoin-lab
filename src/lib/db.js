@@ -133,8 +133,27 @@ function getOrCreatePeer(address) {
   return db.prepare(`SELECT * FROM peer WHERE address = ?`).get(address);
 }
 
+// DELETEs (queries.pruneOldData) free up rows but SQLite never shrinks the
+// file on disk for them on its own - only VACUUM actually reclaims that
+// space. VACUUM briefly needs up to ~2x the file's current size and
+// rewrites the whole thing, so it's throttled to at most once a week
+// (tracked in `meta`) rather than run after every prune - the DB stays
+// small enough at this app's scale that a weekly rewrite is unnoticeable,
+// but there's no reason to pay that I/O cost daily for no extra benefit.
+const VACUUM_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+function maybeVacuum() {
+  const row = db.prepare(`SELECT value FROM meta WHERE key = 'last_vacuum_at'`).get();
+  const last = row ? Number(row.value) : 0;
+  if (Date.now() - last < VACUUM_INTERVAL_MS) return false;
+  db.exec('VACUUM');
+  db.prepare(`INSERT INTO meta (key, value) VALUES ('last_vacuum_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(String(Date.now()));
+  return true;
+}
+
 module.exports = {
   open,
   get instance() { return db; },
   getOrCreatePeer,
+  maybeVacuum,
 };

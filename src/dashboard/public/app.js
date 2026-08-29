@@ -1,7 +1,18 @@
 'use strict';
 
-const REFRESH_MS = 8000;
-const BLOCK_POLL_MS = 2000;
+// Peer/pool ranking is a slow-moving, historical stat, not a live combat
+// feed - it doesn't need sub-10s freshness, and peerRanking() in particular
+// runs several joined aggregate queries. Manual actions (add/remove/
+// disconnect a peer, delete a pool) already trigger their own immediate
+// refreshPeers()/refreshPools() call, so this interval only governs how
+// stale the tables are allowed to get from someone else's activity (Core
+// itself connecting/dropping peers) between clicks.
+const REFRESH_MS = 20000;
+// Kept separate and faster than REFRESH_MS purely for the "new block
+// landed" wave/highlight - but doesn't need to be as tight as it once was;
+// a few seconds of extra latency on a once-per-~10-minutes event is
+// unnoticeable, and it cuts this endpoint's call volume by more than half.
+const BLOCK_POLL_MS = 5000;
 const HIGHLIGHT_MS = 2 * 60 * 1000; // how long the first-peer row(s) stay tinted after a new block
 
 // address -> expiry timestamp (ms). Rebuilt into row classes on every
@@ -340,7 +351,11 @@ async function refreshPools() {
 }
 
 async function refreshAll() {
-  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), pollLatestBlock()]);
+  // pollLatestBlock() is NOT included here - it already runs on its own,
+  // faster BLOCK_POLL_MS interval below, so calling it again on every
+  // REFRESH_MS tick as well was a pure duplicate fetch of the exact same
+  // endpoint, not extra freshness.
+  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools()]);
 }
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {

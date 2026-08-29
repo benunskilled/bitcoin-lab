@@ -98,7 +98,12 @@ async function handleWidgetStats(req, res) {
 
   sendJson(res, 200, {
     type: 'four-stats',
-    refresh: '30s',
+    // Umbrel polls this endpoint on its own at this cadence regardless of
+    // whether the dashboard itself is even open, and each poll runs both
+    // peerRanking() and stratumRanking() - a home-screen glance stat
+    // doesn't need to be fresher than 60s, so this halves that background
+    // call volume for no visible difference.
+    refresh: '60s',
     link: '',
     items: [
       { title: 'Live Peers', text: String(live.total), subtext: 'connected' },
