@@ -24,9 +24,52 @@ function probePort(host, port, timeoutMs = 3000) {
 }
 
 // Bare-bones sanity check - real validation happens by attempting the
-// TCP connection itself; this just rejects obvious junk input.
+// TCP connection itself; this just rejects obvious junk input. Brackets are
+// allowed so bracketed IPv6 input ("[2001:db8::1]:8333") isn't rejected
+// outright - see resolveHostPort below for why that notation matters.
 function looksLikeHost(input) {
-  return typeof input === 'string' && /^[a-zA-Z0-9.:\-]{3,255}$/.test(input.trim());
+  return typeof input === 'string' && /^[a-zA-Z0-9.:\-[\]]{3,255}$/.test(input.trim());
+}
+
+// Splits a user-supplied host string into { addr, port: number|null }. This
+// needs more care than a plain trailing "/:(\d+)$/" split once IPv6 is in
+// play: an unbracketed IPv6 literal like "2001:db8::86" uses colons as
+// hextet separators, so that naive split would slice off "86" as a "port"
+// and leave the mangled "2001:db8:" behind as the host - wrong for any IPv6
+// address whose last hextet happens to look like a 2-5 digit decimal
+// number. Bracket notation ("[2001:db8::1]:8333", the same format Core
+// itself reports and that hostFromAddress below already unwraps) is the
+// only form treated as carrying an explicit port for anything IPv6-shaped;
+// a bare address with two or more colons is always treated as a portless
+// IPv6 host instead, same as if the user had typed it without a port.
+function resolveHostPort(input) {
+  const bracketed = input.match(/^\[(.+)\](?::(\d{2,5}))?$/);
+  if (bracketed) {
+    const [, addr, portStr] = bracketed;
+    return { addr, port: portStr ? Number(portStr) : null };
+  }
+  const colonCount = (input.match(/:/g) || []).length;
+  if (colonCount >= 2) {
+    return { addr: input, port: null };
+  }
+  const explicitPortMatch = input.match(/^(.+):(\d{2,5})$/);
+  if (explicitPortMatch) {
+    return { addr: explicitPortMatch[1], port: Number(explicitPortMatch[2]) };
+  }
+  return { addr: input, port: null };
+}
+
+// Core itself always writes an IP:port pair as "[addr]:port" the moment
+// addr contains a colon (its CService::ToStringAddrPort - the same format
+// hostFromAddress above parses back out of getpeerinfo). We have to match
+// that exactly: trusted_peer.address is joined against Core's own
+// peer.address by string equality (see queries.js), and disconnectIfLiveNonManual
+// below compares against getpeerinfo's addr the same way, so an unbracketed
+// IPv6 "address:port" here would silently never match either one - the
+// peer would never show as trusted, and a live non-manual session would
+// never get disconnected before the add.
+function formatAddress(addr, port) {
+  return addr.includes(':') ? `[${addr}]:${port}` : `${addr}:${port}`;
 }
 
 // If Core already has a live connection to this address under some other
@@ -93,14 +136,12 @@ async function manualAddPeer(rawInput, label) {
   if (!looksLikeHost(host)) {
     return { ok: false, error: 'invalid host/IP' };
   }
+  const { addr, port: explicitPort } = resolveHostPort(host);
   // Already has an explicit :port - respect it and skip probing.
-  const explicitPortMatch = host.match(/^(.+):(\d{2,5})$/);
-  if (explicitPortMatch) {
-    const [, addr, portStr] = explicitPortMatch;
-    const port = Number(portStr);
-    const reachable = await probePort(addr, port);
-    if (!reachable) return { ok: false, error: `${addr}:${port} not reachable` };
-    const address = `${addr}:${port}`;
+  if (explicitPort != null) {
+    const reachable = await probePort(addr, explicitPort);
+    if (!reachable) return { ok: false, error: `${formatAddress(addr, explicitPort)} not reachable` };
+    const address = formatAddress(addr, explicitPort);
     await disconnectIfLiveNonManual(address);
     const capacity = await peerSync.addTrustedPeer(address, label);
     logger.info('manually added peer', { address });
@@ -109,9 +150,9 @@ async function manualAddPeer(rawInput, label) {
 
   for (const port of config.manualPeerPorts) {
     // eslint-disable-next-line no-await-in-loop
-    const reachable = await probePort(host, port);
+    const reachable = await probePort(addr, port);
     if (reachable) {
-      const address = `${host}:${port}`;
+      const address = formatAddress(addr, port);
       // eslint-disable-next-line no-await-in-loop
       await disconnectIfLiveNonManual(address);
       // eslint-disable-next-line no-await-in-loop
@@ -149,4 +190,4 @@ function hostFromAddress(address) {
   return address;
 }
 
-module.exports = { manualAddPeer, hostFromAddress };
+module.exports = { manualAddPeer, hostFromAddress, resolveHostPort, formatAddress };
