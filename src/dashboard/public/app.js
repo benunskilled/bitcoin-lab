@@ -317,10 +317,12 @@ function renderPeerTables(peers) {
   const freeManualSlots = Math.max(0, MAX_MANUAL_PEERS - usedManualSlots);
   // Free capacity (below the app's manual-connection cap) as actual empty
   // rows, not just the text summary below - "how much room is left" reads
-  // the same way the filled rows above it do, at a glance.
+  // the same way the filled rows above it do, at a glance. Plain dashes,
+  // same as any other empty cell in this app - no banner, no border
+  // treatment, just an empty-looking row.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td colspan="8">empty slot - free for another manually trusted peer</td>
+      <td colspan="8">-</td>
       <td class="row-actions"></td>
     </tr>
   `).join('');

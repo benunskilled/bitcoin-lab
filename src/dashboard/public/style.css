@@ -227,13 +227,11 @@ span.action-slot { visibility: hidden; } /* reserves the height, shows nothing *
 /* Manual Peers: unused capacity (below the app's manual-connection cap)
    rendered as actual empty rows at the bottom of the table, not just a
    text footnote - makes "how much room is left" visible at a glance the
-   same way the filled rows above it are. */
-tr.empty-slot td {
-  color: var(--muted);
-  font-size: 12px;
-  border-style: dashed;
-}
-tr.empty-slot:hover td { background: transparent; }
+   same way the filled rows above it are. Deliberately plain: same border
+   as every other row, just dashes in each column like any other empty
+   cell in this app (see truncatedCell etc.) - a dashed box around the row
+   read as much heavier/busier than the empty state warranted. */
+tr.empty-slot td { color: var(--muted); }
 
 /* Live Peer Ranking, Outbound Peers, and Manual Peers all render the exact
    same column set in the exact same order (see the shared .col-* classes
