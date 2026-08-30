@@ -141,6 +141,25 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- Audit trail for the automatic peer-rotation loop (src/lib/peer-rotation.js).
+-- One row per action it actually takes (kick or promote/swap), so the
+-- dashboard can show what the toggle has been doing without the user having
+-- to dig through container logs. Deliberately NOT time-pruned by
+-- queries.pruneOldData - this is a small, slow-growing table (at most a
+-- couple of rows per 10-minute tick) and its history is the whole point.
+CREATE TABLE IF NOT EXISTS rotation_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  action TEXT NOT NULL,             -- kick | promote | swap
+  address TEXT NOT NULL,
+  first_pct REAL,
+  eligible INTEGER,
+  replaced_address TEXT,            -- set only for 'swap'
+  replaced_first_pct REAL,          -- set only for 'swap'
+  note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rotation_log_at ON rotation_log(at DESC);
 `;
 
 // label, host, port - sourced from public solo-pool directories (Aug 2026).
