@@ -116,10 +116,53 @@ async function adoptExternalManualPeers() {
   return { adopted };
 }
 
+// If Core already has a live connection to this address under some other
+// connection_type (outbound-full-relay, block-relay-only, inbound, feeler),
+// `addnode add` alone won't touch it: Core's ThreadOpenAddedConnections
+// skips opening a duplicate/replacement connection to an address that's
+// already connected, so the session just keeps its old type forever and no
+// automatic-outbound slot is ever freed - even though our own dashboard
+// happily labels it "manual" the moment it's in trusted_peer. Disconnect
+// the existing session first (only when it isn't already 'manual' - no
+// point churning a peer that's already exactly what we want) so Core's own
+// reconnect logic picks it back up moments later as a genuine manual
+// connection, with the slot it used to occupy now free for a new
+// automatically-discovered peer.
+//
+// Lives here (not in manual-peer.js) so every caller of addTrustedPeer gets
+// this guarantee for free - not just the interactive "Add as Manual" flow,
+// but also the automated peer-rotation loop, which calls addTrustedPeer
+// directly and would otherwise silently reintroduce the exact
+// stuck-connection-type bug this was written to fix.
+async function disconnectIfLiveNonManual(address) {
+  let peers = [];
+  try {
+    peers = await rpc.getPeerInfo();
+  } catch (err) {
+    // Can't tell either way - proceed as before rather than block the add on it.
+    logger.debug('getpeerinfo failed while checking for a live non-manual session', { address, error: err.message });
+    return;
+  }
+  const existing = peers.find((p) => p.addr === address);
+  if (!existing || existing.connection_type === 'manual') return;
+  try {
+    await rpc.disconnectNode(address);
+    logger.info('disconnected existing non-manual session to free its slot before adding as manual', {
+      address,
+      previousType: existing.connection_type,
+    });
+  } catch (err) {
+    // Not fatal - addnode below still queues it, Core just won't get a free
+    // slot as quickly as it could have.
+    logger.warn('failed to disconnect existing session before manual-add', { address, error: err.message });
+  }
+}
+
 async function addTrustedPeer(address, label) {
   db.instance
     .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?) ON CONFLICT(address) DO UPDATE SET label = excluded.label`)
     .run(address, label || null, Date.now());
+  await disconnectIfLiveNonManual(address);
   try {
     await rpc.addNode(address, 'add');
   } catch (err) {
@@ -158,4 +201,10 @@ async function removeTrustedPeer(address) {
   }
 }
 
-module.exports = { syncTrustedToAddnode, adoptExternalManualPeers, addTrustedPeer, removeTrustedPeer };
+module.exports = {
+  syncTrustedToAddnode,
+  adoptExternalManualPeers,
+  addTrustedPeer,
+  removeTrustedPeer,
+  disconnectIfLiveNonManual,
+};

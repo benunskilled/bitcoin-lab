@@ -15,6 +15,7 @@ const processGuard = require('./lib/process-guard');
 const logger = require('./lib/logger').make('peer-profiler');
 const { syncTrustedToAddnode, adoptExternalManualPeers } = require('./lib/peer-sync');
 const queries = require('./lib/queries');
+const peerRotation = require('./lib/peer-rotation');
 
 const PEER_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -228,6 +229,10 @@ async function main() {
     } catch (err) {
       logger.warn('offline-trusted-peer check failed', { error: err.message });
     }
+    // Independent of the sync/adopt/offline-log work above - a rotation
+    // failure must never block or mask that bookkeeping, and vice versa.
+    // No-ops immediately unless the user has switched rotation on.
+    peerRotation.tick().catch((err) => logger.warn('peer rotation tick failed', { error: err.message }));
   }, PEER_SYNC_INTERVAL_MS);
 
   runMaintenance();

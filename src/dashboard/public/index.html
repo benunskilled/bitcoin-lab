@@ -102,6 +102,33 @@
       </div>
     </details>
 
+    <details class="card">
+      <summary><h2>Peer Rotation</h2></summary>
+      <div class="inline-form">
+        <label class="switch-label" for="rotation-toggle">
+          <input type="checkbox" id="rotation-toggle" />
+          Automatically rotate outbound peers
+        </label>
+        <span class="hint">
+          Every ~10 minutes: disconnects outbound peers with a full day of eligibility and 0% first-seen (Core replaces them with a fresh random peer), then promotes or swaps in the best-performing non-manual peer as a manual connection if it's a clear improvement. At most one promotion per pass.
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table id="rotation-log-table" class="rotation-log-table">
+          <thead>
+            <tr>
+              <th class="col-time">When</th>
+              <th class="col-rot-action">Action</th>
+              <th class="col-address">Address</th>
+              <th class="col-pct">First %</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </details>
+
     <section class="card">
       <h2>Stratum Race</h2>
       <div class="inline-form">

@@ -28,6 +28,7 @@ const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
 const { validatePool } = require('./lib/validate');
 const { manualAddPeer, hostFromAddress } = require('./lib/manual-peer');
+const peerRotation = require('./lib/peer-rotation');
 const logger = require('./lib/logger').make('dashboard');
 
 const PUBLIC_DIR = path.join(__dirname, 'dashboard', 'public');
@@ -330,6 +331,16 @@ async function router(req, res, pathname, url) {
     const host = hostFromAddress(address);
     const result = await manualAddPeer(host, label);
     return sendJson(res, result.ok ? 200 : 422, result);
+  }
+
+  if (req.method === 'GET' && pathname === '/api/rotation') {
+    return sendJson(res, 200, { enabled: peerRotation.isEnabled(), log: peerRotation.recentLog() });
+  }
+
+  if (req.method === 'POST' && pathname === '/api/rotation/toggle') {
+    const { enabled } = await readBody(req);
+    peerRotation.setEnabled(Boolean(enabled));
+    return sendJson(res, 200, { ok: true, enabled: peerRotation.isEnabled() });
   }
 
   if (req.method === 'POST' && pathname === '/api/peers/disconnect') {

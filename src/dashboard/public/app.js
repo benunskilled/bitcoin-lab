@@ -351,6 +351,37 @@ function renderPeerTables(peers) {
   }
 }
 
+// Guards the rotation checkbox against refreshRotation() clobbering the
+// user's own just-clicked state before the POST that follows it resolves -
+// same shape as the pool-enabled checkbox's own optimistic-update handling
+// below, just centralized here since refreshRotation() runs on a timer too.
+let rotationTogglePending = false;
+
+function rotationActionLabel(action) {
+  if (action === 'kick') return 'Kicked';
+  if (action === 'promote') return 'Promoted';
+  if (action === 'swap') return 'Swapped in';
+  return action;
+}
+
+async function refreshRotation() {
+  const data = await api('/api/rotation');
+  const toggle = document.getElementById('rotation-toggle');
+  if (toggle && !rotationTogglePending) toggle.checked = Boolean(data.enabled);
+
+  const tbody = document.querySelector('#rotation-log-table tbody');
+  if (!tbody) return;
+  tbody.innerHTML = (data.log || []).map((entry) => `
+    <tr>
+      <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
+      <td><span class="pill rotation-${entry.action}">${rotationActionLabel(entry.action)}</span></td>
+      ${truncatedCell(entry.address)}
+      <td>${fmtPct(entry.firstPct)}</td>
+      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(replaced ${fmtPct(entry.replacedFirstPct)} peer)</span>` : ''}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
+}
+
 async function refreshPools() {
   const range = document.getElementById('stratum-range').value;
   const pools = await api(`/api/pools?range=${encodeURIComponent(range)}`);
@@ -377,7 +408,7 @@ async function refreshPools() {
 async function refreshAll() {
   // Block updates are not in here: they arrive on their own via the
   // /api/events stream, not by polling.
-  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), refreshHealth()]);
+  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), refreshHealth(), refreshRotation()]);
 }
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
@@ -532,6 +563,21 @@ document.body.addEventListener('change', async (e) => {
     } catch (err) {
       alert(err.message);
       chk.checked = !chk.checked;
+    }
+    return;
+  }
+
+  if (e.target.id === 'rotation-toggle') {
+    rotationTogglePending = true;
+    const enabled = e.target.checked;
+    try {
+      await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
+      showToast(enabled ? 'Peer rotation turned on.' : 'Peer rotation turned off.', 'success');
+    } catch (err) {
+      e.target.checked = !enabled;
+      showToast(`Could not change peer rotation: ${err.message}`, 'error');
+    } finally {
+      rotationTogglePending = false;
     }
     return;
   }
