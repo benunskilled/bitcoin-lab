@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-lab",
-  "version": "1.12.5",
+  "version": "1.12.6",
   "description": "Peer relay performance profiler and stratum race for Bitcoin Core nodes on Umbrel.",
   "license": "MIT",
   "private": true,
