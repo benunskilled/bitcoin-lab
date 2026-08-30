@@ -313,7 +313,19 @@ function renderPeerTables(peers) {
     </tr>
   `).join('') || `<tr><td colspan="9" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
-  document.querySelector('#manual-peer-table tbody').innerHTML = manualPeers.map((p) => `
+  const usedManualSlots = manualPeers.filter((p) => p.live).length;
+  const freeManualSlots = Math.max(0, MAX_MANUAL_PEERS - usedManualSlots);
+  // Free capacity (below the app's manual-connection cap) as actual empty
+  // rows, not just the text summary below - "how much room is left" reads
+  // the same way the filled rows above it do, at a glance.
+  const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
+    <tr class="empty-slot">
+      <td colspan="8">empty slot - free for another manually trusted peer</td>
+      <td class="row-actions"></td>
+    </tr>
+  `).join('');
+
+  const manualRows = manualPeers.map((p) => `
     <tr class="${highlightClassFor(p.address)}">
       ${addressCell(p)}
       ${clientCell(p)}
@@ -325,13 +337,15 @@ function renderPeerTables(peers) {
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actionsCell(p)}</td>
     </tr>
-  `).join('') || `<tr><td colspan="9" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`;
+  `).join('');
+  const noManualPeersHint = manualPeers.length === 0
+    ? `<tr><td colspan="9" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`
+    : '';
+  document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
-    const used = manualPeers.filter((p) => p.live).length;
-    const free = Math.max(0, MAX_MANUAL_PEERS - used);
-    slotsEl.textContent = `(${free} of ${MAX_MANUAL_PEERS} slots free · ${used} active · ${manualPeers.length} total)`;
+    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${usedManualSlots} active · ${manualPeers.length} total)`;
   }
 }
 

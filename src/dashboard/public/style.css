@@ -136,6 +136,13 @@ td.cell-truncate {
 
 th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
 
+/* Zebra striping so a wide, 9-column row can still be followed with the eye
+   without losing your place - background lives on the <tr>, not the <td>,
+   so it composes for free with every rule below that paints a <td>
+   background instead (hover, the sticky Actions column, the first-block
+   highlight): a cell's own background always paints over its row's. */
+.table-wrap table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .05); }
+
 tr:hover td { background: #0f151b; }
 
 .pill {
@@ -191,28 +198,42 @@ button.danger { color: var(--bad); }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
-/* Stacked (primary action above Disconnect) rather than side by side -
-   halves the Actions column's required width, which is what was actually
-   causing it to get clipped at the table's right edge on anything but a
-   wide window (the sticky trick above only helps once the column itself
-   can fit within the visible table area at all). */
-.row-actions { display: flex; flex-direction: column; gap: 4px; }
+/* Side by side, not stacked - stacking used to double every row's height
+   just to fit two buttons, which made the whole table (already 9 columns)
+   tiring to scan. Fits because the Actions column itself is wider now (see
+   .col-actions) and stays reachable at any window width via the sticky
+   trick above - the table simply scrolls under it if the window is narrow,
+   rather than the column ever needing to shrink or wrap. */
+.row-actions { display: flex; flex-direction: row; gap: 6px; }
 
 /* Each action cell renders a fixed two-slot layout (primary action, then
    Disconnect) with an empty placeholder - never an omitted element - for
    whichever slot doesn't apply to a given row (see actionsCell in app.js).
    A shared min-width across both real buttons and empty placeholders keeps
    every row's slots starting at the same position regardless of which
-   label (or none) occupies the first one - "Add as Manual" is the widest
-   label this needs to fit without wrapping. */
+   label (or none) occupies the first one. Smaller font/padding than a
+   normal button - this is a dense table, not a form. */
 .action-slot {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 100px;
+  min-width: 78px;
+  padding: 4px 8px;
+  font-size: 12px;
   box-sizing: border-box;
 }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
+
+/* Manual Peers: unused capacity (below the app's manual-connection cap)
+   rendered as actual empty rows at the bottom of the table, not just a
+   text footnote - makes "how much room is left" visible at a glance the
+   same way the filled rows above it are. */
+tr.empty-slot td {
+  color: var(--muted);
+  font-size: 12px;
+  border-style: dashed;
+}
+tr.empty-slot:hover td { background: transparent; }
 
 /* Live Peer Ranking, Outbound Peers, and Manual Peers all render the exact
    same column set in the exact same order (see the shared .col-* classes
@@ -222,21 +243,25 @@ span.action-slot { visibility: hidden; } /* reserves the height, shows nothing *
    of each table silently sizing its own columns from its own content. */
 table.peer-table { table-layout: fixed; }
 .col-address { width: 16%; }
-.col-client { width: 14%; }
-/* Widest of the 9 columns on purpose - "OUTBOUND-FULL-RELAY" is the
+.col-client { width: 12%; }
+/* Widest of the remaining columns on purpose - "OUTBOUND-FULL-RELAY" is the
    longest pill value and needs real room, which is exactly what was
    missing before (the pill visibly ran into First Seen %). overflow:hidden
    is belt-and-suspenders alongside that width - applied to both the <th>
    and (via the same class on its <td>, see app.js) the data cell, so even
    a future longer status value clips instead of spilling into the next
    column again. */
-.col-status { width: 17%; overflow: hidden; text-overflow: ellipsis; }
+.col-status { width: 15%; overflow: hidden; text-overflow: ellipsis; }
 .col-pct { width: 12%; }
 .col-ping { width: 6%; }
 .col-session { width: 10%; }
-.col-total { width: 9%; }
-.col-sessions { width: 6%; }
-.col-actions { width: 10%; }
+.col-total { width: 7%; }
+.col-sessions { width: 5%; }
+/* Widened to fit "Add as Manual" and "Disconnect" side by side (see
+   .row-actions) - stays reachable at any window width via the sticky
+   column trick above, so this is free real estate, not a squeeze on the
+   other columns that actually needed their room. */
+.col-actions { width: 17%; }
 
 /* Hero: current chain height, pulses via .bump when a new block lands */
 .hero-card { padding: 20px 24px; }
