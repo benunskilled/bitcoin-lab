@@ -278,12 +278,21 @@ table.peer-table { table-layout: fixed; }
 .col-ping { width: 6%; }
 .col-session { width: 10%; }
 .col-total { width: 7%; }
+/* Nudged off the shared 10px th padding - purely a small optical fix so
+   the label sits a bit closer to the data it heads (see .col-actions below
+   for the opposite nudge). Only targets the header - td cells in this
+   column carry no col-* class, so the data itself is untouched. */
+th.col-total { padding-left: 4px; }
 .col-sessions { width: 5%; }
 /* Widened to fit "Add as Manual" and "Disconnect" side by side (see
    .row-actions) - stays reachable at any window width via the sticky
    column trick above, so this is free real estate, not a squeeze on the
    other columns that actually needed their room. */
 .col-actions { width: 17%; }
+/* Same optical nudge as .col-total above, other direction - the column is
+   wide (room for two buttons) and the plain 10px padding left the label
+   sitting noticeably left of where the buttons actually start. */
+th.col-actions { padding-left: 20px; }
 
 /* Hero: current chain height, pulses via .bump when a new block lands */
 .hero-card { padding: 20px 24px; }
