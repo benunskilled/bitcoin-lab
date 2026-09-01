@@ -1,10 +1,11 @@
 name: Build and publish multi-arch image
 
-# Triggers on every version tag (v1.0.0, v1.0.1, ...). After a run finishes,
-# check the run's summary/logs for the pushed image digest and pin exactly
-# that `ghcr.io/<owner>/bitcoin-lab:<tag>@sha256:<digest>` reference in the
-# community app store's docker-compose.yml - the App Store rules require a
-# tag+digest pin, never a moving tag alone.
+# Triggers on every version tag (v1.0.0, v1.0.1, ...). The final step prints
+# the exact `ghcr.io/<owner>/bitcoin-lab:<tag>@sha256:<digest>` reference to
+# pin in the community app store - see RELEASING.md there. The pin needs both
+# tag and digest: a moving tag would let two nodes install "the same version"
+# and get different code. The digest can also be read from the GitHub Packages
+# API, which is handy when the workflow logs are not reachable.
 on:
   push:
     tags:
@@ -67,5 +68,5 @@ jobs:
 
       - name: Print pinned reference for the app package
         run: |
-          echo "Use this exact reference in bitcoin-lab-community-store/bitcoin-lab/docker-compose.yml:"
+          echo "Paste this into all four image: lines in bitcoin-lab-community-store/bitcoinlab-node/docker-compose.yml:"
           echo "ghcr.io/${{ github.repository_owner }}/bitcoin-lab:${{ steps.vars.outputs.tag }}@${{ steps.push.outputs.digest }}"

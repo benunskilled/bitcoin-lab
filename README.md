@@ -11,10 +11,6 @@ Lab measures which peers actually deliver first, over hundreds of blocks, lets
 you keep the winners, and then measures whether your pool got faster as a
 result.
 
-Worth saying plainly what the prize is: this is a game of tens to a few hundred
-milliseconds per block. Small — but it is exactly the window in which a solo
-miner is hashing work that can no longer win.
-
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png)
 
 ## Install
@@ -64,6 +60,13 @@ the port their node listens on. Bitcoin Lab re-derives the real listening port
 with a TCP handshake (8333, then 9333) before trusting anything. Not every
 inbound peer listens; those simply cannot be promoted.
 
+Manual peers survive everything, and that takes deliberate work: the addnode
+list Core builds at runtime lives only in its memory. A `bitcoind` restart
+wipes it, and Core re-reads only what is in bitcoin.conf — which this app never
+touches. Bitcoin Lab keeps its own persisted copy and re-asserts it at startup
+and every ten minutes, so a restart does not cost you the peers you spent days
+identifying.
+
 ### Stratum Race
 
 Each configured pool gets its own TCP connection and is timed purely on when
@@ -76,6 +79,13 @@ timeout window is scored a miss for that race.
 Per pool: wins, win %, average / median / P90 latency, races seen, misses. The
 public pools are there as the baseline your own pool's number is measured
 against — a pool racing alone would trivially "win" every time.
+
+### What this is worth
+
+Worth saying plainly: this is a game of tens to a few hundred milliseconds per
+block. Small — but it is exactly the window in which a miner is working on a
+block that can no longer win, and it is the only part of that window a node
+operator can actually do something about.
 
 ## Peer rotation (optional, off by default)
 
@@ -119,21 +129,10 @@ heartbeat runs on its own timer rather than as a side effect of work, because
 with ~10 minutes between blocks "nothing happened recently" is a healthy state
 and must not read as a fault.
 
-## API
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/status` | Block height, network, live peer summary |
-| `GET /api/events` | Server-Sent Events stream, one `block` event per new block |
-| `GET /api/peers/ranking` | Ranking of the peers that are connected or manual |
-| `POST /api/peers/manual-add` | Probe-then-trust, from raw user input |
-| `POST /api/peers/add-manual` | Probe-then-trust, from an existing peer row |
-| `POST /api/peers/untrust` | Forget a manual peer and disconnect it |
-| `POST /api/peers/disconnect` | Drop a live connection |
-| `GET /api/rotation` · `POST /api/rotation/toggle` | Rotation state, log, on/off |
-| `GET/POST /api/pools`, `PATCH/DELETE /api/pools/:id` | Stratum pool management |
-| `GET /api/health` | This process plus all worker heartbeats |
-| `GET /api/widget/stats` | Unauthenticated summary for the Umbrel home widget |
+Everything reaches Bitcoin Core through its RPC and ZMQ interfaces and nothing
+else. This app does not read or write bitcoin.conf, touch host configuration,
+or hold any state Core depends on — pull it off the machine and the node is
+exactly as it was.
 
 ## Running locally
 
@@ -192,22 +191,6 @@ example).
   kept regardless of age. Their growth is bounded on its own terms (one race per
   block, a handful of rows each); transient peer sessions are what get a
   retention window.
-
-## Design principles
-
-1. Block detection only via ZMQ, never RPC polling.
-2. The timestamp is captured as early as physically possible.
-3. The stratum race is judged purely on incoming `mining.notify`, with every
-   pool treated identically — including your own.
-4. **Manual peers survive everything.** The addnode list Core builds at runtime
-   lives only in its memory: a `bitcoind` restart wipes it, and Core re-reads
-   only what is in bitcoin.conf, which this app never touches. Bitcoin Lab keeps
-   its own persisted copy under `${APP_DATA_DIR}/data` and re-asserts it at
-   startup and every ~10 minutes, so a restart does not cost you the peers you
-   spent days identifying.
-5. Everything runs through the official Bitcoin app's own interface — RPC and
-   ZMQ, nothing else. No host configuration, no bitcoin.conf, and no state that
-   Core depends on.
 
 ## Licence
 
