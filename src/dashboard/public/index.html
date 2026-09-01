@@ -143,7 +143,7 @@
           Automatically rotate outbound peers
         </label>
         <span class="hint rotation-hint">
-          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has been offline longer than its own First % has earned it (a few hours at 1%, a week at 40%). Those peers are parked, not forgotten: they are re-tested until they answer and then take their slot straight back. How hard they are chased scales the same way - a peer worth 30% is knocked on twice a day for months, one worth 1% every other day for a few days. Whatever slot is then free goes to the best candidate available. One peer joins the manual set per pass.
+          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has gone offline, after an hour per point of its own First %, at most a day. Reclaiming early is safe because it is reversible: those peers are parked with their record, re-tested until they answer, and put straight back into a slot they still deserve. How hard and how long they are chased scales the same way - a peer worth 30% is knocked on twice a day for five months, one worth 1% every other day for four days. Whatever slot is free then goes to the best candidate available. One peer joins the manual set per pass.
         </span>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>

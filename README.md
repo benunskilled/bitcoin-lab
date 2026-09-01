@@ -103,45 +103,70 @@ operator can actually do something about.
 
 ## Peer rotation (optional, off by default)
 
-A toggle on the dashboard automates the loop above. Every ~10 minutes it:
+A toggle on the dashboard automates the loop above. Every ~10 minutes it makes
+at most one improvement, so the peer set drifts toward the best peers rather
+than churning:
 
 1. **Kicks dead weight** — disconnects any live outbound peer that has been
    eligible for at least `MIN_ELIGIBLE_FOR_JUDGEMENT` blocks (144, roughly a
    day) and has never once delivered a block first. Manual and inbound peers
    are never kicked: Core only backfills a dropped *outbound* connection with a
    fresh random peer, which is the entire mechanism this relies on.
-2. **Retires a manual peer that isn't there any more** — a manual peer that has
-   been offline longer than its own record has earned gives its slot up. The
-   grace period is bought with performance, roughly six hours per point of
-   First %, floored at 6 hours and capped at a week: a peer at 0.8% is barely
-   better than the random peer Core would have given you anyway and should not
-   sit on a slot for a day; one at 40% is worth waiting a week for. Without
-   this pass the manual set could only ever be improved by a better live
-   candidate, so eight peers that all went dark held the whole list hostage.
-3. **Lets a parked peer back in** — retiring is not deleting. Every retired
-   peer's address is parked and re-probed a few at a time each pass (one TCP
-   handshake to the port that answered last time, backing off as failures
-   accumulate), and the first one that answers takes its slot straight back if
-   it is free, or beats the weakest manual peer for it. This is what makes a
-   short grace period safe: the cost of being too quick is a peer that returns
-   on its own within a few ticks, not a peer lost.
-
-   How hard a parked peer is chased, and for how long it is remembered at all,
-   scale with its record too — in the direction that costs least for the least
-   reward. A peer at 30% is knocked on every twelve hours for five months; one
-   at 1% every other day for five days, because even a successful answer from
-   it barely beats the random peer Core would have supplied anyway. The first
-   knock comes on the next pass either way: the backoff starts at 30 minutes
-   and climbs to that ceiling over roughly the first day.
+2. **Reclaims the slot of a manual peer that isn't there any more** — see
+   below.
+3. **Lets a parked peer back in** — likewise.
 4. **Promotes one candidate** — takes the best-performing non-manual peer with
    a real track record and either fills a free manual slot with it, or swaps it
    for the weakest current manual peer, but only if it is strictly better.
 
-At most one peer joins the manual set per pass, revival or promotion, so the
-set drifts toward the best peers instead of churning. Every action is written
-to a rotation log shown under the toggle, with the parked peers listed beside
-it — "where did my peer go?" should have an answer on the same screen that took
-it away.
+Every action is written to a rotation log shown under the toggle.
+
+### Offline manual peers, and why they get their slot back
+
+There are only eight manual slots (`MAX_ADDNODE_CONNECTIONS`), so a manual peer
+that has gone dark is holding one of the scarcest things this app has. But
+dropping it is destructive in a way that is easy to underestimate: that peer is
+the product of days of measurement, and Core's addnode list is not a place you
+can look it up again.
+
+The two halves solve each other.
+
+**Giving up is reversible.** A retired peer's address is *parked*, not deleted:
+kept with its lifetime record, re-probed a few at a time on every pass (one TCP
+handshake to the port that answered last time), and put straight back into a
+free slot the moment it answers — or into the weakest peer's slot, if it beats
+it. Nothing is lost by reclaiming a slot early.
+
+**So reclaiming can be quick.** The wait before a peer loses its slot only has
+to cover the outages that fix themselves — a node restarting, a network blip —
+because "might be back next week" is parking's job now, and parking does it
+better. An hour covers those. Beyond it, an empty slot is just an empty slot
+while a live candidate could be using it.
+
+Both the wait and the chase after it scale with the peer's own record, which is
+the only honest measure available:
+
+| First % | keeps its slot for | then re-tested every | remembered for |
+|---|---|---|---|
+| 0.8% | 1 hour | ~47 hours | 4 days |
+| 5% | 5 hours | ~39 hours | 25 days |
+| 12% | 12 hours | ~26 hours | 60 days |
+| 30% | 24 hours (max) | 12 hours (max speed) | 150 days |
+
+The early re-probes are the same for everyone — the first comes on the next
+pass, then 30 minutes, an hour, two, four, eight — so a peer of any strength
+that returns quickly is noticed quickly. The scaling only decides what happens
+after roughly the first day, where the difference between chasing a 30% peer
+and a 1% peer actually starts to cost something.
+
+Two consequences worth stating plainly. Without this, the manual set could only
+ever be improved by a better *live* candidate, so eight peers that all went
+dark held the entire list hostage while Core kept redialling addresses that
+were not answering. And in the pathological case — Core itself down for hours,
+so every manual peer looks offline at once — all eight are parked, all eight
+are re-probed, and the ones still out there come straight back; there is
+deliberately no "don't retire too many at once" guard, because it would turn a
+self-healing situation into a stuck one.
 
 ## Architecture
 
@@ -216,9 +241,9 @@ example).
 | `FEELER_PEER_RETENTION_DAYS` | How long sessions of peers with no relay history are kept | `14` |
 | `MAX_MANUAL_PEERS` | Manual peers addnode'd at once — mirrors Core's `MAX_ADDNODE_CONNECTIONS` | `8` |
 | `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `144` |
-| `OFFLINE_GRACE_MIN_HOURS` | Shortest an offline manual peer keeps its slot, whatever its record | `6` |
-| `OFFLINE_GRACE_MAX_HOURS` | Longest, however good its record | `168` |
-| `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of grace bought per point of First % | `6` |
+| `OFFLINE_GRACE_MIN_HOURS` | Shortest an offline manual peer keeps its slot, whatever its record | `1` |
+| `OFFLINE_GRACE_MAX_HOURS` | Longest, however good its record | `24` |
+| `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of grace bought per point of First % | `1` |
 | `PARKED_PEER_PROBES_PER_TICK` | Retired peers re-tested per rotation pass | `3` |
 | `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Longest gap between tests for a peer at or above full-speed % | `12` |
 | `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Longest gap for a peer with no record worth chasing | `48` |
