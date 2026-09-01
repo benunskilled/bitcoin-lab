@@ -528,10 +528,11 @@ function pruneOldData({
 /**
  * The four numbers behind Umbrel's home-screen widget, as four small queries.
  *
- * Umbrel polls that widget on its own schedule whether or not anyone has the
- * dashboard open, so this runs around the clock on every install. It used to
- * build the entire peer ranking AND the entire stratum ranking - including a
- * median and a P90 for every pool - and then read four values out of them.
+ * Umbrel polls the widget endpoint on the schedule declared in the manifest's
+ * widgets: block, whether or not anyone has the dashboard open - so this runs
+ * around the clock on every install. It used to build the entire peer ranking
+ * AND the entire stratum ranking - including a median and a P90 for every pool
+ * - and then read four values out of them.
  *
  * The "best peer" threshold is config.minEligibleForJudgement, the same bar
  * the rotation loop uses before it will act on a peer's percentage. It was 5

@@ -212,9 +212,12 @@ async function handleWidgetStats(req, res) {
 
   sendJson(res, 200, {
     type: 'four-stats',
-    // Umbrel polls this endpoint on its own at this cadence regardless of
-    // whether the dashboard itself is even open - a home-screen glance stat
-    // doesn't need to be fresher than 60s.
+    // The cadence Umbrel actually uses is the `refresh` in the manifest's
+    // widgets: block, not this field - it is echoed here only so the payload
+    // is self-describing. Keep the two in step. 60s is plenty for a
+    // home-screen glance, and this endpoint is polled whether or not anyone
+    // has the dashboard open, which is why widgetStats() is four small
+    // queries rather than a slice of the full rankings.
     refresh: '60s',
     link: '',
     items: [
@@ -226,7 +229,10 @@ async function handleWidgetStats(req, res) {
       // ACTUALLY connected right now belongs on the at-a-glance home
       // widget, not only visible after opening the dashboard.
       {
-        title: 'Trusted',
+        // "Manual", not "Trusted" - the panel in the dashboard is called
+        // Manual Peers and Core calls the connection type manual. One word
+        // for one thing.
+        title: 'Manual',
         text: `${trustedOnline}/${trustedTotal}`,
         subtext: trustedOnline === trustedTotal ? 'manual peers online' : 'manual peers - check dashboard',
       },

@@ -11,7 +11,18 @@
 
 services:
   bitcoind:
-    image: ruimarinho/bitcoin-core:23
+    # A throwaway regtest node for exercising the ZMQ path - not a mirror of
+    # what you run in production, and deliberately not the Umbrel bitcoin app
+    # (that image bundles a whole UI). Bitcoin Core publishes no official image,
+    # so this is a third-party build and it is pinned rather than floating.
+    #
+    # It is also OLD: Core 23 is from 2022. If you are debugging something that
+    # depends on how a current Core reports peers - last_block, connection_type,
+    # v2 transport - set BITCOIND_IMAGE to a build matching the version you
+    # actually run before trusting what you see here:
+    #
+    #   BITCOIND_IMAGE=yourorg/bitcoind:29.0 docker compose -f docker-compose.dev.yml up
+    image: ${BITCOIND_IMAGE:-ruimarinho/bitcoin-core:23}
     command:
       - -regtest=1
       - -server=1

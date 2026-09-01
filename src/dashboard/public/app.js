@@ -417,7 +417,7 @@ function renderPeerTables(peers) {
     </tr>
   `).join('');
   const noManualPeersHint = manualPeers.length === 0
-    ? `<tr><td colspan="9" class="hint">No manually trusted peers yet - use "Add as Manual" above or the manual-add field.</td></tr>`
+    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or "Add Peer" to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
 
