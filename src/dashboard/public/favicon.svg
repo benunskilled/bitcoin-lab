@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    The app icon, redrawn for a 16px browser tab.
+
+    Not a copy of the store icon (bitcoin-lab-community-store/bitcoinlab-node/icon.svg):
+    that one is designed for a 128px home-screen tile, and its 10px-wide bitcoin
+    sign inside the flask disappears entirely at tab size, leaving an
+    unrecognisable grey smudge. Same flask, same orange liquid line, same dark
+    rounded tile - but the strokes are heavier and the sign is dropped, because
+    at 16 pixels the silhouette is the only thing that survives, and the
+    silhouette is what makes it identifiable in a row of tabs.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#161b22"/>
+      <stop offset="1" stop-color="#0b0f14"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+
+  <g stroke="#e6edf3" stroke-width="30" stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <path d="M196 92 h120" />
+    <path d="M216 92 v112 l-88 152 a30 30 0 0 0 26 46 h204 a30 30 0 0 0 26 -46 l-88 -152 v-112" />
+  </g>
+
+  <!-- the liquid: a filled body, not a hairline, so it still reads as orange at 16px -->
+  <path d="M141 330 h230 l44 76 a30 30 0 0 1 -26 46 h-266 a30 30 0 0 1 -26 -46 z" fill="#f7931a"/>
+</svg>

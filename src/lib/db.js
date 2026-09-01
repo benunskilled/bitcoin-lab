@@ -45,6 +45,31 @@ CREATE TABLE IF NOT EXISTS trusted_peer (
   created_at INTEGER NOT NULL
 );
 
+-- Manual peers the rotation loop retired because they stayed offline past
+-- their grace period, kept so they can earn their slot back.
+--
+-- Without this table, "offline too long" would be a one-way door: the peer
+-- that delivered 40% of your blocks first for two months drops off the
+-- network for an evening, loses its slot, and is then indistinguishable from
+-- the thousands of addresses Core has ever seen. Parking it means the loop
+-- can keep knocking on the door (a TCP handshake to the port that answered
+-- last time) and hand the slot straight back when it opens - which is the
+-- only reason retiring an offline peer relatively quickly is a safe thing to
+-- do at all.
+--
+-- The address here is a real, dialable listening address (it was a manual peer,
+-- so it had already survived a handshake), not an observed inbound address.
+CREATE TABLE IF NOT EXISTS parked_peer (
+  address TEXT PRIMARY KEY,
+  label TEXT,
+  first_pct REAL,                 -- lifetime record at the moment it was parked
+  eligible INTEGER,
+  parked_at INTEGER NOT NULL,
+  last_probe_at INTEGER,          -- NULL until the first re-probe
+  probe_failures INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_parked_peer_probe ON parked_peer(last_probe_at ASC);
+
 CREATE TABLE IF NOT EXISTS relay_race (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   block_hash TEXT NOT NULL UNIQUE,
@@ -159,7 +184,7 @@ CREATE TABLE IF NOT EXISTS meta (
 CREATE TABLE IF NOT EXISTS rotation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at INTEGER NOT NULL,
-  action TEXT NOT NULL,             -- kick | promote | swap
+  action TEXT NOT NULL,             -- kick | promote | swap | park | revive
   address TEXT NOT NULL,
   first_pct REAL,
   eligible INTEGER,

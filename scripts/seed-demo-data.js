@@ -178,11 +178,29 @@ inst
 
 const rotationLog = [
   ['kick', '198.51.100.203:8333', 0, 197, null, null, 'outbound-full-relay, 0/197 blocks first', 0.7],
+  ['revive', '203.0.113.140:8333', 18.9, 302, null, null, 'answered again and took a free manual slot', 2.1],
   ['kick', '203.0.113.180:8333', 0, 161, null, null, 'block-relay-only, 0/161 blocks first', 3.4],
+  ['park', '192.0.2.240:8333', 1.2, 188, null, null, 'offline 9h - past the 7h its record earned; parked for re-testing', 6.5],
   ['swap', '198.51.100.20:8333', 22.6, 168, '192.0.2.240:8333', 4.1, 'replaced the weakest current manual peer', 9.2],
   ['kick', '192.0.2.19:8333', 0, 152, null, null, 'outbound-full-relay, 0/152 blocks first', 14.8],
   ['promote', '203.0.113.55:8333', 31.4, 221, null, null, 'free manual slot (6/8 taken, 6 live)', 22.1],
 ];
+
+// Two peers that lost their manual slot to a long absence and are being
+// re-tested - one recently parked and still being checked often, one that has
+// been unreachable long enough for the backoff to have stretched out.
+const parked = [
+  ['192.0.2.240:8333', 1.2, 188, 6.5, 0.4, 1],
+  ['198.51.100.77:8333', 16.3, 264, 52, 5.5, 9],
+];
+for (const [address, firstPct, eligible, parkedHoursAgo, probeHoursAgo, failures] of parked) {
+  inst
+    .prepare(
+      `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
+       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    )
+    .run(address, firstPct, eligible, now - parkedHoursAgo * HOUR, now - probeHoursAgo * HOUR, failures);
+}
 for (const [action, address, firstPct, eligible, replacedAddress, replacedFirstPct, note, hoursAgo] of rotationLog) {
   inst
     .prepare(

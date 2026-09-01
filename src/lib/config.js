@@ -60,6 +60,33 @@ module.exports = {
   // off 5 blocks while rotation, correctly, would not touch it before 144.
   minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '144')),
 
+  // How long a manual peer may stay offline before the rotation loop gives its
+  // slot to someone else - scaled by how good the peer actually is, because a
+  // flat timeout treats the two ends of the manual list as if they were the
+  // same thing, and they are not. A peer delivering 40% of your blocks first
+  // is worth waiting days for; one at 0.8% is barely better than the random
+  // peer Core would give you anyway, so it should not sit on a slot for long.
+  //
+  // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max), so with the
+  // defaults: 0.8% -> 6h (the floor), 5% -> 30h, 20% -> 5 days, 40% and up ->
+  // the 7-day ceiling. A peer with no track record yet gets the floor.
+  //
+  // Being retired is not a death sentence: the address is parked and re-probed
+  // (see parkedPeer* below), which is precisely what makes a short grace safe -
+  // a peer that comes back gets its slot back on its own.
+  offlineGraceMinHours: Number(pick(process.env.OFFLINE_GRACE_MIN_HOURS, '6')),
+  offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '168')),
+  offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '6')),
+
+  // Retired manual peers are kept in parked_peer and re-probed a few at a time
+  // on each rotation tick (a TCP handshake each, so this stays a handful of
+  // sockets per ten minutes, not a scan). Repeated failures back the interval
+  // off so a permanently dead address costs almost nothing to keep around.
+  parkedPeerProbesPerTick: Number(pick(process.env.PARKED_PEER_PROBES_PER_TICK, '3')),
+  parkedPeerMinProbeIntervalMinutes: Number(pick(process.env.PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES, '30')),
+  parkedPeerMaxProbeIntervalHours: Number(pick(process.env.PARKED_PEER_MAX_PROBE_INTERVAL_HOURS, '12')),
+  parkedPeerRetentionDays: Number(pick(process.env.PARKED_PEER_RETENTION_DAYS, '30')),
+
   // How long a relay race stays "open" for late stratum-style bookkeeping
   // is not needed here (relay races resolve synchronously on ZMQ), but the
   // stratum race timeout window (ms) a pool has to report a new prevhash

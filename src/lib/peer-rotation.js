@@ -131,19 +131,238 @@ async function resolveDialableAddress(candidate) {
   return manualPeer.findListeningAddress(manualPeer.hostFromAddress(candidate.address));
 }
 
-// The weakest manual peer by lifetime record, offline ones included. Being
-// offline is deliberately not what makes a peer the weakest - a strong peer
-// that dropped a minute ago should not lose its slot to a mediocre live one -
-// but an offline peer that never delivered anything sorts to the bottom on
-// its record alone (firstPct null counts as worse than 0%), which is exactly
-// the slot worth reclaiming.
-function weakestTrusted(trusted) {
-  if (trusted.length === 0) return null;
-  return trusted.reduce((worst, p) => {
-    const pPct = p.firstPct == null ? -1 : p.firstPct;
-    const worstPct = worst.firstPct == null ? -1 : worst.firstPct;
-    return pPct < worstPct ? p : worst;
-  });
+// The weakest manual peer by lifetime record. The rule itself lives in
+// queries.js because the interactive "Add as Manual" at capacity has to
+// reclaim a slot by exactly the same standard this does.
+const weakestTrusted = queries.weakestTrustedPeer;
+
+/**
+ * How long a manual peer may stay offline before its slot is reclaimed, scaled
+ * by how well it has actually performed.
+ *
+ * A single flat timeout is the obvious design and the wrong one: it treats the
+ * peer delivering 40% of your blocks first exactly like the one delivering
+ * 0.8%, when the whole point of the ranking is that those are not the same
+ * peer. So the grace period is bought with performance - roughly six hours per
+ * percentage point, floored and capped by config - which turns "how long do we
+ * wait?" into a question the peer has already answered itself.
+ *
+ * See config.js for the numbers and the worked examples.
+ */
+function offlineGraceMs(firstPct) {
+  const hours = Math.min(
+    config.offlineGraceMaxHours,
+    Math.max(config.offlineGraceMinHours, (firstPct == null ? 0 : firstPct) * config.offlineGraceHoursPerPct),
+  );
+  return hours * 60 * 60 * 1000;
+}
+
+/**
+ * How long this manual peer has been unreachable. Normally that is the time
+ * since its last session closed; for a peer that has never once connected
+ * since it was added, the clock runs from when it was added instead - it was
+ * reachable at that moment (every add path probes first), so silence since
+ * then is exactly the same signal. Returns null when neither is known, which
+ * means "no evidence it is offline" and is treated as such.
+ */
+function offlineForMs(peer, now) {
+  if (peer.live) return null;
+  if (peer.offlineSinceMs != null) return peer.offlineSinceMs;
+  if (peer.trustedSince != null) return now - peer.trustedSince;
+  return null;
+}
+
+/**
+ * Pass 2: reclaim the slot of a manual peer that has been offline longer than
+ * its record has earned it, and park the address so it can come back.
+ *
+ * This is the pass that makes the manual list self-maintaining in the
+ * direction it could never previously go. Before it, a manual peer only ever
+ * lost its slot by being beaten by a live candidate, so eight peers that all
+ * went dark held the entire list hostage - Core kept redialling addresses that
+ * were not answering, and every genuinely good peer that turned up in the
+ * meantime was rejected for want of a slot.
+ *
+ * Retiring is not deleting. Every peer retired here goes into parked_peer and
+ * is re-probed by reviveParkedPeers below, which is what lets the grace period
+ * be measured in hours instead of never: the cost of being too quick is a
+ * peer that returns on its own within the next few ticks, not a peer lost.
+ *
+ * That is also why there is no "don't retire too many at once" guard. The
+ * pathological case - Bitcoin Core itself down for longer than the shortest
+ * grace period, so every manual peer looks offline at once - resolves itself:
+ * all eight are parked, all eight are re-probed, and the ones still out there
+ * come straight back. A guard would only turn a self-healing situation into a
+ * stuck one.
+ */
+async function retireOfflineManualPeers(ranking) {
+  const now = Date.now();
+  let retired = 0;
+  for (const peer of ranking.filter((p) => p.trusted && !p.live)) {
+    const offlineMs = offlineForMs(peer, now);
+    if (offlineMs == null) continue;
+    const grace = offlineGraceMs(peer.firstPct);
+    if (offlineMs < grace) continue;
+
+    // eslint-disable-next-line no-await-in-loop
+    await peerSync.removeTrustedPeer(peer.address);
+    const parked = peerSync.parkPeer(peer);
+    retired += 1;
+    logAction({
+      action: 'park',
+      address: peer.address,
+      firstPct: peer.firstPct,
+      eligible: peer.eligible,
+      note: parked
+        ? `offline ${fmtHours(offlineMs)} - past the ${fmtHours(grace)} its record earned; parked for re-testing`
+        : `offline ${fmtHours(offlineMs)} - past the ${fmtHours(grace)} its record earned; no track record to park`,
+    });
+    logger.info('rotation: retired a manual peer that stayed offline past its grace period', {
+      address: peer.address,
+      firstPct: peer.firstPct,
+      offlineHours: Math.round(offlineMs / 3600000),
+      graceHours: Math.round(grace / 3600000),
+      parked,
+    });
+  }
+  return retired;
+}
+
+function fmtHours(ms) {
+  const hours = ms / 3600000;
+  if (hours < 48) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+/**
+ * Pass 3: knock on the door of the peers that were parked, and let the first
+ * one that answers back in.
+ *
+ * A handful of TCP handshakes per tick (config.parkedPeerProbesPerTick),
+ * oldest-checked first, with the interval backing off as failures accumulate -
+ * so an address that has been dead for a week costs one handshake every twelve
+ * hours, while one parked ten minutes ago is checked promptly. The port is the
+ * one that answered when the peer was originally added, so this is a single
+ * connect(), not a port search.
+ *
+ * A peer that answers still has to earn its slot the same way anyone else
+ * does: straight in if a slot is free, otherwise only if it beats the current
+ * weakest. A returning 40% peer displacing a 3% one is the entire point; a
+ * returning 3% peer displacing a 12% one would not be.
+ */
+async function reviveParkedPeers(ranking) {
+  const now = Date.now();
+  db.instance
+    .prepare(`DELETE FROM parked_peer WHERE parked_at < ?`)
+    .run(now - config.parkedPeerRetentionDays * 24 * 60 * 60 * 1000);
+
+  const minInterval = config.parkedPeerMinProbeIntervalMinutes * 60 * 1000;
+  const maxInterval = config.parkedPeerMaxProbeIntervalHours * 60 * 60 * 1000;
+  const candidates = db.instance
+    .prepare(
+      `SELECT address, label, first_pct AS firstPct, eligible,
+              last_probe_at AS lastProbeAt, probe_failures AS probeFailures
+       FROM parked_peer
+       ORDER BY last_probe_at IS NOT NULL, last_probe_at ASC
+       LIMIT ?`,
+    )
+    .all(config.parkedPeerProbesPerTick);
+
+  const trusted = ranking.filter((p) => p.trusted);
+  let revived = 0;
+
+  for (const parked of candidates) {
+    // Exponential backoff on repeated failures, capped - a permanently dead
+    // address must not cost the same as one that just dropped out for lunch.
+    const wait = Math.min(maxInterval, minInterval * 2 ** parked.probeFailures);
+    if (parked.lastProbeAt != null && now - parked.lastProbeAt < wait) continue;
+
+    const { addr, port } = manualPeer.resolveHostPort(parked.address);
+    // eslint-disable-next-line no-await-in-loop
+    const reachable = port != null ? await manualPeer.probePort(addr, port) : false;
+
+    if (!reachable) {
+      db.instance
+        .prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = probe_failures + 1 WHERE address = ?`)
+        .run(now, parked.address);
+      continue;
+    }
+
+    // It is back. Only one peer is let back in per tick, for the same reason
+    // only one is promoted: the manual set should drift, not churn.
+    if (revived > 0) {
+      db.instance.prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`).run(now, parked.address);
+      continue;
+    }
+
+    let replaced = null;
+    if (trusted.length >= config.maxManualPeers) {
+      const weakest = weakestTrusted(trusted);
+      const score = (pct) => (pct == null ? -1 : pct);
+      if (!weakest || score(parked.firstPct) <= score(weakest.firstPct)) {
+        // Reachable but not worth a slot right now - reset the failure count
+        // (it is alive, after all) and leave it parked for a better moment.
+        db.instance.prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`).run(now, parked.address);
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await peerSync.removeTrustedPeer(weakest.address);
+      peerSync.parkPeer(weakest);
+      trusted.splice(trusted.indexOf(weakest), 1);
+      replaced = weakest;
+    }
+
+    const label = parked.label || `back from parking (${fmtPct(parked.firstPct)} first)`;
+    // eslint-disable-next-line no-await-in-loop
+    const result = await peerSync.addTrustedPeer(parked.address, label);
+    if (!result.ok) {
+      // The peer answered - this is not a probe failure, so the backoff must
+      // not grow. Something else refused the add (the cap, seen from a
+      // snapshot a moment out of date, or Core rejecting the address); note
+      // the attempt and try again on the next tick.
+      db.instance
+        .prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`)
+        .run(now, parked.address);
+      logger.warn('rotation: a parked peer answered but could not be re-added', {
+        address: parked.address,
+        error: result.error,
+      });
+      continue;
+    }
+
+    // addTrustedPeer clears the parked_peer row itself, so there is nothing
+    // to delete here - one owner for that fact, not two.
+    revived += 1;
+    trusted.push({
+      address: parked.address,
+      firstPct: parked.firstPct,
+      eligible: parked.eligible,
+      live: false,
+      trusted: true,
+    });
+    logAction({
+      action: 'revive',
+      address: parked.address,
+      firstPct: parked.firstPct,
+      eligible: parked.eligible,
+      replacedAddress: replaced ? replaced.address : null,
+      replacedFirstPct: replaced ? replaced.firstPct : null,
+      note: replaced
+        ? 'answered again and beat the weakest manual peer'
+        : 'answered again and took a free manual slot',
+    });
+    logger.info('rotation: a parked peer answered again and got its manual slot back', {
+      address: parked.address,
+      firstPct: parked.firstPct,
+      replacedAddress: replaced ? replaced.address : null,
+    });
+  }
+
+  return revived;
+}
+
+function fmtPct(pct) {
+  return pct == null ? 'no record' : `${pct.toFixed(1)}%`;
 }
 
 /**
@@ -201,7 +420,11 @@ async function promoteBestCandidate(ranking) {
 
     if (trusted.length < config.maxManualPeers) {
       // eslint-disable-next-line no-await-in-loop
-      await peerSync.addTrustedPeer(resolved, label);
+      const result = await peerSync.addTrustedPeer(resolved, label);
+      if (!result.ok) {
+        logger.warn('rotation: promotion refused', { address: resolved, error: result.error });
+        continue;
+      }
       logAction({
         action: 'promote',
         address: resolved,
@@ -220,8 +443,16 @@ async function promoteBestCandidate(ranking) {
 
     // eslint-disable-next-line no-await-in-loop
     await peerSync.removeTrustedPeer(weakest.address);
+    // Losing a slot to someone better is not the same as being worthless -
+    // park it, so if a slot frees up later this peer's real track record
+    // counts for more than a randomly discovered stranger's.
+    peerSync.parkPeer(weakest);
     // eslint-disable-next-line no-await-in-loop
-    await peerSync.addTrustedPeer(resolved, label);
+    const swapped = await peerSync.addTrustedPeer(resolved, label);
+    if (!swapped.ok) {
+      logger.warn('rotation: swap refused after freeing the slot', { address: resolved, error: swapped.error });
+      continue;
+    }
     logAction({
       action: 'swap',
       address: resolved,
@@ -243,19 +474,61 @@ async function promoteBestCandidate(ranking) {
 }
 
 /**
- * One rotation cycle - a complete no-op unless the toggle is on. Both
- * passes read off the same peerRanking() snapshot rather than each taking
- * their own: they don't interact (kickDeadWeight only ever touches
- * first === 0 peers, promoteBestCandidate only ever touches first > 0
- * ones), and a single snapshot means the two passes agree on exactly which
- * peers were live at the start of this tick.
+ * One rotation cycle - a complete no-op unless the toggle is on.
+ *
+ * The order is deliberate and is where the four passes stop being independent:
+ *
+ *   kick    frees an automatic outbound slot, which Core refills with a fresh
+ *           random peer - the mechanism the whole feature rides on.
+ *   retire  frees a MANUAL slot held by a peer that is not there any more.
+ *   revive  offers that slot first to a parked peer with a proven record,
+ *           because a peer that already delivered 20% of your blocks and has
+ *           just come back beats anything merely promising.
+ *   promote fills what is still free with the best live candidate - skipped
+ *           entirely if a revival already used this tick's one move, so the
+ *           manual set never gains two peers in the same pass.
+ *
+ * The first three passes read one shared peerRanking() snapshot; `retire`
+ * hands its own result forward by removing rows, so `revive` re-derives the
+ * manual set from what it was given rather than re-querying, and `promote`
+ * gets a snapshot that predates both. That is safe because each pass only
+ * ever moves the count of manual peers in the direction the next one can
+ * absorb: retire only removes, revive and promote each add at most one, and
+ * addTrustedPeer re-checks the real count against the cap before writing
+ * anything - so a stale snapshot can cost a tick, never a broken invariant.
  */
 async function tick() {
-  if (!isEnabled()) return { enabled: false, kicked: 0, promoted: 0 };
+  if (!isEnabled()) return { enabled: false, kicked: 0, retired: 0, revived: 0, promoted: 0 };
   const ranking = queries.peerRanking();
   const kicked = await kickDeadWeight(ranking);
-  const promoted = await promoteBestCandidate(ranking);
-  return { enabled: true, kicked, promoted };
+  const retired = await retireOfflineManualPeers(ranking);
+  const stillTrusted = retired > 0 ? queries.peerRanking() : ranking;
+  const revived = await reviveParkedPeers(stillTrusted);
+  // One peer joins the manual set per tick, at most. A revival already used it.
+  const promoted = revived > 0 ? 0 : await promoteBestCandidate(stillTrusted);
+  return { enabled: true, kicked, retired, revived, promoted };
 }
 
-module.exports = { isEnabled, setEnabled, logAction, recentLog, kickDeadWeight, promoteBestCandidate, tick };
+function parkedPeers() {
+  return db.instance
+    .prepare(
+      `SELECT address, label, first_pct AS firstPct, eligible,
+              parked_at AS parkedAt, last_probe_at AS lastProbeAt, probe_failures AS probeFailures
+       FROM parked_peer ORDER BY first_pct DESC NULLS LAST, parked_at DESC`,
+    )
+    .all();
+}
+
+module.exports = {
+  isEnabled,
+  setEnabled,
+  logAction,
+  recentLog,
+  kickDeadWeight,
+  promoteBestCandidate,
+  retireOfflineManualPeers,
+  reviveParkedPeers,
+  offlineGraceMs,
+  parkedPeers,
+  tick,
+};

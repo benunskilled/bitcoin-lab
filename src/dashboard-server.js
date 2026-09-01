@@ -27,7 +27,7 @@ const health = require('./lib/health');
 const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
 const { validatePool } = require('./lib/validate');
-const { manualAddPeer, hostFromAddress } = require('./lib/manual-peer');
+const { manualAddPeer, probePeer, hostFromAddress } = require('./lib/manual-peer');
 const peerRotation = require('./lib/peer-rotation');
 const logger = require('./lib/logger').make('dashboard');
 
@@ -311,6 +311,16 @@ async function router(req, res, pathname, url) {
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
+  // Reachability only - the same TCP handshake the add path runs first, with
+  // nothing after it. "Is this peer even reachable?" is a question worth being
+  // able to ask on its own: the answer decides whether adding it is worth a
+  // manual slot at all, and asking it should not cost one.
+  if (req.method === 'POST' && pathname === '/api/peers/probe') {
+    const { host } = await readBody(req);
+    const result = await probePeer(host);
+    return sendJson(res, result.ok ? 200 : 422, result);
+  }
+
   if (req.method === 'POST' && pathname === '/api/peers/add-manual') {
     // Same probe-then-persist flow as /api/peers/manual-add, but starting
     // from an existing peer row's address (live or not) instead of raw user
@@ -325,7 +335,14 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'GET' && pathname === '/api/rotation') {
-    return sendJson(res, 200, { enabled: peerRotation.isEnabled(), log: peerRotation.recentLog() });
+    return sendJson(res, 200, {
+      enabled: peerRotation.isEnabled(),
+      log: peerRotation.recentLog(),
+      // Manual peers that lost their slot to a long absence and are being
+      // re-tested. Shown so "where did my peer go?" has a visible answer on
+      // the same screen that took it away.
+      parked: peerRotation.parkedPeers(),
+    });
   }
 
   if (req.method === 'POST' && pathname === '/api/rotation/toggle') {
