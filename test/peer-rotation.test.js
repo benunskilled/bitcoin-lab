@@ -49,6 +49,7 @@ test.afterEach(() => {
     DELETE FROM peer_relay_stats;
     DELETE FROM relay_race;
     DELETE FROM trusted_peer;
+    DELETE FROM parked_peer;
     DELETE FROM rotation_log;
     DELETE FROM peer;
   `);
@@ -97,13 +98,23 @@ function seedLivePeer({
 // A trusted peer that is NOT currently connected: a trusted_peer row plus a
 // closed session, which is exactly what Core retrying a manual peer that went
 // dark looks like from here.
-function seedOfflineTrustedPeer({ address = nextAddress(), eligible = 0, first = 0 } = {}) {
+const HOUR = 60 * 60 * 1000;
+
+function seedOfflineTrustedPeer({
+  address = nextAddress(),
+  eligible = 0,
+  first = 0,
+  offlineHours = 1,
+} = {}) {
   const peer = db.getOrCreatePeer(address);
+  const endedAt = Date.now() - offlineHours * HOUR;
   db.instance
     .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
-    .run(peer.id, 'outbound', 'manual', Date.now() - 7200000, Date.now() - 3600000);
+    .run(peer.id, 'outbound', 'manual', endedAt - HOUR, endedAt);
   seedEligibility(peer.id, eligible, first);
-  db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)').run(address, null, Date.now());
+  db.instance
+    .prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)')
+    .run(address, null, endedAt - HOUR);
   return address;
 }
 
@@ -301,7 +312,7 @@ test('tick is a complete no-op when the toggle is off', async () => {
 
   const result = await peerRotation.tick();
 
-  assert.deepEqual(result, { enabled: false, kicked: 0, promoted: 0 });
+  assert.deepEqual(result, { enabled: false, kicked: 0, retired: 0, revived: 0, promoted: 0 });
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n, 0);
 });
@@ -325,4 +336,184 @@ test('setEnabled/isEnabled round-trip through the meta table', () => {
   assert.equal(peerRotation.isEnabled(), true);
   peerRotation.setEnabled(false);
   assert.equal(peerRotation.isEnabled(), false);
+});
+
+// --- Offline manual peers: a grace period bought with performance -----------
+//
+// The rule these cover is the one a user can actually feel: a peer that
+// delivers 40% of your blocks first is worth waiting a week for, one at 0.8%
+// is not worth waiting a day for. A single flat timeout for both is the
+// obvious implementation and the one worth having tests against.
+
+test('the offline grace period scales with the peer\'s own First %', () => {
+  const hours = (pct) => peerRotation.offlineGraceMs(pct) / HOUR;
+
+  // The two ends Ben named, and the shape between them.
+  assert.equal(hours(0.8), 6, 'a 0.8% peer gets the floor, not a day');
+  assert.equal(hours(40), 168, 'a 40% peer gets the ceiling - a week');
+  assert.ok(hours(5) > hours(0.8), 'more performance always buys more patience');
+  assert.ok(hours(20) > hours(5));
+  assert.equal(hours(null), 6, 'no track record yet gets the floor, never the ceiling');
+});
+
+test('a weak manual peer loses its slot once it is offline past its short grace', async () => {
+  // 2/200 = 1% -> 6h of grace (the floor). Offline for 20.
+  const address = seedOfflineTrustedPeer({ eligible: 200, first: 2, offlineHours: 20 });
+
+  const retired = await peerRotation.retireOfflineManualPeers(ranking());
+
+  assert.equal(retired, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 0);
+  const parked = db.instance.prepare('SELECT * FROM parked_peer WHERE address = ?').get(address);
+  assert.ok(parked, 'a retired peer is parked, not forgotten');
+  assert.equal(parked.probe_failures, 0);
+  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('park');
+  assert.equal(logRow.address, address);
+});
+
+test('a strong manual peer keeps its slot through an outage that would retire a weak one', async () => {
+  // 80/200 = 40% -> the 168h ceiling. Offline for 20 - the exact same outage
+  // that just cost the 1% peer its slot in the test above.
+  const strong = seedOfflineTrustedPeer({ eligible: 200, first: 80, offlineHours: 20 });
+
+  const retired = await peerRotation.retireOfflineManualPeers(ranking());
+
+  assert.equal(retired, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(strong).n, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer').get().n, 0);
+});
+
+test('a live manual peer is never retired, however bad its record', async () => {
+  seedLivePeer({ connectionType: 'manual', eligible: 500, first: 0, trusted: true });
+
+  const retired = await peerRotation.retireOfflineManualPeers(ranking());
+
+  assert.equal(retired, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 1);
+});
+
+test('a manual peer that has never connected at all is timed from when it was added', async () => {
+  // No session row ever - so there is no offlineSinceMs to measure. It was
+  // reachable when it was added (every add path probes first), so silence
+  // since then means the same thing and must not grant infinite patience.
+  const address = nextAddress();
+  db.getOrCreatePeer(address);
+  db.instance
+    .prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)')
+    .run(address, null, Date.now() - 30 * HOUR);
+
+  const retired = await peerRotation.retireOfflineManualPeers(ranking());
+
+  assert.equal(retired, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 0);
+  // Nothing to park: it has no eligible blocks, so there is no record to
+  // come back to. Re-probing it forever would be busywork.
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer').get().n, 0);
+});
+
+// --- Parked peers come back -------------------------------------------------
+
+function seedParked({ address = nextAddress(), firstPct = 20, eligible = 200, lastProbeAt = null, probeFailures = 0 } = {}) {
+  db.instance
+    .prepare(
+      `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
+       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    )
+    .run(address, firstPct, eligible, Date.now() - 3 * HOUR, lastProbeAt, probeFailures);
+  return address;
+}
+
+test('a parked peer that answers again takes a free manual slot back', async () => {
+  const address = seedParked({ firstPct: 22 });
+  const probed = [];
+  mock.method(manualPeer, 'probePort', async (host, port) => { probed.push(`${host}:${port}`); return true; });
+  const added = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => { added.push(`${cmd} ${addr}`); });
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 1);
+  // The port it was originally added on - one connect(), not a port search.
+  assert.deepEqual(probed, [address]);
+  assert.deepEqual(added, [`add ${address}`]);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(address).n, 0);
+  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('revive');
+  assert.equal(logRow.address, address);
+  assert.equal(logRow.replaced_address, null);
+});
+
+test('a parked peer that is still unreachable stays parked and backs off', async () => {
+  const address = seedParked();
+  mock.method(manualPeer, 'probePort', async () => false);
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 0);
+  const row = db.instance.prepare('SELECT * FROM parked_peer WHERE address = ?').get(address);
+  assert.equal(row.probe_failures, 1);
+  assert.ok(row.last_probe_at != null);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 0);
+});
+
+test('the re-probe interval backs off, so a long-dead address is barely probed', async () => {
+  // 9 failures against a 30-minute base is well past the 12h cap, so a peer
+  // probed 20 minutes ago is not due - and must not be touched.
+  seedParked({ lastProbeAt: Date.now() - 20 * 60 * 1000, probeFailures: 9 });
+  let probes = 0;
+  mock.method(manualPeer, 'probePort', async () => { probes += 1; return true; });
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(probes, 0);
+  assert.equal(revived, 0);
+});
+
+test('a returning peer only displaces a manual peer it actually beats', async () => {
+  // MAX_MANUAL_PEERS is 2 in this file. Fill both with strong peers.
+  seedLivePeer({ connectionType: 'manual', eligible: 200, first: 60, trusted: true }); // 30%
+  seedLivePeer({ connectionType: 'manual', eligible: 200, first: 40, trusted: true }); // 20%
+  const mediocre = seedParked({ firstPct: 5 });
+  mock.method(manualPeer, 'probePort', async () => true);
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 0, 'reachable is not the same as worth a slot');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(mediocre).n, 0);
+  // It is alive, so the failure count is reset rather than incremented - it
+  // should be re-checked promptly when a slot does open up.
+  assert.equal(db.instance.prepare('SELECT probe_failures AS f FROM parked_peer WHERE address = ?').get(mediocre).f, 0);
+});
+
+test('a returning peer that beats the weakest manual peer swaps in, and the loser is parked in turn', async () => {
+  const strong = seedLivePeer({ connectionType: 'manual', eligible: 200, first: 60, trusted: true }); // 30%
+  const weak = seedLivePeer({ connectionType: 'manual', eligible: 200, first: 8, trusted: true }); // 4%
+  const returning = seedParked({ firstPct: 25 });
+  mock.method(manualPeer, 'probePort', async () => true);
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(returning).n, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(weak).n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(strong).n, 1);
+  // The displaced peer keeps its own second chance.
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 1);
+  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('revive');
+  assert.equal(logRow.replaced_address, weak);
+});
+
+test('at most one peer joins the manual set per tick, revival or promotion', async () => {
+  peerRotation.setEnabled(true);
+  seedParked({ firstPct: 30 });
+  seedLivePeer({ eligible: 200, first: 100 }); // a strong promotion candidate too
+  mock.method(manualPeer, 'probePort', async () => true);
+  mock.method(manualPeer, 'findListeningAddress', async (host) => `${host}:8333`);
+
+  const result = await peerRotation.tick();
+
+  assert.equal(result.revived, 1);
+  assert.equal(result.promoted, 0, 'a revival uses up the tick\'s one move');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 1);
+  peerRotation.setEnabled(false);
 });

@@ -45,12 +45,11 @@ function looksLikeHost(input) {
  * the real listening port ourselves rather than trust whatever port we
  * happened to observe the peer on.
  *
- * If the resolved address is already connected under some other type, the
- * existing session is disconnected first (peerSync.addTrustedPeer does this
- * internally via disconnectIfLiveNonManual) so Core actually frees the slot
- * instead of silently keeping the old connection type forever - otherwise
- * "Add as Manual" on an already-live peer never frees an automatic-outbound
- * slot for a new peer to fill.
+ * Nothing is written and no existing connection is touched until that
+ * handshake has succeeded and a manual slot is confirmed available - see
+ * peerSync.addTrustedPeer, which owns that order. Trying an inbound peer to
+ * see whether it can be promoted is therefore free: if it does not listen,
+ * the attempt costs nothing at all.
  *
  * A successful add is persisted to trusted_peer (not just a one-off addnode
  * RPC call), so it survives container restarts/updates via
@@ -58,12 +57,38 @@ function looksLikeHost(input) {
  * dashboard do.
  */
 async function manualAddPeer(rawInput, label) {
+  const probed = await probePeer(rawInput);
+  if (!probed.ok) return probed;
+
+  // Asked for by hand, so it outranks whatever is currently weakest: at
+  // capacity, free a slot rather than writing a ninth row Core will never be
+  // told about. The response names what was dropped - a silent eviction of a
+  // peer the user spent days earning would be far worse than a refusal.
+  const result = await peerSync.addTrustedPeer(probed.address, label, { evictToFit: true });
+  if (!result.ok) {
+    return { ok: false, address: probed.address, error: result.error };
+  }
+  logger.info('manually added peer', { address: probed.address, evicted: result.evicted?.address || null });
+  return { ok: true, address: probed.address, ...evictionNote(result) };
+}
+
+/**
+ * Reachability only: is there a Bitcoin node listening on this host, and on
+ * which port? Writes nothing, disconnects nothing, calls no RPC.
+ *
+ * Split out of manualAddPeer (which now calls it) so the dashboard can offer
+ * the same question as a standalone action. "Can I even add this peer?" and
+ * "add this peer" are different questions, and only one of them should have
+ * consequences.
+ */
+async function probePeer(rawInput) {
   const host = (rawInput || '').trim();
   if (!looksLikeHost(host)) {
     return { ok: false, error: 'invalid host/IP' };
   }
   const { addr, port: explicitPort } = resolveHostPort(host);
-  // Already has an explicit :port - respect it and skip probing.
+
+  // Already has an explicit :port - respect it and skip the port search.
   if (explicitPort != null) {
     // resolveHostPort's pattern accepts up to five digits, so "1.2.3.4:99999"
     // parses as port 99999 - and net.connect() throws ERR_SOCKET_BAD_PORT
@@ -77,22 +102,15 @@ async function manualAddPeer(rawInput, label) {
     }
     const reachable = await probePort(addr, explicitPort);
     if (!reachable) return { ok: false, error: `${formatAddress(addr, explicitPort)} not reachable` };
-    const address = formatAddress(addr, explicitPort);
-    const capacity = await peerSync.addTrustedPeer(address, label);
-    logger.info('manually added peer', { address });
-    return { ok: true, address, ...capacityWarning(capacity) };
+    return { ok: true, address: formatAddress(addr, explicitPort), triedPorts: [explicitPort] };
   }
 
   const address = await findListeningAddress(addr);
-  if (address) {
-    const capacity = await peerSync.addTrustedPeer(address, label);
-    logger.info('manually added peer', { address, triedPorts: config.manualPeerPorts });
-    return { ok: true, address, ...capacityWarning(capacity) };
-  }
+  if (address) return { ok: true, address, triedPorts: config.manualPeerPorts };
 
   return {
     ok: false,
-    error: `node not reachable on ${config.manualPeerPorts.join(' or ')} - not added as manual`,
+    error: `no node answering on ${config.manualPeerPorts.join(' or ')}`,
   };
 }
 
@@ -115,17 +133,23 @@ async function findListeningAddress(host) {
   return null;
 }
 
-function capacityWarning(capacity) {
-  if (!capacity || !capacity.overCapacity) return {};
+// Bitcoin Core holds MAX_ADDNODE_CONNECTIONS (8) manual connections at once,
+// so the 9th add is not a queue, it is a swap - and the user has to be told
+// which peer paid for it, by name and by record, or a good peer can vanish
+// from the list without anyone ever seeing why.
+function evictionNote(result) {
+  if (!result.evicted) return {};
+  const pct = result.evicted.firstPct == null ? 'no record yet' : `${result.evicted.firstPct.toFixed(1)}% first`;
   return {
     warning:
-      `Bitcoin Core only actively maintains ${capacity.max} manual connections at once ` +
-      `(you now have ${capacity.count}) - this peer is queued and will connect automatically once a slot frees up.`,
+      `all ${result.max} manual slots were taken, so ${result.evicted.address} (${pct}) ` +
+      `was removed to make room - it will be re-tested and can come back on its own.`,
   };
 }
 
 module.exports = {
   manualAddPeer,
+  probePeer,
   hostFromAddress,
   resolveHostPort,
   formatAddress,

@@ -46,6 +46,7 @@ function peerRankingSql() {
          p.id,
          p.address,
          tp.label AS trustedLabel,
+         tp.created_at AS trustedSince,
          (tp.address IS NOT NULL) AS trusted,
          COALESCE(prs.eligible, 0) AS eligible,
          COALESCE(prs.first, 0) AS first,
@@ -142,6 +143,12 @@ function mapRankingRow(now) {
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       trusted,
       trustedLabel: r.trustedLabel,
+      // When this address entered our own trusted_peer table. Null for a peer
+      // Core alone calls 'manual' (an addnode issued outside this app that the
+      // adoption sync has not picked up yet). The offline-grace rule needs it:
+      // a manual peer that has never once connected has no offlineSinceMs to
+      // measure from, so its grace runs from when it was added instead.
+      trustedSince: r.trustedSince ?? null,
       eligible: r.eligible,
       first: r.first,
       firstPct: r.eligible > 0 ? (100 * r.first) / r.eligible : null,
@@ -169,6 +176,34 @@ function mapRankingRow(now) {
       connectionStatus: r.liveDirection ? (r.liveConnectionType || r.liveDirection).toUpperCase() : 'OFFLINE',
     };
   };
+}
+
+/**
+ * The weakest of a set of manual peers - i.e. whose slot is the one worth
+ * reclaiming. Takes anything carrying `firstPct` and `live`, which in practice
+ * means rows straight out of peerRanking().
+ *
+ * Being offline is deliberately not what makes a peer weakest: a strong peer
+ * that dropped a minute ago must not lose its slot to a mediocre live one
+ * (that is what the performance-scaled grace period in peer-rotation.js is
+ * for). It only breaks ties, where it is the obvious tiebreak - between two
+ * peers with the same record, the one that is not even here should go first.
+ * A peer with no record at all (firstPct null) sorts below 0%.
+ *
+ * Lives here, in one place, because three callers need the identical answer:
+ * the rotation loop's swap branch, the manual "Add as Manual" flow when all
+ * eight slots are taken, and the revival of a parked peer. Three private
+ * copies of "weakest" would be three chances for the dashboard to explain one
+ * rule while the code follows another.
+ */
+function weakestTrustedPeer(peers) {
+  if (!peers || peers.length === 0) return null;
+  const score = (p) => (p.firstPct == null ? -1 : p.firstPct);
+  return peers.reduce((worst, p) => {
+    if (score(p) !== score(worst)) return score(p) < score(worst) ? p : worst;
+    if (!p.live && worst.live) return p;
+    return worst;
+  });
 }
 
 /**
@@ -586,6 +621,7 @@ function widgetStats() {
 
 module.exports = {
   peerRanking,
+  weakestTrustedPeer,
   offlineTrustedPeers,
   liveSummary,
   stratumRanking,

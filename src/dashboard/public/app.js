@@ -341,6 +341,12 @@ function renderPeerTables(peers) {
   // huge table.
   const visibleLivePeers = showAllLivePeers ? livePeers : livePeers.slice(0, LIVE_PEER_LIMIT);
   const limitToggle = document.getElementById('live-peer-limit-toggle');
+  const countLabel = document.getElementById('live-peer-count');
+  if (countLabel) {
+    countLabel.textContent = livePeers.length <= LIVE_PEER_LIMIT
+      ? `${livePeers.length} connected`
+      : `showing ${visibleLivePeers.length} of ${livePeers.length} connected`;
+  }
   if (limitToggle) {
     if (livePeers.length <= LIVE_PEER_LIMIT) {
       limitToggle.hidden = true;
@@ -348,7 +354,7 @@ function renderPeerTables(peers) {
       limitToggle.hidden = false;
       limitToggle.textContent = showAllLivePeers
         ? `Show top ${LIVE_PEER_LIMIT} only`
-        : `Show all ${livePeers.length} (currently showing top ${LIVE_PEER_LIMIT})`;
+        : `Show all ${livePeers.length}`;
     }
   }
 
@@ -417,7 +423,7 @@ function renderPeerTables(peers) {
     </tr>
   `).join('');
   const noManualPeersHint = manualPeers.length === 0
-    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or "Add Peer" to enter an address yourself.</td></tr>`
+    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
 
@@ -441,7 +447,36 @@ function rotationActionLabel(action) {
   if (action === 'kick') return 'Kicked';
   if (action === 'promote') return 'Promoted';
   if (action === 'swap') return 'Swapped in';
+  if (action === 'park') return 'Parked';
+  if (action === 'revive') return 'Back';
   return action;
+}
+
+// The peers that lost a manual slot to a long absence, and are being knocked
+// on periodically. Shown next to the rotation log rather than hidden in it,
+// because "my manual peer is gone" and "my manual peer is gone AND being
+// watched for a comeback" are very different pieces of news, and only the
+// second one is true.
+function renderParkedPeers(parked) {
+  const panel = document.getElementById('parked-peers');
+  const tbody = document.querySelector('#parked-peer-table tbody');
+  if (!panel || !tbody) return;
+  if (!parked || parked.length === 0) {
+    panel.hidden = true;
+    tbody.innerHTML = '';
+    return;
+  }
+  panel.hidden = false;
+  const now = Date.now();
+  tbody.innerHTML = parked.map((p) => `
+    <tr>
+      ${truncatedCell(p.address)}
+      <td title="${p.eligible == null ? 'no record' : `over ${p.eligible} eligible blocks`}">${fmtPct(p.firstPct)}</td>
+      <td class="hint">${fmtDuration(now - p.parkedAt)} ago</td>
+      <td class="hint">${p.lastProbeAt == null ? 'not yet' : `${fmtDuration(now - p.lastProbeAt)} ago`}</td>
+      <td class="hint">${p.probeFailures}</td>
+    </tr>
+  `).join('');
 }
 
 async function refreshRotation() {
@@ -449,6 +484,8 @@ async function refreshRotation() {
   const data = await api('/api/rotation');
   const toggle = document.getElementById('rotation-toggle');
   if (toggle && rotationToggleEpoch === epochAtRequest) toggle.checked = Boolean(data.enabled);
+
+  renderParkedPeers(data.parked);
 
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (!tbody) return;
@@ -528,24 +565,77 @@ function reportRefreshHealth(errors) {
 }
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
+  const collapsing = showAllLivePeers;
   showAllLivePeers = !showAllLivePeers;
   // Purely a client-side slice of data already in hand.
   if (lastPeerRanking) renderPeerTables(lastPeerRanking);
   else refreshPeers();
+
+  // Collapsing removes however many rows were on screen - potentially
+  // thousands of pixels of them - and the browser keeps the scroll offset it
+  // had, clamping it to the now much shorter page. The reader clicked "show
+  // top 10" and landed somewhere near the bottom of the document with the
+  // peer table nowhere in sight: the table looked like it had disappeared
+  // rather than shrunk. Put the card back where it was before expanding.
+  //
+  // Only when the card has actually scrolled off the top - if it is already
+  // in view, moving the page underneath someone is its own kind of rude.
+  if (!collapsing) return;
+  const card = document.getElementById('live-peer-card');
+  if (card && card.getBoundingClientRect().top < 0) {
+    card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+});
+
+// Add and Test share the same input and the same result line, and both take
+// seconds (a TCP handshake against each candidate port, with a 3s timeout
+// each), so both disable the form while they run - otherwise a second click
+// starts a second probe against the same address and the two results
+// overwrite each other in whichever order they happen to finish.
+function manualAddBusy(busy, message) {
+  const resultEl = document.getElementById('manual-add-result');
+  document.getElementById('manual-test-button').disabled = busy;
+  document.querySelector('#manual-add-form button[type=submit]').disabled = busy;
+  resultEl.className = busy ? 'hint' : resultEl.className;
+  if (message != null) resultEl.textContent = message;
+}
+
+function manualAddResult(text, kind) {
+  const resultEl = document.getElementById('manual-add-result');
+  resultEl.textContent = text;
+  resultEl.className = kind === 'error' ? 'hint result-error' : 'hint result-ok';
+}
+
+document.getElementById('manual-test-button').addEventListener('click', async () => {
+  const input = document.getElementById('manual-add-input');
+  if (!input.value.trim()) return;
+  manualAddBusy(true, 'testing…');
+  try {
+    const result = await api('/api/peers/probe', { method: 'POST', body: JSON.stringify({ host: input.value }) });
+    // Naming the port is the useful half of the answer for an inbound peer:
+    // it is the port that peer's node actually listens on, which is never the
+    // one its inbound connection to us came from.
+    manualAddResult(`reachable - a node answered at ${result.address}. Nothing was added.`, 'ok');
+  } catch (err) {
+    manualAddResult(`not reachable - ${err.message}`, 'error');
+  } finally {
+    manualAddBusy(false);
+  }
 });
 
 document.getElementById('manual-add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const input = document.getElementById('manual-add-input');
-  const resultEl = document.getElementById('manual-add-result');
-  resultEl.textContent = 'connecting…';
+  manualAddBusy(true, 'connecting…');
   try {
     const result = await api('/api/peers/manual-add', { method: 'POST', body: JSON.stringify({ host: input.value }) });
-    resultEl.textContent = result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`;
+    manualAddResult(result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`, 'ok');
     input.value = '';
     refreshPeers();
   } catch (err) {
-    resultEl.textContent = err.message;
+    manualAddResult(err.message, 'error');
+  } finally {
+    manualAddBusy(false);
   }
 });
 

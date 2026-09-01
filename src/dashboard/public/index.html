@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bitcoin Lab</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -29,13 +31,16 @@
       </div>
     </section>
 
-    <details class="card" open>
-      <summary><h2>Live Peer Ranking</h2></summary>
-      <form id="manual-add-form" class="inline-form">
-        <input type="text" id="manual-add-input" placeholder="IP address, e.g. 203.0.113.5" required />
-        <button type="submit">Add Peer</button>
-        <span id="manual-add-result" class="hint"></span>
-      </form>
+    <!--
+      Deliberately a plain section, not a <details> like the panels below.
+      This one already had its own top-10/show-all control, and having a
+      second, outer collapse on top of it meant the same word - "collapse" -
+      did two different things a few pixels apart: one narrowed the list, the
+      other made it vanish. Here, collapsing means going back to the top 10,
+      which is the state this card is for.
+    -->
+    <section class="card" id="live-peer-card">
+      <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
       <div class="table-wrap">
         <table id="peer-table" class="peer-table">
           <thead>
@@ -57,7 +62,7 @@
       <div class="inline-form">
         <button type="button" id="live-peer-limit-toggle" class="secondary" hidden></button>
       </div>
-    </details>
+    </section>
 
     <details class="card" open>
       <summary><h2>Outbound Peers</h2></summary>
@@ -80,6 +85,33 @@
         </table>
       </div>
     </details>
+
+    <!--
+      Its own section, sitting directly above the panel it writes into. It used
+      to live inside Live Peer Ranking, where it looked like a filter for that
+      table rather than what it is: the way you add a peer you found somewhere
+      else entirely.
+
+      Two buttons, because they are two different questions. Test answers "is
+      anything listening there, and on which port" and changes nothing at all -
+      no row, no addnode, no disconnected session - so an address can be tried
+      without spending one of the eight manual slots to find out.
+    -->
+    <section class="card">
+      <h2>Add a Peer</h2>
+      <form id="manual-add-form" class="inline-form">
+        <input
+          type="text"
+          id="manual-add-input"
+          placeholder="IP address, e.g. 203.0.113.5"
+          title="A bare IP is probed on 8333, then 9333. Add an explicit :port to use only that one. IPv6 goes in brackets: [2001:db8::1]"
+          required
+        />
+        <button type="button" id="manual-test-button" class="secondary">Test</button>
+        <button type="submit">Add as Manual</button>
+      </form>
+      <div id="manual-add-result" class="hint"></div>
+    </section>
 
     <details class="card" open>
       <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
@@ -111,8 +143,25 @@
           Automatically rotate outbound peers
         </label>
         <span class="hint rotation-hint">
-          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - then makes the best remaining peer manual if it beats what is already there. One promotion per pass.
+          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has been offline longer than its own First % has earned it (a few hours at 1%, a week at 40%). Those peers are parked, not forgotten: they are re-tested regularly and take their slot back on their own if they return. Whatever slot is then free goes to the best candidate available. One peer joins the manual set per pass.
         </span>
+      </div>
+      <div id="parked-peers" class="parked-peers" hidden>
+        <h3>Parked <span class="hint">manual peers that went offline - re-tested regularly, re-added if they answer</span></h3>
+        <div class="table-wrap">
+          <table id="parked-peer-table" class="peer-table">
+            <thead>
+              <tr>
+                <th class="col-address">Address</th>
+                <th class="col-pct">First %</th>
+                <th>Parked</th>
+                <th>Last tested</th>
+                <th>Failed tests</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
       <div class="table-wrap">
         <table id="rotation-log-table" class="rotation-log-table">

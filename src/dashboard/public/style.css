@@ -175,6 +175,28 @@ tr:hover td { background: #0f151b; }
 .pill.rotation-kick { background: rgba(248,81,73,.15); color: var(--bad); }
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
 .pill.rotation-swap { background: rgba(247,147,26,.15); color: var(--accent); }
+/* Parking is not a kick - the peer is kept and re-tested - so it gets the
+   neutral treatment rather than the red one a removal gets. */
+.pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
+.pill.rotation-revive { background: rgba(63,185,80,.15); color: var(--good); }
+
+/* The Add-a-Peer result line. "not reachable" is a perfectly good answer
+   rather than an error - Test exists to produce it - so it is coloured as
+   information, on its own line under the form instead of squeezed beside it
+   where a full sentence had nowhere to go. */
+#manual-add-result { margin-top: 2px; }
+#manual-add-result:empty { display: none; }
+.result-ok { color: var(--good); }
+.result-error { color: var(--bad); }
+
+.parked-peers { margin-top: 14px; }
+.parked-peers h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.parked-peers h3 .hint { font-weight: 400; margin-left: 6px; }
 
 .inline-form {
   display: flex;

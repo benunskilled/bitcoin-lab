@@ -3,6 +3,7 @@
 const db = require('./db');
 const rpc = require('./rpc');
 const config = require('./config');
+const queries = require('./queries');
 const logger = require('./logger').make('peer-sync');
 
 /**
@@ -166,21 +167,146 @@ async function disconnectIfLiveNonManual(address) {
   }
 }
 
-async function addTrustedPeer(address, label) {
+/**
+ * Adds an address to the manual set, in an order that makes every step
+ * conditional on the one before it actually having worked.
+ *
+ * The order is the whole point. It used to be: write the row, disconnect the
+ * peer's existing session, then addnode. Two things were wrong with that.
+ *
+ * First, nothing checked the cap, so an add beyond the eighth slot wrote a row
+ * that syncTrustedToAddnode would then leave queued indefinitely - a manual
+ * peer in the UI that Core had never been told about. `evictToFit` is the
+ * answer for a deliberate user action: make room by dropping the weakest
+ * current manual peer, or refuse and say so, but never pretend.
+ *
+ * Second, the disconnect ran before the peer was actually in the manual list.
+ * Disconnecting is not free - it drops a live connection and relies on Core
+ * dialling back - so doing it for an add that then does not happen costs the
+ * user a working peer for nothing. That is exactly the fear that stops anyone
+ * from trying an inbound peer to see whether it is reachable. So: decide
+ * capacity, write the row, register the addnode, and only once the peer is
+ * genuinely a manual peer, disconnect whatever stale non-manual session it
+ * still has so Core redials it as one. A real addnode failure rolls the row
+ * back and the connection is never touched.
+ *
+ * `evictToFit` is off by default because the rotation loop does its own,
+ * stricter capacity arithmetic (a promotion must beat the peer it replaces);
+ * it must not silently get a second, laxer eviction path underneath it.
+ */
+async function addTrustedPeer(address, label, options = {}) {
+  const { evictToFit = false } = options;
+  const alreadyTrusted = Boolean(
+    db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address),
+  );
+
+  let evicted = null;
+  if (!alreadyTrusted) {
+    const count = db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer`).get().n;
+    if (count >= config.maxManualPeers) {
+      if (!evictToFit) {
+        return {
+          ok: false,
+          count,
+          max: config.maxManualPeers,
+          error: `all ${config.maxManualPeers} manual slots are taken`,
+        };
+      }
+      evicted = queries.weakestTrustedPeer(queries.peerRanking().filter((p) => p.trusted));
+      if (!evicted) {
+        return {
+          ok: false,
+          count,
+          max: config.maxManualPeers,
+          error: `all ${config.maxManualPeers} manual slots are taken and none could be freed`,
+        };
+      }
+      await removeTrustedPeer(evicted.address);
+      parkPeer(evicted);
+      logger.info('freed a manual slot to stay within the cap', {
+        removed: evicted.address,
+        removedFirstPct: evicted.firstPct,
+        forAddress: address,
+        max: config.maxManualPeers,
+      });
+    }
+  }
+
   db.instance
     .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?) ON CONFLICT(address) DO UPDATE SET label = excluded.label`)
     .run(address, label || null, Date.now());
-  await disconnectIfLiveNonManual(address);
+
+  // A parked peer that gets added back by any route is no longer parked -
+  // otherwise the revival pass keeps probing an address that already has a
+  // slot, and could "revive" it a second time.
+  db.instance.prepare(`DELETE FROM parked_peer WHERE address = ?`).run(address);
+
   try {
     await rpc.addNode(address, 'add');
   } catch (err) {
-    // addnode is idempotent-ish; "Node already added" is not an error worth failing on.
+    // "Node already added" means the end state we wanted is already true -
+    // Core's addnode list survives independently of ours (a bitcoin.conf
+    // -addnode=, a bitcoin-cli call, or our own previous sync), so this is a
+    // success, not a failure. Anything else is a genuine refusal and must not
+    // leave a row behind claiming Core knows about this peer.
+    if (!/already added/i.test(err.message || '')) {
+      if (!alreadyTrusted) {
+        db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(address);
+      }
+      logger.warn('addnode refused, peer not added as manual', { address, error: err.message });
+      return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: err.message };
+    }
     logger.debug('addnode call while trusting peer', { address, error: err.message });
   }
 
-  const count = db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer`).get().n;
-  const overCapacity = count > config.maxManualPeers;
-  return { count, max: config.maxManualPeers, overCapacity };
+  // Only now: the peer really is in the manual list.
+  await disconnectIfLiveNonManual(address);
+
+  return {
+    ok: true,
+    count: countTrusted(),
+    max: config.maxManualPeers,
+    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct } : null,
+  };
+}
+
+function countTrusted() {
+  return db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer`).get().n;
+}
+
+/**
+ * Remembers a peer that just lost its manual slot, so the rotation loop can
+ * keep re-testing it and hand the slot back if it returns (see peer-rotation's
+ * reviveParkedPeers). Losing a slot is meant to be reversible - that is the
+ * entire reason this app can afford to reclaim an offline peer's slot in hours
+ * rather than never.
+ *
+ * Never parks a peer that has no record worth keeping: an address that was
+ * never once connected when a block landed is not a peer this app has an
+ * opinion about, and re-probing it forever would be busywork.
+ */
+function parkPeer(peer) {
+  if (!peer || !peer.address) return false;
+  if (!peer.eligible) return false;
+  db.instance
+    .prepare(
+      `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
+       VALUES (@address, @label, @firstPct, @eligible, @parkedAt, NULL, 0)
+       ON CONFLICT(address) DO UPDATE SET
+         first_pct = excluded.first_pct,
+         eligible = excluded.eligible,
+         parked_at = excluded.parked_at,
+         last_probe_at = NULL,
+         probe_failures = 0`,
+    )
+    .run({
+      address: peer.address,
+      label: peer.trustedLabel || peer.label || null,
+      firstPct: peer.firstPct == null ? null : peer.firstPct,
+      eligible: peer.eligible == null ? null : peer.eligible,
+      parkedAt: Date.now(),
+    });
+  return true;
 }
 
 async function removeTrustedPeer(address) {
@@ -215,4 +341,5 @@ module.exports = {
   addTrustedPeer,
   removeTrustedPeer,
   disconnectIfLiveNonManual,
+  parkPeer,
 };
