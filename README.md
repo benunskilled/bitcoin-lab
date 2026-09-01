@@ -11,7 +11,7 @@ Lab measures which peers actually deliver first, over hundreds of blocks, lets
 you keep the winners, and then measures whether your pool got faster as a
 result.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.3)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.4)
 
 ## Install
 
