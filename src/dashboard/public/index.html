@@ -152,9 +152,9 @@
       <div class="rotation-hint">
         <p>Every ~10 minutes, one change at a time:</p>
         <ul>
+          <li>Makes a peer that really delivers blocks manual, so Core holds on to it - the best one available, into a free slot or in place of a weaker manual peer.</li>
           <li>Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.</li>
           <li>Frees the slot of a manual peer that has gone offline. Good peers get longer: an hour per point of First %, up to a day.</li>
-          <li>Puts the best peer available into a free slot.</li>
         </ul>
         <p>Losing a slot is not losing the peer. It is parked below, tested regularly, and takes a slot back as soon as it answers again.</p>
       </div>
