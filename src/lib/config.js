@@ -84,8 +84,28 @@ module.exports = {
   // off so a permanently dead address costs almost nothing to keep around.
   parkedPeerProbesPerTick: Number(pick(process.env.PARKED_PEER_PROBES_PER_TICK, '3')),
   parkedPeerMinProbeIntervalMinutes: Number(pick(process.env.PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES, '30')),
+
+  // The ceiling the backoff climbs to, and it is not the same for everyone:
+  // how good a peer was decides how long we keep bothering, and for how many
+  // days at all. A peer that delivered 30% of your blocks first is worth
+  // knocking on twice a day for months; one at 0.8% is not worth a knock
+  // every twelve hours for a month, because even if it does come back it is
+  // barely better than whatever Core would have handed you anyway.
+  //
+  // Interval ceiling: full speed (parkedPeerMaxProbeIntervalHours) from
+  // parkedPeerFullSpeedPct upwards, sliding linearly to the slow ceiling as
+  // the record approaches zero. 40% -> every 12h, 10% -> ~30h, 1% -> ~46h.
   parkedPeerMaxProbeIntervalHours: Number(pick(process.env.PARKED_PEER_MAX_PROBE_INTERVAL_HOURS, '12')),
-  parkedPeerRetentionDays: Number(pick(process.env.PARKED_PEER_RETENTION_DAYS, '30')),
+  parkedPeerSlowProbeIntervalHours: Number(pick(process.env.PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS, '48')),
+  parkedPeerFullSpeedPct: Number(pick(process.env.PARKED_PEER_FULL_SPEED_PCT, '20')),
+
+  // Retention: days = clamp(firstPct * daysPerPct, min, max). 0.8% -> 4 days,
+  // 5% -> 25 days, 36% and up -> the six-month ceiling. Same shape as the
+  // offline grace above, for the same reason - a peer's own record is the
+  // only honest answer to "how long is this worth remembering?".
+  parkedPeerRetentionDaysPerPct: Number(pick(process.env.PARKED_PEER_RETENTION_DAYS_PER_PCT, '5')),
+  parkedPeerMinRetentionDays: Number(pick(process.env.PARKED_PEER_MIN_RETENTION_DAYS, '2')),
+  parkedPeerMaxRetentionDays: Number(pick(process.env.PARKED_PEER_MAX_RETENTION_DAYS, '180')),
 
   // How long a relay race stays "open" for late stratum-style bookkeeping
   // is not needed here (relay races resolve synchronously on ZMQ), but the

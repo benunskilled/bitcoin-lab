@@ -143,11 +143,11 @@
           Automatically rotate outbound peers
         </label>
         <span class="hint rotation-hint">
-          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has been offline longer than its own First % has earned it (a few hours at 1%, a week at 40%). Those peers are parked, not forgotten: they are re-tested regularly and take their slot back on their own if they return. Whatever slot is then free goes to the best candidate available. One peer joins the manual set per pass.
+          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has been offline longer than its own First % has earned it (a few hours at 1%, a week at 40%). Those peers are parked, not forgotten: they are re-tested until they answer and then take their slot straight back. How hard they are chased scales the same way - a peer worth 30% is knocked on twice a day for months, one worth 1% every other day for a few days. Whatever slot is then free goes to the best candidate available. One peer joins the manual set per pass.
         </span>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
-        <h3>Parked <span class="hint">manual peers that went offline - re-tested regularly, re-added if they answer</span></h3>
+        <h3>Parked <span class="hint">manual peers that went offline - re-tested until they answer, the good ones for far longer than the weak ones</span></h3>
         <div class="table-wrap">
           <table id="parked-peer-table" class="peer-table">
             <thead>
@@ -157,6 +157,7 @@
                 <th>Parked</th>
                 <th>Last tested</th>
                 <th>Failed tests</th>
+                <th>Kept until</th>
               </tr>
             </thead>
             <tbody></tbody>

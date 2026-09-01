@@ -475,6 +475,7 @@ function renderParkedPeers(parked) {
       <td class="hint">${fmtDuration(now - p.parkedAt)} ago</td>
       <td class="hint">${p.lastProbeAt == null ? 'not yet' : `${fmtDuration(now - p.lastProbeAt)} ago`}</td>
       <td class="hint">${p.probeFailures}</td>
+      <td class="hint" title="How long this peer's own record has earned - a good peer is remembered for months, a weak one for days">${fmtDuration(Math.max(0, p.forgottenAt - now))} left</td>
     </tr>
   `).join('');
 }
