@@ -235,6 +235,45 @@ function fmtHours(ms) {
 }
 
 /**
+ * The longest gap between two knocks on a parked peer's door.
+ *
+ * Not one number for everyone. The peers worth waiting for get knocked on at
+ * full speed indefinitely; the ones that were barely better than random get
+ * knocked on progressively more rarely, because even a successful answer from
+ * them is worth very little. Full speed from parkedPeerFullSpeedPct upwards,
+ * sliding linearly down to the slow ceiling at a record of zero.
+ *
+ * Deliberately the opposite direction from probing everyone equally often and
+ * simply keeping the list shorter: knocking harder on a peer that delivered
+ * 40% of your blocks costs three sockets a tick and can save you days of a
+ * worse peer set, while knocking on a 1% peer twice a day for a month is pure
+ * noise for a reward you would not notice.
+ */
+function probeIntervalCapMs(firstPct) {
+  const fast = config.parkedPeerMaxProbeIntervalHours * 60 * 60 * 1000;
+  const slow = config.parkedPeerSlowProbeIntervalHours * 60 * 60 * 1000;
+  const share = Math.min(1, (firstPct == null ? 0 : firstPct) / config.parkedPeerFullSpeedPct);
+  return slow + (fast - slow) * share;
+}
+
+/**
+ * How long a parked peer is remembered at all, before its address is dropped
+ * and it becomes just another peer the node has seen. Same shape as the
+ * offline grace period: bought with the peer's own record.
+ *
+ * Kept in JavaScript as well as in the DELETE statement's SQL because the
+ * dashboard and the tests both need to be able to ask the question without
+ * running the deletion.
+ */
+function parkedRetentionMs(firstPct) {
+  const days = Math.min(
+    config.parkedPeerMaxRetentionDays,
+    Math.max(config.parkedPeerMinRetentionDays, (firstPct == null ? 0 : firstPct) * config.parkedPeerRetentionDaysPerPct),
+  );
+  return days * 24 * 60 * 60 * 1000;
+}
+
+/**
  * Pass 3: knock on the door of the peers that were parked, and let the first
  * one that answers back in.
  *
@@ -252,12 +291,22 @@ function fmtHours(ms) {
  */
 async function reviveParkedPeers(ranking) {
   const now = Date.now();
+  // Forgetting a parked peer entirely is scaled the same way everything else
+  // about that peer is: by what it actually did. Expressed in SQL so it stays
+  // one pass over the table rather than a read-then-delete.
   db.instance
-    .prepare(`DELETE FROM parked_peer WHERE parked_at < ?`)
-    .run(now - config.parkedPeerRetentionDays * 24 * 60 * 60 * 1000);
+    .prepare(
+      `DELETE FROM parked_peer
+       WHERE parked_at < @now - 86400000 * MIN(@maxDays, MAX(@minDays, COALESCE(first_pct, 0) * @daysPerPct))`,
+    )
+    .run({
+      now,
+      minDays: config.parkedPeerMinRetentionDays,
+      maxDays: config.parkedPeerMaxRetentionDays,
+      daysPerPct: config.parkedPeerRetentionDaysPerPct,
+    });
 
   const minInterval = config.parkedPeerMinProbeIntervalMinutes * 60 * 1000;
-  const maxInterval = config.parkedPeerMaxProbeIntervalHours * 60 * 60 * 1000;
   const candidates = db.instance
     .prepare(
       `SELECT address, label, first_pct AS firstPct, eligible,
@@ -273,8 +322,12 @@ async function reviveParkedPeers(ranking) {
 
   for (const parked of candidates) {
     // Exponential backoff on repeated failures, capped - a permanently dead
-    // address must not cost the same as one that just dropped out for lunch.
-    const wait = Math.min(maxInterval, minInterval * 2 ** parked.probeFailures);
+    // address must not cost the same as one that just dropped out for lunch -
+    // and the cap itself depends on how much this peer is worth waiting for.
+    const wait = Math.min(
+      probeIntervalCapMs(parked.firstPct),
+      minInterval * 2 ** parked.probeFailures,
+    );
     if (parked.lastProbeAt != null && now - parked.lastProbeAt < wait) continue;
 
     const { addr, port } = manualPeer.resolveHostPort(parked.address);
@@ -516,7 +569,11 @@ function parkedPeers() {
               parked_at AS parkedAt, last_probe_at AS lastProbeAt, probe_failures AS probeFailures
        FROM parked_peer ORDER BY first_pct DESC NULLS LAST, parked_at DESC`,
     )
-    .all();
+    .all()
+    // How long this particular peer is being waited for, so the dashboard can
+    // show that the good ones really are kept longer rather than asking anyone
+    // to take that on trust.
+    .map((p) => ({ ...p, forgottenAt: p.parkedAt + parkedRetentionMs(p.firstPct) }));
 }
 
 module.exports = {
@@ -529,6 +586,8 @@ module.exports = {
   retireOfflineManualPeers,
   reviveParkedPeers,
   offlineGraceMs,
+  probeIntervalCapMs,
+  parkedRetentionMs,
   parkedPeers,
   tick,
 };

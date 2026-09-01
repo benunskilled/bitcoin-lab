@@ -517,3 +517,61 @@ test('at most one peer joins the manual set per tick, revival or promotion', asy
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 1);
   peerRotation.setEnabled(false);
 });
+
+// --- How hard a parked peer is chased, and for how long ---------------------
+//
+// Both scale with the peer's own record, in opposite directions to the naive
+// design: a peer that delivered 30% of your blocks is worth knocking on twice
+// a day for months, one at 1% is not worth knocking on twice a day for a
+// month. Even a successful answer from the weak one is barely worth having.
+
+test('a strong parked peer is chased at full speed, a weak one progressively less often', () => {
+  const hours = (pct) => peerRotation.probeIntervalCapMs(pct) / HOUR;
+
+  assert.equal(hours(40), 12, 'a 40% peer keeps the fastest ceiling');
+  assert.equal(hours(20), 12, 'and so does anything at or above full-speed pct');
+  assert.ok(hours(10) > 12 && hours(10) < 48, 'the middle slides between the two');
+  assert.ok(hours(1) > hours(10), 'weaker means rarer');
+  assert.equal(hours(0), 48, 'no record at all gets the slowest ceiling');
+});
+
+test('a strong parked peer is remembered for months, a weak one for days', () => {
+  const days = (pct) => peerRotation.parkedRetentionMs(pct) / (24 * HOUR);
+
+  assert.equal(days(40), 180, 'the best peers are kept for half a year');
+  assert.equal(days(0.8), 4, 'the weakest are dropped in days, not a month');
+  assert.ok(days(5) > days(0.8) && days(5) < days(40));
+  assert.equal(days(0), 2, 'the floor');
+});
+
+test('a weak parked peer is forgotten once its own retention is up, while a strong one is kept', async () => {
+  const weak = nextAddress();
+  const strong = nextAddress();
+  const tenDaysAgo = Date.now() - 10 * 24 * HOUR;
+  const insert = db.instance.prepare(
+    `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
+     VALUES (?, NULL, ?, 200, ?, NULL, 0)`,
+  );
+  insert.run(weak, 0.8, tenDaysAgo);   // 0.8% -> kept 4 days: long gone
+  insert.run(strong, 30, tenDaysAgo);  // 30%  -> kept 150 days: still waiting
+  mock.method(manualPeer, 'probePort', async () => false);
+
+  await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(strong).n, 1);
+});
+
+test('the slower ceiling actually holds a weak peer back that a strong one would pass', async () => {
+  // Both probed 20 hours ago with 6 failures, so both are at their ceiling.
+  const probedAt = Date.now() - 20 * HOUR;
+  const strong = seedParked({ firstPct: 30, lastProbeAt: probedAt, probeFailures: 6 }); // ceiling 12h -> due
+  const weak = seedParked({ firstPct: 1, lastProbeAt: probedAt, probeFailures: 6 });    // ceiling ~46h -> not due
+  const probed = [];
+  mock.method(manualPeer, 'probePort', async (host, port) => { probed.push(`${host}:${port}`); return false; });
+
+  await peerRotation.reviveParkedPeers(ranking());
+
+  assert.deepEqual(probed, [strong]);
+  assert.ok(!probed.includes(weak));
+});

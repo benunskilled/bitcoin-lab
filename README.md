@@ -125,6 +125,14 @@ A toggle on the dashboard automates the loop above. Every ~10 minutes it:
    it is free, or beats the weakest manual peer for it. This is what makes a
    short grace period safe: the cost of being too quick is a peer that returns
    on its own within a few ticks, not a peer lost.
+
+   How hard a parked peer is chased, and for how long it is remembered at all,
+   scale with its record too — in the direction that costs least for the least
+   reward. A peer at 30% is knocked on every twelve hours for five months; one
+   at 1% every other day for five days, because even a successful answer from
+   it barely beats the random peer Core would have supplied anyway. The first
+   knock comes on the next pass either way: the backoff starts at 30 minutes
+   and climbs to that ceiling over roughly the first day.
 4. **Promotes one candidate** — takes the best-performing non-manual peer with
    a real track record and either fills a free manual slot with it, or swaps it
    for the weakest current manual peer, but only if it is strictly better.
@@ -212,7 +220,11 @@ example).
 | `OFFLINE_GRACE_MAX_HOURS` | Longest, however good its record | `168` |
 | `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of grace bought per point of First % | `6` |
 | `PARKED_PEER_PROBES_PER_TICK` | Retired peers re-tested per rotation pass | `3` |
-| `PARKED_PEER_RETENTION_DAYS` | How long a retired peer keeps being re-tested | `30` |
+| `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Longest gap between tests for a peer at or above full-speed % | `12` |
+| `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Longest gap for a peer with no record worth chasing | `48` |
+| `PARKED_PEER_FULL_SPEED_PCT` | First % from which a parked peer is chased at full speed | `20` |
+| `PARKED_PEER_RETENTION_DAYS_PER_PCT` | Days a parked peer is remembered, per point of First % | `5` |
+| `PARKED_PEER_MIN_RETENTION_DAYS` / `_MAX_` | Floor and ceiling on that | `2` / `180` |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug` | `info` |
 
 ## Known limitations
