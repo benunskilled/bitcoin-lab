@@ -150,23 +150,36 @@ function finalizeRace(prevhash) {
   openRaces.delete(prevhash);
   clearTimeout(race.timer);
 
-  try {
-    // Anyone still enabled who never reported for this race gets a miss.
-    const insertMiss = db.instance.prepare(
-      `INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`,
-    );
-    const tx = db.instance.transaction(() => {
-      for (const poolId of active.keys()) {
-        if (!race.reported.has(poolId)) insertMiss.run(race.id, poolId);
-      }
-    });
-    tx();
-  } catch (err) {
-    // A DB error here must never crash this process - see db.js busy_timeout
-    // for why it should now be rare, but losing the whole event loop over one
-    // race's bookkeeping would silently drop every pool connection, not just
-    // this race.
-    logger.warn('failed to record miss(es) for finalized race', { raceId: race.id, error: err.message });
+  // Anyone still enabled who never reported for this race gets a miss.
+  //
+  // Deliberately one statement per pool rather than all of them in a single
+  // transaction. `active` is only reconciled with stratum_pool every
+  // POOL_REFRESH_INTERVAL_MS, so for a few minutes after the user deletes a
+  // pool it still holds that pool's id - and an insert referencing a deleted
+  // pool violates the foreign key. ON CONFLICT resolution does NOT cover
+  // foreign-key violations (SQLite applies OR IGNORE to uniqueness, NOT NULL
+  // and CHECK only), so that insert throws, and inside one transaction it took
+  // every other pool's miss down with it on rollback: the race ended up with
+  // rows only for the pools that reported, which is precisely the Win%/Miss
+  // bias the stratum_history_reset_v1_12_0 migration had to erase once
+  // already. Per-row failure now costs exactly that row.
+  const insertMiss = db.instance.prepare(
+    `INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`,
+  );
+  for (const poolId of active.keys()) {
+    if (race.reported.has(poolId)) continue;
+    try {
+      insertMiss.run(race.id, poolId);
+    } catch (err) {
+      // A DB error here must never crash this process - losing the whole event
+      // loop over one race's bookkeeping would silently drop every pool
+      // connection, not just this row.
+      logger.warn('failed to record a miss for finalized race', {
+        raceId: race.id,
+        poolId,
+        error: err.message,
+      });
+    }
   }
 }
 

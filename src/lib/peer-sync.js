@@ -18,11 +18,15 @@ const logger = require('./logger').make('peer-sync');
  * simply stays queued in our own trusted_peer table and gets picked up
  * automatically once a slot frees up (another manual peer removed/dropped).
  */
-async function syncTrustedToAddnode() {
+async function syncTrustedToAddnode(knownAddedNodes) {
   const trusted = db.instance.prepare(`SELECT address FROM trusted_peer ORDER BY created_at ASC`).all();
   let addedNodes = [];
   try {
-    addedNodes = await rpc.getAddedNodeInfo();
+    // Callers that already hold this list can pass it in. adoptExternalManualPeers
+    // runs immediately before this on every sync tick and fetches exactly the
+    // same, unchanged data - so fetching it again here was one wasted RPC
+    // round trip per tick, forever.
+    addedNodes = knownAddedNodes || await rpc.getAddedNodeInfo();
   } catch (err) {
     logger.warn('getaddednodeinfo failed, skipping addnode sync this round', { error: err.message });
     return { trusted: trusted.length, existing: 0, added: 0, queued: 0 };
@@ -95,7 +99,9 @@ async function adoptExternalManualPeers() {
     addedNodes = await rpc.getAddedNodeInfo();
   } catch (err) {
     logger.warn('getaddednodeinfo failed, skipping external-manual adoption this round', { error: err.message });
-    return { adopted: 0 };
+    // No list to hand on either - the caller falls back to fetching its own,
+    // which will normally fail the same way and skip its round too.
+    return { adopted: 0, addedNodes: null };
   }
 
   const known = new Set(
@@ -113,7 +119,9 @@ async function adoptExternalManualPeers() {
     adopted += 1;
     logger.info('adopted externally-managed manual peer into trusted_peer', { address: addednode });
   }
-  return { adopted };
+  // Handed back so syncTrustedToAddnode, which always runs straight after
+  // this, doesn't have to ask Core for the same list a second time.
+  return { adopted, addedNodes };
 }
 
 // If Core already has a live connection to this address under some other

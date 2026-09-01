@@ -1,27 +1,144 @@
 # Bitcoin Lab
 
-Peer relay performance profiler and stratum race for a Bitcoin Core node.
+Find your fastest Bitcoin peers, keep them, and see whether your mining pool
+actually got faster because of it.
 
-- **Peer Profiler** - historical session tracking (connection type, ping,
-  duration, sessions) for every peer, live and past.
-- **Relay Profiler** - detects new blocks exclusively via Bitcoin Core ZMQ
-  (`pubhashblock`), timestamps with `process.hrtime.bigint()` before any
-  other work, and records which currently-connected peers ("Eligible")
-  actually delivered the block first ("First"), using Core's own
-  `getpeerinfo().last_block` field - no RPC polling on the timing path.
-- **Stratum Race** - times how fast each configured mining pool delivers a
-  new `mining.notify` job over its own TCP connection, independent of
-  Bitcoin Core. Pools (including any local solo pool) are added/removed
-  from the dashboard - nothing is hardcoded.
+Which peer hands your node a new block first decides how long your pool keeps
+handing out work on a block that has already been solved — and every second of
+that is hashrate spent on nothing. Bitcoin Core picks its peers for network
+health, not for your latency, so that set is random and stays random. Bitcoin
+Lab measures which peers actually deliver first, over hundreds of blocks, lets
+you keep the winners, and then measures whether your pool got faster as a
+result.
 
-See `../bitcoin-lab-community-store/` for the Umbrel App Store packaging,
-and that repo's README for the full first-time setup (GitHub repo, image
-build, adding the store to Umbrel).
+Worth saying plainly what the prize is: this is a game of tens to a few hundred
+milliseconds per block. Small — but it is exactly the window in which a solo
+miner is hashing work that can no longer win.
 
-## Running locally (outside Umbrel)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png)
 
-This app is a normal multi-container Docker Compose stack; Umbrel-specific
-wiring only lives in the packaging repo.
+## Install
+
+Bitcoin Lab ships as an Umbrel Community App — see
+[bitcoin-lab-community-store](https://github.com/benunskilled/bitcoin-lab-community-store)
+for the store URL and the installation steps. It also runs as a plain Docker
+Compose stack outside Umbrel; see [Running locally](#running-locally).
+
+## What it measures
+
+### Peer relay ranking
+
+A new block is detected **only** over Bitcoin Core's ZMQ `pubhashblock` topic,
+and timestamped with `process.hrtime.bigint()` before anything else happens —
+no RPC call sits on the timing path, so nothing this app does can skew the
+measurement it is taking.
+
+Exactly one `getpeerinfo` snapshot follows. Every peer connected at that moment
+counts as **Eligible** for that block; every peer whose `last_block` timestamp
+falls inside the detection window counts as **First**. A peer's lifetime
+`First / Eligible` percentage is the ranking key — a percentage rather than a
+raw count, so a peer that has merely been connected forever doesn't outrank a
+genuinely fast one.
+
+One honest detail about that percentage: Core reports `last_block` with
+one-second resolution, so several peers routinely share the same block. First %
+is therefore *how often a peer was in the fastest group*, not how often it beat
+everyone else by milliseconds. Across a few hundred blocks it still separates
+the fast peers from the rest reliably, which is what the eligibility threshold
+below is for.
+
+Acting on the ranking is where the speed actually comes from:
+
+- **Trust a good peer** and it is registered via `addnode`, so Core keeps it
+  instead of letting it rotate out. Core maintains up to 8 such connections
+  (`MAX_ADDNODE_CONNECTIONS` in its own net.h) — a pool of its own, not a share
+  of the automatic outbound slots.
+- **Disconnect a peer that never delivers** and Core replaces that outbound
+  connection with a fresh, randomly chosen one, which then gets ranked the same
+  way. Repeat, and your peer set improves instead of staying whatever Core
+  happened to pick.
+
+Inbound peers are ranked too and can be promoted, with one wrinkle: their
+`getpeerinfo` address carries the peer's *ephemeral outbound source port*, not
+the port their node listens on. Bitcoin Lab re-derives the real listening port
+with a TCP handshake (8333, then 9333) before trusting anything. Not every
+inbound peer listens; those simply cannot be promoted.
+
+### Stratum Race
+
+Each configured pool gets its own TCP connection and is timed purely on when
+its `mining.notify` carrying a new `prevhash` arrives — `hrtime` on the
+socket's `data` event, before any parsing. The first pool to report a given
+prevhash sets 0 ms, and every other pool is measured relative to it. No pool is
+special-cased, including your own. A pool that does not report within the
+timeout window is scored a miss for that race.
+
+Per pool: wins, win %, average / median / P90 latency, races seen, misses. The
+public pools are there as the baseline your own pool's number is measured
+against — a pool racing alone would trivially "win" every time.
+
+## Peer rotation (optional, off by default)
+
+A toggle on the dashboard automates the loop above. Every ~10 minutes it:
+
+1. **Kicks dead weight** — disconnects any live outbound peer that has been
+   eligible for at least `MIN_ELIGIBLE_FOR_JUDGEMENT` blocks (144, roughly a
+   day) and has never once delivered a block first. Manual and inbound peers
+   are never kicked: Core only backfills a dropped *outbound* connection with a
+   fresh random peer, which is the entire mechanism this relies on.
+2. **Promotes one candidate** — takes the best-performing non-manual peer with
+   a real track record and either fills a free manual slot with it, or swaps it
+   for the weakest current manual peer, but only if it is strictly better. At
+   most one promotion per pass, so the manual set drifts toward the best peers
+   instead of churning.
+
+Every action is written to a rotation log shown under the toggle.
+
+## Architecture
+
+Four processes from one image, sharing one SQLite file (WAL mode, 10s busy
+timeout), each restarted independently by Docker:
+
+| Process | Job |
+|---|---|
+| `dashboard` | HTTP API, static frontend, and the SSE block stream |
+| `peer-profiler` | Session bookkeeping, manual/addnode sync, peer rotation |
+| `relay-profiler` | The ZMQ block-timing path and First/Eligible recording |
+| `stratum-race` | One persistent TCP connection per pool, `mining.notify` timing |
+
+The split is deliberate rather than cosmetic: the relay profiler does nothing
+but sit on its ZMQ socket, so a slow dashboard request or a stalled pool
+connection can never delay the one timestamp that has to be exact. The
+dashboard subscribes to ZMQ on its own separate socket for live block events,
+for the same reason.
+
+The three workers have no HTTP port, so each writes a heartbeat into the shared
+`meta` table every 30 seconds. `GET /api/health` reports all four, and each
+worker's container healthcheck reads that heartbeat back read-only. The
+heartbeat runs on its own timer rather than as a side effect of work, because
+with ~10 minutes between blocks "nothing happened recently" is a healthy state
+and must not read as a fault.
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/status` | Block height, network, live peer summary |
+| `GET /api/events` | Server-Sent Events stream, one `block` event per new block |
+| `GET /api/peers/ranking` | Ranking of the peers that are connected or manual |
+| `POST /api/peers/manual-add` | Probe-then-trust, from raw user input |
+| `POST /api/peers/add-manual` | Probe-then-trust, from an existing peer row |
+| `POST /api/peers/untrust` | Forget a manual peer and disconnect it |
+| `POST /api/peers/disconnect` | Drop a live connection |
+| `GET /api/rotation` · `POST /api/rotation/toggle` | Rotation state, log, on/off |
+| `GET/POST /api/pools`, `PATCH/DELETE /api/pools/:id` | Stratum pool management |
+| `GET /api/health` | This process plus all worker heartbeats |
+| `GET /api/widget/stats` | Unauthenticated summary for the Umbrel home widget |
+
+## Running locally
+
+A normal multi-container Docker Compose stack; the Umbrel-specific wiring lives
+only in the packaging repo.
 
 ```sh
 docker compose -f docker-compose.dev.yml up --build
@@ -40,11 +157,11 @@ npm test
 
 ## Configuration
 
-All configuration is environment variables (see `src/lib/config.js`) - no
-config files to hand-edit, no SSH. On Umbrel these are supplied
-automatically via the `bitcoin` app dependency contract
-(`APP_BITCOIN_*`); for local/non-Umbrel use, set the plain `BITCOIN_*`
-equivalents (see `docker-compose.dev.yml` for a working example).
+All configuration is environment variables (see `src/lib/config.js`) — no
+config files to hand-edit, no SSH. On Umbrel these are supplied automatically
+via the `bitcoin` app dependency contract (`APP_BITCOIN_*`); for local use set
+the plain `BITCOIN_*` equivalents (`docker-compose.dev.yml` is a working
+example).
 
 | Variable | Purpose | Default |
 |---|---|---|
@@ -53,51 +170,45 @@ equivalents (see `docker-compose.dev.yml` for a working example).
 | `BITCOIN_RPC_USER` / `APP_BITCOIN_RPC_USER` | RPC username | - |
 | `BITCOIN_RPC_PASS` / `APP_BITCOIN_RPC_PASS` | RPC password | - |
 | `BITCOIN_ZMQ_HASHBLOCK_PORT` / `APP_BITCOIN_ZMQ_HASHBLOCK_PORT` | ZMQ `pubhashblock` port | `28334` |
-| `DATA_DIR` | SQLite + config storage root | `/data` |
+| `DATA_DIR` | SQLite storage root | `/data` |
 | `DASHBOARD_PORT` | Dashboard HTTP port | `8788` |
-| `STRATUM_RACE_TIMEOUT_MS` | Window a pool has to report before scored a miss | `8000` |
+| `STRATUM_RACE_TIMEOUT_MS` | Window a pool has to report before it is scored a miss | `8000` |
 | `PEER_POLL_INTERVAL_MS` | Peer Profiler session poll interval | `15000` |
 | `STRATUM_HISTORY_RETENTION_DAYS` | How long stratum race history is kept | `180` |
 | `FEELER_PEER_RETENTION_DAYS` | How long sessions of peers with no relay history are kept | `14` |
-| `MAX_MANUAL_PEERS` | Manual/addnode connections Core holds open at once | `8` |
+| `MAX_MANUAL_PEERS` | Manual peers addnode'd at once — mirrors Core's `MAX_ADDNODE_CONNECTIONS` | `8` |
+| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `144` |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug` | `info` |
 
-## Health and liveness
+## Known limitations
 
-Three of the four processes have no HTTP port, so each writes a heartbeat
-into the shared `meta` table every 30 seconds. Two things read it:
-
-- `GET /api/health` reports this process plus the state of all three
-  workers. The dashboard shows a banner when one stops reporting.
-- The container `healthcheck` for each worker runs
-  `node -e "require('/app/src/lib/health').assertFresh('<service>', 120000)"`,
-  which opens the database read-only and exits non-zero on a stale beat.
-
-The heartbeat runs on its own timer rather than as a side effect of work,
-because the relay profiler is event-driven: with ~10 minutes between blocks,
-"nothing happened recently" is a healthy state and must not read as a fault.
-
-## Live block events
-
-`GET /api/events` is a Server-Sent Events stream. The dashboard process
-subscribes to Core's `pubhashblock` topic on its own socket (separate
-process, separate socket from the relay profiler, so it cannot perturb what
-the profiler measures) and pushes a `block` event when one lands. The
-browser therefore does no block polling at all. A slow database-backed
-re-check runs alongside it so events still arrive if ZMQ is unavailable to
-this process.
+- **Inbound IPv6 peers show no address.** Docker can only hand an inbound IPv6
+  connection to an IPv4-only container by relaying it through docker-proxy,
+  which re-originates the connection from the Docker bridge gateway. Core never
+  learns the peer's real address, so there is nothing for this app to recover or
+  act on — those rows are labelled honestly instead of showing a meaningless
+  local IP.
+- **Relay observations are never pruned.** They *are* the ranking, so they are
+  kept regardless of age. Their growth is bounded on its own terms (one race per
+  block, a handful of rows each); transient peer sessions are what get a
+  retention window.
 
 ## Design principles
 
-Carried over from the project brief, unchanged by the rewrite:
-
 1. Block detection only via ZMQ, never RPC polling.
-2. Timestamp captured as early as physically possible.
-3. Stratum race judged purely by incoming `mining.notify`, every pool
-   treated identically.
-4. Peer history and trusted/manual peers persist across container
-   rebuilds and updates (`${APP_DATA_DIR}/data`).
-5. Bitcoin Core's own automatic outbound peer discovery is never replaced
-   by manual peers - both coexist.
-6. No IPv6 rewriting/mapping, no fixed container IPs, no SSH, no
-   Portainer dependency.
+2. The timestamp is captured as early as physically possible.
+3. The stratum race is judged purely on incoming `mining.notify`, with every
+   pool treated identically — including your own.
+4. **Manual peers survive everything.** The addnode list Core builds at runtime
+   lives only in its memory: a `bitcoind` restart wipes it, and Core re-reads
+   only what is in bitcoin.conf, which this app never touches. Bitcoin Lab keeps
+   its own persisted copy under `${APP_DATA_DIR}/data` and re-asserts it at
+   startup and every ~10 minutes, so a restart does not cost you the peers you
+   spent days identifying.
+5. Everything runs through the official Bitcoin app's own interface — RPC and
+   ZMQ, nothing else. No host configuration, no bitcoin.conf, and no state that
+   Core depends on.
+
+## Licence
+
+MIT — see [LICENSE](./LICENSE).

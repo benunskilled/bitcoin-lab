@@ -8,6 +8,9 @@
 // stale the tables are allowed to get from someone else's activity (Core
 // itself connecting/dropping peers) between clicks.
 const REFRESH_MS = 20000;
+// The rotation loop acts at most once every ten minutes, so its panel has no
+// reason to be on the same schedule as the live peer tables.
+const ROTATION_REFRESH_MS = 2 * 60 * 1000;
 // New blocks no longer arrive by polling at all. /api/events is a
 // Server-Sent Events stream the dashboard process feeds from Core's own ZMQ
 // notification, so the wave fires when the block actually lands instead of
@@ -88,19 +91,7 @@ async function refreshStatus() {
   const el = document.getElementById('status');
   el.textContent = `${s.network} · ${s.live.total} peers connected`;
 
-  const heightEl = document.getElementById('block-height-number');
-  if (s.blockHeight == null) {
-    heightEl.textContent = '–';
-  } else {
-    heightEl.textContent = s.blockHeight.toLocaleString();
-    if (lastKnownHeight != null && s.blockHeight > lastKnownHeight) {
-      heightEl.classList.remove('bump');
-      // eslint-disable-next-line no-void
-      void heightEl.offsetWidth; // restart the CSS transition
-      heightEl.classList.add('bump');
-    }
-    lastKnownHeight = s.blockHeight;
-  }
+  setBlockHeight(s.blockHeight);
 
   const stats = [
     ['Total', s.live.total],
@@ -113,6 +104,28 @@ async function refreshStatus() {
   document.getElementById('live-stats').innerHTML = stats
     .map(([label, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${label}</div></div>`)
     .join('');
+}
+
+// Shared by the status poll and the live block event, so whichever learns of
+// a new height first can show it. Never moves the number backwards: the two
+// sources race on every block, and the poll can be answering with the
+// previous height at the moment the event arrives with the new one.
+function setBlockHeight(height) {
+  const heightEl = document.getElementById('block-height-number');
+  if (height == null) {
+    if (lastKnownHeight == null) heightEl.textContent = '–';
+    return;
+  }
+  if (lastKnownHeight != null && height < lastKnownHeight) return;
+
+  heightEl.textContent = height.toLocaleString();
+  if (lastKnownHeight != null && height > lastKnownHeight) {
+    heightEl.classList.remove('bump');
+    // eslint-disable-next-line no-void
+    void heightEl.offsetWidth; // restart the CSS transition
+    heightEl.classList.add('bump');
+  }
+  lastKnownHeight = height;
 }
 
 function triggerBlockWave() {
@@ -130,6 +143,14 @@ function applyBlockUpdate(race) {
 
   const hashEl = document.getElementById('block-hash-short');
   hashEl.textContent = `${race.blockHash.slice(0, 16)}…`;
+
+  // The height rides along on this event. Reading it here is what keeps the
+  // big number in step with the wave and the highlighted rows - it used to
+  // wait for the next 20-second status poll, so it jumped at a moment
+  // unrelated to anything the viewer had just seen. Nullable in the schema
+  // (it is backfilled by a separate RPC after the race is recorded), so only
+  // set it when it is actually there.
+  if (race.blockHeight != null) setBlockHeight(race.blockHeight);
 
   const isNewRace = lastRaceId !== null && race.id !== lastRaceId;
   lastRaceId = race.id;
@@ -229,8 +250,14 @@ function firstPctCell(p) {
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 
+// The most recent ranking payload, kept so purely visual changes (the "show
+// all" toggle) can re-render from it instead of re-fetching the single most
+// expensive endpoint this app has just to slice the same array differently.
+let lastPeerRanking = null;
+
 async function refreshPeers() {
   const peers = await api('/api/peers/ranking');
+  lastPeerRanking = peers;
   renderPeerTables(peers);
 }
 
@@ -257,7 +284,51 @@ function addressCell(p) {
 }
 
 
+/**
+ * Re-rendering a table body wholesale destroys whatever the viewer was in the
+ * middle of: the keyboard focus (so tabbing restarts at the top), any text
+ * selection (so copying an address fails if a poll lands mid-drag) and, worst,
+ * a click - if the row is replaced between mousedown and mouseup the browser
+ * finds no shared element and fires no click at all, so the button silently
+ * does nothing. With "Add as Manual" taking up to six seconds of port probing,
+ * a 20-second poll landing inside that window is routine rather than exotic.
+ *
+ * So: while an action is in flight or the focus is inside one of these tables,
+ * hold the newest data instead of rendering it, and render as soon as the
+ * interaction is over. Nothing is lost - only the newest snapshot is kept.
+ */
+let actionsInFlight = 0;
+const deferredRenders = new Map();
+
+function interactionInProgress(selector) {
+  if (actionsInFlight > 0) return true;
+  const active = document.activeElement;
+  return Boolean(active && active.closest && active.closest(selector));
+}
+
+function deferRender(key, selector, render) {
+  if (interactionInProgress(selector)) {
+    deferredRenders.set(key, render);
+    return true;
+  }
+  deferredRenders.delete(key);
+  return false;
+}
+
+function flushDeferredRenders() {
+  if (deferredRenders.size === 0) return;
+  const pending = [...deferredRenders.values()];
+  deferredRenders.clear();
+  for (const render of pending) render();
+}
+
+document.addEventListener('focusout', () => {
+  // After focus actually lands somewhere else, not while it is in transit.
+  setTimeout(flushDeferredRenders, 0);
+});
+
 function renderPeerTables(peers) {
+  if (deferRender('peers', '.peer-table', () => renderPeerTables(peers))) return;
   const livePeers = peers.filter((p) => p.live);
   // Manuals get their own dedicated panel below - keep them out of Outbound
   // entirely rather than showing the same peer in two tables.
@@ -313,8 +384,13 @@ function renderPeerTables(peers) {
     </tr>
   `).join('') || `<tr><td colspan="9" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
-  const usedManualSlots = manualPeers.filter((p) => p.live).length;
-  const freeManualSlots = Math.max(0, MAX_MANUAL_PEERS - usedManualSlots);
+  // A slot is taken by a manual peer whether or not it happens to be
+  // connected right now: Core keeps retrying an offline one and it still
+  // counts against MAX_ADDNODE_CONNECTIONS. Counting only live peers showed
+  // free slots that did not exist - and the rotation loop, which used the
+  // same wrong count, kept promoting peers into them.
+  const liveManualSlots = manualPeers.filter((p) => p.live).length;
+  const freeManualSlots = Math.max(0, MAX_MANUAL_PEERS - manualPeers.length);
   // Free capacity (below the app's manual-connection cap) as actual empty
   // rows, not just the text summary below - "how much room is left" reads
   // the same way the filled rows above it do, at a glance. Plain dashes,
@@ -347,15 +423,19 @@ function renderPeerTables(peers) {
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
-    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${usedManualSlots} active · ${manualPeers.length} total)`;
+    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total)`;
   }
 }
 
-// Guards the rotation checkbox against refreshRotation() clobbering the
-// user's own just-clicked state before the POST that follows it resolves -
-// same shape as the pool-enabled checkbox's own optimistic-update handling
-// below, just centralized here since refreshRotation() runs on a timer too.
-let rotationTogglePending = false;
+// A counter, not a flag. A boolean only covered the time the POST was in
+// flight, which left the real race wide open: a GET /api/rotation issued
+// *before* the click comes back *after* the POST, carrying the pre-click
+// value, and puts the checkbox back. The viewer then sees a green "rotation
+// turned on" toast next to an unchecked box, while the server has it on - and
+// the obvious reaction, clicking again, genuinely turns it off. Comparing the
+// counter across the await discards any response that was already in flight
+// when the state changed.
+let rotationToggleEpoch = 0;
 
 function rotationActionLabel(action) {
   if (action === 'kick') return 'Kicked';
@@ -365,9 +445,10 @@ function rotationActionLabel(action) {
 }
 
 async function refreshRotation() {
+  const epochAtRequest = rotationToggleEpoch;
   const data = await api('/api/rotation');
   const toggle = document.getElementById('rotation-toggle');
-  if (toggle && !rotationTogglePending) toggle.checked = Boolean(data.enabled);
+  if (toggle && rotationToggleEpoch === epochAtRequest) toggle.checked = Boolean(data.enabled);
 
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (!tbody) return;
@@ -385,6 +466,13 @@ async function refreshRotation() {
 async function refreshPools() {
   const range = document.getElementById('stratum-range').value;
   const pools = await api(`/api/pools?range=${encodeURIComponent(range)}`);
+  renderPools(pools);
+}
+
+function renderPools(pools) {
+  // Same guard as the peer tables: this one owns the enabled checkboxes, and
+  // a poll landing on a just-clicked one puts it straight back.
+  if (deferRender('pools', '#pool-table', () => renderPools(pools))) return;
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
     <tr>
@@ -407,13 +495,43 @@ async function refreshPools() {
 
 async function refreshAll() {
   // Block updates are not in here: they arrive on their own via the
-  // /api/events stream, not by polling.
-  await Promise.allSettled([refreshStatus(), refreshPeers(), refreshPools(), refreshHealth(), refreshRotation()]);
+  // /api/events stream, not by polling. Rotation is not in here either - it
+  // only ever changes on its own ten-minute tick, so it has its own, much
+  // slower schedule (see startRefreshLoop).
+  const results = await Promise.allSettled([
+    refreshStatus(), refreshPeers(), refreshPools(), refreshHealth(),
+  ]);
+  // A failed refresh used to be completely invisible: allSettled swallowed
+  // the rejection, nothing was logged, and the tables simply kept showing
+  // whatever they had - hours-old numbers presented exactly like fresh ones.
+  const failed = results.filter((r) => r.status === 'rejected');
+  reportRefreshHealth(failed.map((r) => r.reason));
+}
+
+// Two consecutive failed rounds before saying anything: a single miss during
+// a container restart or a brief RPC hiccup is normal and self-corrects on
+// the next pass, and a banner that cries wolf gets ignored when it matters.
+let consecutiveFailedRefreshes = 0;
+function reportRefreshHealth(errors) {
+  const banner = document.getElementById('refresh-banner');
+  if (!banner) return;
+  if (errors.length === 0) {
+    consecutiveFailedRefreshes = 0;
+    banner.hidden = true;
+    return;
+  }
+  consecutiveFailedRefreshes += 1;
+  console.warn('dashboard refresh failed', errors);
+  if (consecutiveFailedRefreshes < 2) return;
+  banner.hidden = false;
+  banner.textContent = `The dashboard has not been able to refresh for ${consecutiveFailedRefreshes} rounds (${errors[0].message}). The numbers below are stale.`;
 }
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
   showAllLivePeers = !showAllLivePeers;
-  refreshPeers(); // re-fetch+render immediately rather than waiting for the next poll
+  // Purely a client-side slice of data already in hand.
+  if (lastPeerRanking) renderPeerTables(lastPeerRanking);
+  else refreshPeers();
 });
 
 document.getElementById('manual-add-form').addEventListener('submit', async (e) => {
@@ -506,6 +624,11 @@ document.body.addEventListener('click', async (e) => {
   if (isPeerOrPoolAction) {
     btn.disabled = true;
     btn.textContent = '…';
+    // Hold off the periodic re-render for the duration. Without this a poll
+    // landing mid-action replaced this very button with a fresh, enabled one
+    // - so the action could be fired a second time, and the reset in the
+    // finally block below wrote to an element no longer in the document.
+    actionsInFlight += 1;
   }
 
   // Probing a host on 8333 then 9333 can take up to ~6s (3s timeout per
@@ -548,8 +671,12 @@ document.body.addEventListener('click', async (e) => {
     );
   } finally {
     if (isPeerOrPoolAction) {
-      btn.disabled = false;
-      btn.textContent = originalLabel;
+      actionsInFlight -= 1;
+      if (btn.isConnected) {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+      flushDeferredRenders();
     }
   }
 });
@@ -557,27 +684,39 @@ document.body.addEventListener('click', async (e) => {
 document.body.addEventListener('change', async (e) => {
   const chk = e.target.closest('input[data-action="toggle-pool"]');
   if (chk) {
+    const enabled = chk.checked;
+    actionsInFlight += 1;
     try {
-      await api(`/api/pools/${chk.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ enabled: chk.checked }) });
+      await api(`/api/pools/${chk.dataset.id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
+      showToast(enabled ? 'Pool enabled.' : 'Pool disabled.', 'success');
       refreshPools();
     } catch (err) {
-      alert(err.message);
-      chk.checked = !chk.checked;
+      // Was an alert(), the one blocking dialog in the whole app - it also
+      // froze the refresh loop until someone clicked it away.
+      if (chk.isConnected) chk.checked = !enabled;
+      showToast(`Could not change the pool: ${err.message}`, 'error');
+    } finally {
+      actionsInFlight -= 1;
+      flushDeferredRenders();
     }
     return;
   }
 
   if (e.target.id === 'rotation-toggle') {
-    rotationTogglePending = true;
+    rotationToggleEpoch += 1;
     const enabled = e.target.checked;
     try {
-      await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
-      showToast(enabled ? 'Peer rotation turned on.' : 'Peer rotation turned off.', 'success');
+      // The server answers with the state it actually stored - use that
+      // rather than assuming the click won.
+      const result = await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
+      rotationToggleEpoch += 1;
+      if (e.target.isConnected) e.target.checked = Boolean(result.enabled);
+      showToast(result.enabled ? 'Peer rotation turned on.' : 'Peer rotation turned off.', 'success');
+      refreshRotation();
     } catch (err) {
-      e.target.checked = !enabled;
+      rotationToggleEpoch += 1;
+      if (e.target.isConnected) e.target.checked = !enabled;
       showToast(`Could not change peer rotation: ${err.message}`, 'error');
-    } finally {
-      rotationTogglePending = false;
     }
     return;
   }
@@ -596,8 +735,10 @@ async function refreshHealth() {
   try {
     report = await api('/api/health');
   } catch (err) {
+    // Can't reach our own API - the refresh banner covers that case, and
+    // hiding this one avoids two banners saying the same thing.
     banner.hidden = true;
-    return;
+    throw err;
   }
   const down = Object.entries(report.services || {})
     .filter(([, v]) => !v.ok)
@@ -625,6 +766,7 @@ async function refreshHealth() {
  */
 function startRefreshLoop() {
   let timer = null;
+  let rotationTimer = null;
 
   const schedule = () => {
     clearTimeout(timer);
@@ -641,15 +783,34 @@ function startRefreshLoop() {
     }
   };
 
+  // The rotation panel changes at most once per rotation tick - ten minutes -
+  // so it does not belong in the 20-second round with the live tables. It was
+  // fetching and re-rendering fifty log rows thirty times per possible change,
+  // into a panel that starts collapsed.
+  const runRotation = async () => {
+    if (document.hidden) return;
+    try {
+      await refreshRotation();
+    } catch (err) {
+      console.warn('rotation refresh failed', err);
+    } finally {
+      clearTimeout(rotationTimer);
+      if (!document.hidden) rotationTimer = setTimeout(runRotation, ROTATION_REFRESH_MS);
+    }
+  };
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       clearTimeout(timer);
+      clearTimeout(rotationTimer);
     } else {
       run();
+      runRotation();
     }
   });
 
   run();
+  runRotation();
 }
 
 /**

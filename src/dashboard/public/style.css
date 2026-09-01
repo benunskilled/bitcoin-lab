@@ -104,10 +104,19 @@ details.card > *:not(summary) { margin-top: 14px; }
 .table-wrap table td:last-child {
   position: sticky;
   right: 0;
-  background: var(--panel);
+  /* `inherit`, not a fixed colour. The cell has to be opaque - it scrolls over
+     the other columns - but it must not paint over its own row. A fixed colour
+     here outranked both the zebra striping and the new-block highlight, which
+     live on the <tr>: the stripes stopped short of the last column, and the
+     orange highlight skipped it entirely unless the row happened to be
+     hovered (that one rule alone had the specificity to win). */
+  background: inherit;
   box-shadow: -6px 0 6px -6px rgba(0, 0, 0, .5);
 }
-.table-wrap table tr:hover td:last-child { background: #0f151b; }
+/* With the cells inheriting, the row is what has to be opaque - otherwise the
+   columns scrolling underneath show through the pinned one. */
+.table-wrap table thead tr,
+.table-wrap table tbody tr { background: var(--panel); }
 
 /* separate + border-spacing:0 rather than collapse - visually identical
    here (every cell already draws its own border-bottom below) but
@@ -141,7 +150,11 @@ th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: upp
    so it composes for free with every rule below that paints a <td>
    background instead (hover, the sticky Actions column, the first-block
    highlight): a cell's own background always paints over its row's. */
-.table-wrap table tbody tr:nth-child(even) { background: rgba(255, 255, 255, .05); }
+/* An opaque tone rather than a translucent white: the pinned Actions column
+   inherits the row's background, and a translucent one would let the columns
+   scrolling underneath show through it. Same value as rgba(255,255,255,.05)
+   resolved over --panel. */
+.table-wrap table tbody tr:nth-child(even) { background: #1c232b; }
 
 tr:hover td { background: #0f151b; }
 
@@ -214,6 +227,10 @@ button.danger { color: var(--bad); }
   cursor: pointer;
 }
 .switch-label input[type="checkbox"] { cursor: pointer; }
+
+/* Explanatory text, not table data - keep it to a readable measure instead of
+   letting it run the full width of a 1200px card. */
+.rotation-hint { max-width: 68ch; line-height: 1.5; }
 
 .rotation-log-table .col-time { width: 14%; }
 .rotation-log-table .col-rot-action { width: 12%; }

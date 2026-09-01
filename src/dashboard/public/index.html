@@ -17,6 +17,7 @@
 
   <main>
     <div id="service-banner" class="service-banner" hidden role="status"></div>
+    <div id="refresh-banner" class="service-banner" hidden role="status"></div>
     <section class="card hero-card">
       <div class="hero-grid">
         <div class="hero-stat">
@@ -102,15 +103,15 @@
       </div>
     </details>
 
-    <details class="card">
+    <details class="card" open>
       <summary><h2>Peer Rotation</h2></summary>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
           Automatically rotate outbound peers
         </label>
-        <span class="hint">
-          Every ~10 minutes: disconnects outbound peers with a full day of eligibility and 0% first-seen (Core replaces them with a fresh random peer), then promotes or swaps in the best-performing non-manual peer as a manual connection if it's a clear improvement. At most one promotion per pass.
+        <span class="hint rotation-hint">
+          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - then makes the best remaining peer manual if it beats what is already there. One promotion per pass.
         </span>
       </div>
       <div class="table-wrap">

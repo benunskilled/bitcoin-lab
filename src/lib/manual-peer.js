@@ -3,6 +3,9 @@
 const net = require('net');
 const config = require('./config');
 const peerSync = require('./peer-sync');
+const { isValidPort } = require('./validate');
+// Address parsing/formatting lives in one module - see address.js for why.
+const { resolveHostPort, formatAddress, hostFromAddress } = require('./address');
 const logger = require('./logger').make('manual-peer');
 
 function probePort(host, port, timeoutMs = 3000) {
@@ -28,47 +31,6 @@ function probePort(host, port, timeoutMs = 3000) {
 // outright - see resolveHostPort below for why that notation matters.
 function looksLikeHost(input) {
   return typeof input === 'string' && /^[a-zA-Z0-9.:\-[\]]{3,255}$/.test(input.trim());
-}
-
-// Splits a user-supplied host string into { addr, port: number|null }. This
-// needs more care than a plain trailing "/:(\d+)$/" split once IPv6 is in
-// play: an unbracketed IPv6 literal like "2001:db8::86" uses colons as
-// hextet separators, so that naive split would slice off "86" as a "port"
-// and leave the mangled "2001:db8:" behind as the host - wrong for any IPv6
-// address whose last hextet happens to look like a 2-5 digit decimal
-// number. Bracket notation ("[2001:db8::1]:8333", the same format Core
-// itself reports and that hostFromAddress below already unwraps) is the
-// only form treated as carrying an explicit port for anything IPv6-shaped;
-// a bare address with two or more colons is always treated as a portless
-// IPv6 host instead, same as if the user had typed it without a port.
-function resolveHostPort(input) {
-  const bracketed = input.match(/^\[(.+)\](?::(\d{2,5}))?$/);
-  if (bracketed) {
-    const [, addr, portStr] = bracketed;
-    return { addr, port: portStr ? Number(portStr) : null };
-  }
-  const colonCount = (input.match(/:/g) || []).length;
-  if (colonCount >= 2) {
-    return { addr: input, port: null };
-  }
-  const explicitPortMatch = input.match(/^(.+):(\d{2,5})$/);
-  if (explicitPortMatch) {
-    return { addr: explicitPortMatch[1], port: Number(explicitPortMatch[2]) };
-  }
-  return { addr: input, port: null };
-}
-
-// Core itself always writes an IP:port pair as "[addr]:port" the moment
-// addr contains a colon (its CService::ToStringAddrPort - the same format
-// hostFromAddress above parses back out of getpeerinfo). We have to match
-// that exactly: trusted_peer.address is joined against Core's own
-// peer.address by string equality (see queries.js), and disconnectIfLiveNonManual
-// below compares against getpeerinfo's addr the same way, so an unbracketed
-// IPv6 "address:port" here would silently never match either one - the
-// peer would never show as trusted, and a live non-manual session would
-// never get disconnected before the add.
-function formatAddress(addr, port) {
-  return addr.includes(':') ? `[${addr}]:${port}` : `${addr}:${port}`;
 }
 
 /**
@@ -103,6 +65,16 @@ async function manualAddPeer(rawInput, label) {
   const { addr, port: explicitPort } = resolveHostPort(host);
   // Already has an explicit :port - respect it and skip probing.
   if (explicitPort != null) {
+    // resolveHostPort's pattern accepts up to five digits, so "1.2.3.4:99999"
+    // parses as port 99999 - and net.connect() throws ERR_SOCKET_BAD_PORT
+    // *synchronously* for anything outside 1-65535, from inside probePort's
+    // Promise executor. The promise then rejects instead of resolving false,
+    // and the user gets a bare 500 instead of a usable message. Exactly the
+    // failure validate.js exists to prevent (see its header) - this path just
+    // wasn't using it.
+    if (!isValidPort(explicitPort)) {
+      return { ok: false, error: `${explicitPort} is not a valid port (1-65535)` };
+    }
     const reachable = await probePort(addr, explicitPort);
     if (!reachable) return { ok: false, error: `${formatAddress(addr, explicitPort)} not reachable` };
     const address = formatAddress(addr, explicitPort);
@@ -111,22 +83,36 @@ async function manualAddPeer(rawInput, label) {
     return { ok: true, address, ...capacityWarning(capacity) };
   }
 
-  for (const port of config.manualPeerPorts) {
-    // eslint-disable-next-line no-await-in-loop
-    const reachable = await probePort(addr, port);
-    if (reachable) {
-      const address = formatAddress(addr, port);
-      // eslint-disable-next-line no-await-in-loop
-      const capacity = await peerSync.addTrustedPeer(address, label);
-      logger.info('manually added peer', { address, triedPorts: config.manualPeerPorts });
-      return { ok: true, address, ...capacityWarning(capacity) };
-    }
+  const address = await findListeningAddress(addr);
+  if (address) {
+    const capacity = await peerSync.addTrustedPeer(address, label);
+    logger.info('manually added peer', { address, triedPorts: config.manualPeerPorts });
+    return { ok: true, address, ...capacityWarning(capacity) };
   }
 
   return {
     ok: false,
     error: `node not reachable on ${config.manualPeerPorts.join(' or ')} - not added as manual`,
   };
+}
+
+/**
+ * Given a bare host, returns the first configured P2P port that answers a TCP
+ * handshake - already in Core's own address format - or null if none does.
+ *
+ * Shared on purpose: the automatic rotation loop has to answer exactly this
+ * question for an inbound candidate (whose observed port is its ephemeral
+ * source port, not what it listens on). A second private copy of this loop
+ * over there was one more place for the port list, the bracket format, or the
+ * "not every peer listens" case to drift out of sync.
+ */
+async function findListeningAddress(host) {
+  for (const port of config.manualPeerPorts) {
+    // eslint-disable-next-line no-await-in-loop
+    const reachable = await probePort(host, port);
+    if (reachable) return formatAddress(host, port);
+  }
+  return null;
 }
 
 function capacityWarning(capacity) {
@@ -138,17 +124,11 @@ function capacityWarning(capacity) {
   };
 }
 
-// Best-effort host extraction from a Core-style "addr" string, so callers
-// can turn an existing live peer's address (possibly an ephemeral inbound
-// port) back into a bare host for re-probing. Handles bracketed IPv6
-// ("[2001:db8::1]:8333") and plain "host:port"; falls back to returning the
-// input unchanged if neither pattern matches.
-function hostFromAddress(address) {
-  const bracketed = address.match(/^\[(.+)\]:\d+$/);
-  if (bracketed) return bracketed[1];
-  const simple = address.match(/^([^:]+):\d+$/);
-  if (simple) return simple[1];
-  return address;
-}
-
-module.exports = { manualAddPeer, hostFromAddress, resolveHostPort, formatAddress, probePort };
+module.exports = {
+  manualAddPeer,
+  hostFromAddress,
+  resolveHostPort,
+  formatAddress,
+  probePort,
+  findListeningAddress,
+};

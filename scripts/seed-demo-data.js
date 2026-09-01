@@ -34,8 +34,7 @@ const DAY = 24 * HOUR;
 const CURRENT_HEIGHT = Number(process.env.MOCK_RPC_HEIGHT || 921845);
 
 function addPeer(address, subver, connType, direction, opts = {}) {
-  const firstSeen = now - (opts.ageDays || 20) * DAY;
-  const peer = db.getOrCreatePeer(address, firstSeen);
+  const peer = db.getOrCreatePeer(address);
   const live = opts.live !== false;
   const startedAt = now - (opts.sessionMinutes || 45) * 60 * 1000;
   inst
@@ -102,7 +101,11 @@ addPeer('10.21.21.10:53400', '/electrs:0.11.1/', 'inbound', 'inbound', { ageDays
 // take-all - so First Seen % varies row to row instead of most reading 0%.
 const relayPeers = [...peers.slice(0, 5), ...manualLive.slice(0, 1)];
 const relayWeights = [5, 3, 2, 2, 1, 1]; // roughly matches relayPeers order
-const RACE_COUNT = 30;
+// Comfortably past config.minEligibleForJudgement (144, ~a day of blocks), so
+// the demo shows the numbers a node that has actually been running produces -
+// and so anything gated on having a real track record is populated rather
+// than showing a dash.
+const RACE_COUNT = 210;
 for (let i = 0; i < RACE_COUNT; i++) {
   const height = CURRENT_HEIGHT - (RACE_COUNT - 1 - i);
   const raceId = inst
@@ -164,6 +167,29 @@ for (let i = 0; i < STRATUM_RACE_COUNT; i++) {
         .prepare(`INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`)
         .run(raceId, l.pool.id);
     });
+}
+
+// --- Peer rotation -----------------------------------------------------------
+// The toggle on, plus a plausible day of activity, so the Peer Rotation panel
+// shows what it actually does rather than an empty table.
+inst
+  .prepare(`INSERT INTO meta (key, value) VALUES ('peer_rotation_enabled', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+  .run();
+
+const rotationLog = [
+  ['kick', '198.51.100.203:8333', 0, 197, null, null, 'outbound-full-relay, 0/197 blocks first', 0.7],
+  ['kick', '203.0.113.180:8333', 0, 161, null, null, 'block-relay-only, 0/161 blocks first', 3.4],
+  ['swap', '198.51.100.20:8333', 22.6, 168, '192.0.2.240:8333', 4.1, 'replaced the weakest current manual peer', 9.2],
+  ['kick', '192.0.2.19:8333', 0, 152, null, null, 'outbound-full-relay, 0/152 blocks first', 14.8],
+  ['promote', '203.0.113.55:8333', 31.4, 221, null, null, 'free manual slot (6/8 taken, 6 live)', 22.1],
+];
+for (const [action, address, firstPct, eligible, replacedAddress, replacedFirstPct, note, hoursAgo] of rotationLog) {
+  inst
+    .prepare(
+      `INSERT INTO rotation_log (at, action, address, first_pct, eligible, replaced_address, replaced_first_pct, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(now - hoursAgo * HOUR, action, address, firstPct, eligible, replacedAddress, replacedFirstPct, note);
 }
 
 // fresh heartbeats so the dashboard doesn't show the "services not

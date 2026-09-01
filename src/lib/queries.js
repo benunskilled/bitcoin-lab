@@ -2,25 +2,7 @@
 
 const db = require('./db');
 const config = require('./config');
-
-// Bare IPv4 "host:port" only - this is purely for recognizing Umbrel's own
-// internal Docker network addresses (always plain IPv4), never used for
-// anything IPv6 or bracketed.
-function ipv4HostFromAddress(address) {
-  const m = String(address || '').match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
-  return m ? m[1] : null;
-}
-
-function ipv4ToInt(ip) {
-  return ip.split('.').reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
-}
-
-function ipv4InCidr(ip, cidr) {
-  const [rangeIp, prefixLenStr] = cidr.split('/');
-  const prefixLen = Number(prefixLenStr);
-  const mask = prefixLen === 0 ? 0 : (0xffffffff << (32 - prefixLen)) >>> 0;
-  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(rangeIp) & mask);
-}
+const { ipv4HostFromAddress, ipv4InCidr } = require('./address');
 
 // A subver like "/electrs:0.11.1/" -> "electrs" - just enough to name which
 // local app a same-host peer connection belongs to.
@@ -31,14 +13,38 @@ function localAppNameFromSubver(subver) {
   return name || null;
 }
 
+// The ranking statement is 60 lines of joins and is re-run several times a
+// minute; parsing and planning it every time was measurable, unlike the
+// small statements elsewhere in this file. Prepared once, on first use, and
+// held for the life of the process (see nthLatencyStmt below for the same
+// pattern).
+let peerRankingStmt = null;
+
+/**
+ * The peer table is deliberately never pruned for any peer that has ever been
+ * connected when a block landed (see config.js) - it only grows. This query
+ * therefore has to say what it wants: peers that are connected right now, or
+ * that are manual. Nothing else is displayed by the dashboard or acted on by
+ * the rotation loop, and without the filter every request materialised, sorted
+ * and serialised every peer the node had ever seen in order to render ten rows.
+ *
+ * The two aggregate joins are correlated subqueries rather than derived tables
+ * for the same reason: as derived tables SQLite computed them across the whole
+ * of peer_session before the join could discard them again.
+ */
 function peerRanking() {
   const now = Date.now();
-  const rows = db.instance
-    .prepare(
-      `SELECT
+  if (!peerRankingStmt) {
+    peerRankingStmt = db.instance.prepare(peerRankingSql());
+  }
+  const rows = peerRankingStmt.all({ now });
+  return rows.map(mapRankingRow(now));
+}
+
+function peerRankingSql() {
+  return `SELECT
          p.id,
          p.address,
-         p.first_seen_at AS firstSeenAt,
          tp.label AS trustedLabel,
          (tp.address IS NOT NULL) AS trusted,
          COALESCE(prs.eligible, 0) AS eligible,
@@ -48,8 +54,12 @@ function peerRanking() {
          os.started_at AS liveStartedAt,
          os.min_ping_ms AS liveMinPingMs,
          os.last_ping_ms AS liveLastPingMs,
-         COALESCE(sess.sessionsCount, 0) AS sessionsCount,
-         COALESCE(sess.totalMs, 0) AS totalMs,
+         -- Correlated rather than a derived table: as a GROUP BY over the
+         -- whole of peer_session it was computed for every peer that table
+         -- has ever held, then thrown away by the join.
+         (SELECT COUNT(*) FROM peer_session s WHERE s.peer_id = p.id) AS sessionsCount,
+         (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
+            FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
          latest.subver AS client,
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
@@ -61,10 +71,6 @@ function peerRanking() {
        -- relay_observation itself (see db.js), so it cannot drift.
        LEFT JOIN peer_relay_stats prs ON prs.peer_id = p.id
        LEFT JOIN peer_session os ON os.peer_id = p.id AND os.ended_at IS NULL
-       LEFT JOIN (
-         SELECT peer_id, COUNT(*) sessionsCount, SUM(COALESCE(ended_at, @now) - started_at) totalMs
-         FROM peer_session GROUP BY peer_id
-       ) sess ON sess.peer_id = p.id
        LEFT JOIN (
          -- Most recent session's subver + end time per peer, live or not, so
          -- a currently-offline manual peer still shows the client it last
@@ -80,6 +86,10 @@ function peerRanking() {
            ORDER BY started_at DESC LIMIT 1
          )
        ) latest ON latest.peer_id = p.id
+       -- Only what anything actually consumes: live peers and manual ones.
+       -- Without this the query walked every peer the node had ever seen -
+       -- a table that, by design, never shrinks - to render ten rows.
+       WHERE os.peer_id IS NOT NULL OR tp.address IS NOT NULL
        -- Rank by how OFTEN a peer is first, not how often it's merely been
        -- around (a peer online forever racks up a high raw "first" count
        -- at a mediocre rate) - percentage first. Ping is the 2nd-level
@@ -92,11 +102,11 @@ function peerRanking() {
          CASE WHEN os.min_ping_ms IS NULL THEN 1 ELSE 0 END ASC,
          os.min_ping_ms ASC,
          COALESCE(prs.eligible, 0) DESC,
-         p.address ASC`,
-    )
-    .all({ now });
+         p.address ASC`;
+}
 
-  return rows.map((r) => {
+function mapRankingRow(now) {
+  return (r) => {
     // "Trusted" isn't only what's in our own trusted_peer table - Core
     // itself reports connection_type 'manual' for ANY addnode'd peer,
     // including ones added outside this app entirely (bitcoin-cli addnode,
@@ -130,7 +140,6 @@ function peerRanking() {
       sourceObscured,
       localUmbrelPeer,
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
-      firstSeenAt: r.firstSeenAt,
       trusted,
       trustedLabel: r.trustedLabel,
       eligible: r.eligible,
@@ -159,7 +168,7 @@ function peerRanking() {
       // Outbound Peers panel, which already implies live).
       connectionStatus: r.liveDirection ? (r.liveConnectionType || r.liveDirection).toUpperCase() : 'OFFLINE',
     };
-  });
+  };
 }
 
 /**
@@ -474,13 +483,19 @@ function pruneOldData({
     // trusted - gets removed here, and only once it's older than the much
     // shorter feeler window. A peer with real relay history, or a trusted
     // one, keeps every session forever, no matter its age.
+    //
+    // "Has relay history" is asked of peer_relay_stats rather than of
+    // relay_observation: db.js's triggers keep exactly one row there per peer
+    // that appears in relay_observation, so it is the same set of peers - one
+    // row each, instead of scanning a table that is never pruned and holds one
+    // row per peer per block (millions, on a node that has run for months).
     const feelerSessionsDeleted = db.instance
       .prepare(
         `DELETE FROM peer_session
          WHERE ended_at IS NOT NULL AND ended_at < ?
            AND peer_id IN (
              SELECT id FROM peer p
-             WHERE p.id NOT IN (SELECT DISTINCT peer_id FROM relay_observation)
+             WHERE p.id NOT IN (SELECT peer_id FROM peer_relay_stats)
                AND p.address NOT IN (SELECT address FROM trusted_peer)
            )`,
       )
@@ -494,7 +509,7 @@ function pruneOldData({
       .prepare(
         `DELETE FROM peer
          WHERE id NOT IN (SELECT DISTINCT peer_id FROM peer_session)
-           AND id NOT IN (SELECT DISTINCT peer_id FROM relay_observation)
+           AND id NOT IN (SELECT peer_id FROM peer_relay_stats)
            AND address NOT IN (SELECT address FROM trusted_peer)`,
       )
       .run().changes;
@@ -510,6 +525,64 @@ function pruneOldData({
   return tx();
 }
 
+/**
+ * The four numbers behind Umbrel's home-screen widget, as four small queries.
+ *
+ * Umbrel polls that widget on its own schedule whether or not anyone has the
+ * dashboard open, so this runs around the clock on every install. It used to
+ * build the entire peer ranking AND the entire stratum ranking - including a
+ * median and a P90 for every pool - and then read four values out of them.
+ *
+ * The "best peer" threshold is config.minEligibleForJudgement, the same bar
+ * the rotation loop uses before it will act on a peer's percentage. It was 5
+ * blocks here, which is how a peer that happened to be first in 3 of its
+ * first 5 blocks could sit on the home screen as the node's "best peer" at
+ * 60% while rotation, correctly, still considered it unproven.
+ */
+function widgetStats() {
+  const bestPeer = db.instance
+    .prepare(
+      `SELECT p.address, prs.first, prs.eligible, (100.0 * prs.first / prs.eligible) AS firstPct
+       FROM peer_relay_stats prs
+       JOIN peer p ON p.id = prs.peer_id
+       WHERE prs.eligible >= ?
+       ORDER BY firstPct DESC, prs.eligible DESC, p.address ASC
+       LIMIT 1`,
+    )
+    .get(config.minEligibleForJudgement);
+
+  const bestPool = db.instance
+    .prepare(
+      `SELECT sp.label, AVG(so.latency_ms) AS avgMs, COUNT(so.latency_ms) AS seen
+       FROM stratum_pool sp
+       JOIN stratum_observation so ON so.pool_id = sp.id AND so.latency_ms IS NOT NULL
+       GROUP BY sp.id
+       HAVING seen >= 3
+       ORDER BY avgMs ASC
+       LIMIT 1`,
+    )
+    .get();
+
+  const trusted = db.instance
+    .prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN EXISTS (
+                SELECT 1 FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
+                WHERE p.address = tp.address AND ps.ended_at IS NULL
+              ) THEN 1 ELSE 0 END) AS online
+       FROM trusted_peer tp`,
+    )
+    .get();
+
+  return {
+    live: liveSummary(),
+    bestPeer: bestPeer || null,
+    bestPool: bestPool || null,
+    trustedTotal: trusted.total,
+    trustedOnline: trusted.online || 0,
+  };
+}
+
 module.exports = {
   peerRanking,
   offlineTrustedPeers,
@@ -518,4 +591,5 @@ module.exports = {
   latestBlock,
   deletePool,
   pruneOldData,
+  widgetStats,
 };

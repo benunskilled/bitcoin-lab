@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS peer_session (
   min_ping_ms REAL,
   last_ping_ms REAL
 );
-CREATE INDEX IF NOT EXISTS idx_peer_session_peer ON peer_session(peer_id);
+-- No standalone index on peer_session(peer_id): idx_peer_session_open below
+-- starts with the same column, so SQLite already uses it for a plain
+-- peer_id lookup. A second copy only cost write amplification on one of the
+-- two busiest tables in the schema.
 CREATE INDEX IF NOT EXISTS idx_peer_session_open ON peer_session(peer_id, ended_at);
 
 CREATE INDEX IF NOT EXISTS idx_peer_session_peer_started ON peer_session(peer_id, started_at DESC);
@@ -52,6 +55,10 @@ CREATE TABLE IF NOT EXISTS relay_race (
 CREATE TABLE IF NOT EXISTS relay_observation (
   race_id INTEGER NOT NULL REFERENCES relay_race(id),
   peer_id INTEGER NOT NULL REFERENCES peer(id),
+  -- Always 1, and read by nothing: the presence of the row IS the
+  -- eligibility, which is why peer_relay_stats counts rows rather than
+  -- summing this. Kept because dropping a column would rewrite a table that
+  -- holds millions of rows on a long-lived node, for no gain.
   eligible INTEGER NOT NULL DEFAULT 1,
   first INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (race_id, peer_id)
@@ -132,9 +139,10 @@ CREATE TABLE IF NOT EXISTS stratum_observation (
   rank INTEGER,
   PRIMARY KEY (race_id, pool_id)
 );
-CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool ON stratum_observation(pool_id);
--- Serves the ORDER BY inside the median/P90 window function, so the
--- percentile pass is an ordered index walk instead of a sort.
+-- (pool_id, latency_ms) also serves every plain pool_id lookup, so there is
+-- no separate index on pool_id alone. It puts each pool's samples in latency
+-- order, which is what turns the median/P90 lookups into an ordered index
+-- walk instead of a sort.
 CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool_latency ON stratum_observation(pool_id, latency_ms);
 
 CREATE TABLE IF NOT EXISTS meta (
@@ -244,6 +252,16 @@ function runMigrations() {
       db.prepare(`DELETE FROM stratum_observation`).run();
       db.prepare(`DELETE FROM stratum_race`).run();
     });
+
+    // Both were exact prefixes of another index on the same table, so they
+    // never served a query the wider index could not, and both sat on the two
+    // most write-heavy tables in the schema. CREATE INDEX IF NOT EXISTS only
+    // ever adds, so an install that already has them needs this to be rid of
+    // them.
+    migrate('drop_redundant_indexes_v1_13_0', 'dropped two redundant indexes', () => {
+      db.prepare(`DROP INDEX IF EXISTS idx_peer_session_peer`).run();
+      db.prepare(`DROP INDEX IF EXISTS idx_stratum_obs_pool`).run();
+    });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
   }
@@ -272,11 +290,20 @@ function seedDefaultPools() {
   );
   const now = Date.now();
   const tx = db.transaction(() => {
+    // Re-check inside the transaction, exactly like migrate() above and for
+    // the same reason: all four processes call open() at once, and on a fresh
+    // install all four read "not seeded yet". meta.key is a PRIMARY KEY, so
+    // without this the losers of that race threw SQLITE_CONSTRAINT_PRIMARYKEY
+    // straight out of open() and died on first boot - the relay profiler
+    // included, whose downtime is the one thing that cannot be reconstructed
+    // afterwards.
+    const raced = db.prepare(`SELECT value FROM meta WHERE key = 'pools_seeded'`).get();
+    if (raced) return false;
     for (const [label, host, port] of DEFAULT_POOLS) insert.run(label, host, port, now);
     db.prepare(`INSERT INTO meta (key, value) VALUES ('pools_seeded', '1')`).run();
+    return true;
   });
-  tx();
-  logger.info('seeded default stratum pools', { count: DEFAULT_POOLS.length });
+  if (tx()) logger.info('seeded default stratum pools', { count: DEFAULT_POOLS.length });
 }
 
 function getOrCreatePeer(address) {
