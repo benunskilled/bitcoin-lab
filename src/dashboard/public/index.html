@@ -142,10 +142,15 @@
           <input type="checkbox" id="rotation-toggle" />
           Automatically rotate outbound peers
         </label>
-        <span class="hint rotation-hint">
-          Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has gone offline, after an hour per point of its own First %, at most a day. Reclaiming early is safe because it is reversible: those peers are parked with their record, re-tested until they answer, and put straight back into a slot they still deserve. How hard and how long they are chased scales the same way - a peer worth 30% is knocked on twice a day for five months, one worth 1% every other day for four days. Whatever slot is free then goes to the best candidate available. One peer joins the manual set per pass.
-        </span>
       </div>
+      <!--
+        On its own line under the toggle, not beside it. Sat as a flex sibling
+        of the label it was squeezed into a ~400px column with half the card
+        empty to its right, so a paragraph that reads as four lines took eight.
+      -->
+      <p class="hint rotation-hint">
+        Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has gone offline, after an hour per point of its own First %, at most a day. Reclaiming early is safe because it is reversible: those peers are parked below, re-tested for as long as their record deserves, and take a slot back as soon as they answer. Whatever slot is free then goes to the best candidate available - one peer joins the manual set per pass.
+      </p>
       <div id="parked-peers" class="parked-peers" hidden>
         <h3>Parked <span class="hint">manual peers that went offline - re-tested until they answer, the good ones for far longer than the weak ones</span></h3>
         <div class="table-wrap">
