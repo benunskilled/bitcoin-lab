@@ -250,9 +250,12 @@ button.danger { color: var(--bad); }
 }
 .switch-label input[type="checkbox"] { cursor: pointer; }
 
-/* Explanatory text, not table data - keep it to a readable measure instead of
-   letting it run the full width of a 1200px card. */
-.rotation-hint { max-width: 68ch; line-height: 1.5; }
+/* Explanatory text, not table data - a readable measure rather than the full
+   width of a 1200px card, but a real one. At 68ch, wedged beside the toggle as
+   a flex sibling, this paragraph got about a third of the card and ran to
+   eight lines with the rest of the row blank; on its own line at 95ch it is
+   half that and the card no longer looks half-empty. */
+.rotation-hint { max-width: 95ch; line-height: 1.55; margin: 0 0 14px; }
 
 .rotation-log-table .col-time { width: 14%; }
 .rotation-log-table .col-rot-action { width: 12%; }
