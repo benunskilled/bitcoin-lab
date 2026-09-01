@@ -348,17 +348,21 @@ test('setEnabled/isEnabled round-trip through the meta table', () => {
 test('the offline grace period scales with the peer\'s own First %', () => {
   const hours = (pct) => peerRotation.offlineGraceMs(pct) / HOUR;
 
-  // The two ends Ben named, and the shape between them.
-  assert.equal(hours(0.8), 6, 'a 0.8% peer gets the floor, not a day');
-  assert.equal(hours(40), 168, 'a 40% peer gets the ceiling - a week');
+  assert.equal(hours(0.8), 1, 'a weak peer gets the floor - an hour, not a day');
+  assert.equal(hours(40), 24, 'a strong peer gets the ceiling - a day, not a week');
   assert.ok(hours(5) > hours(0.8), 'more performance always buys more patience');
   assert.ok(hours(20) > hours(5));
-  assert.equal(hours(null), 6, 'no track record yet gets the floor, never the ceiling');
+  assert.equal(hours(null), 1, 'no track record yet gets the floor, never the ceiling');
+
+  // The ceiling is deliberately a day rather than a week: parking makes
+  // retiring reversible, so the wait only has to cover outages that fix
+  // themselves, not "might come back eventually".
+  assert.ok(hours(100) <= 24, 'no record, however good, buys more than a day');
 });
 
 test('a weak manual peer loses its slot once it is offline past its short grace', async () => {
-  // 2/200 = 1% -> 6h of grace (the floor). Offline for 20.
-  const address = seedOfflineTrustedPeer({ eligible: 200, first: 2, offlineHours: 20 });
+  // 2/200 = 1% -> 1h of grace. Offline for 5.
+  const address = seedOfflineTrustedPeer({ eligible: 200, first: 2, offlineHours: 5 });
 
   const retired = await peerRotation.retireOfflineManualPeers(ranking());
 
@@ -372,9 +376,9 @@ test('a weak manual peer loses its slot once it is offline past its short grace'
 });
 
 test('a strong manual peer keeps its slot through an outage that would retire a weak one', async () => {
-  // 80/200 = 40% -> the 168h ceiling. Offline for 20 - the exact same outage
+  // 80/200 = 40% -> the 24h ceiling. Offline for 5 - the exact same outage
   // that just cost the 1% peer its slot in the test above.
-  const strong = seedOfflineTrustedPeer({ eligible: 200, first: 80, offlineHours: 20 });
+  const strong = seedOfflineTrustedPeer({ eligible: 200, first: 80, offlineHours: 5 });
 
   const retired = await peerRotation.retireOfflineManualPeers(ranking());
 
@@ -400,7 +404,7 @@ test('a manual peer that has never connected at all is timed from when it was ad
   db.getOrCreatePeer(address);
   db.instance
     .prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)')
-    .run(address, null, Date.now() - 30 * HOUR);
+    .run(address, null, Date.now() - 5 * HOUR);
 
   const retired = await peerRotation.retireOfflineManualPeers(ranking());
 

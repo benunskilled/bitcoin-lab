@@ -61,22 +61,27 @@ module.exports = {
   minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '144')),
 
   // How long a manual peer may stay offline before the rotation loop gives its
-  // slot to someone else - scaled by how good the peer actually is, because a
-  // flat timeout treats the two ends of the manual list as if they were the
-  // same thing, and they are not. A peer delivering 40% of your blocks first
-  // is worth waiting days for; one at 0.8% is barely better than the random
-  // peer Core would give you anyway, so it should not sit on a slot for long.
+  // slot to someone else.
   //
-  // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max), so with the
-  // defaults: 0.8% -> 6h (the floor), 5% -> 30h, 20% -> 5 days, 40% and up ->
-  // the 7-day ceiling. A peer with no track record yet gets the floor.
+  // These numbers are short on purpose, and they are only defensible because
+  // of the parking below. Losing a manual slot is not losing the peer: the
+  // address is kept, re-probed, and takes its slot straight back the moment it
+  // answers. So the grace period does not have to be long enough to cover
+  // "might come back eventually" - parking covers that, better. It only has to
+  // be long enough to ride out the things that resolve themselves: the peer's
+  // node restarting, a brief network blip, a router reboot. An hour covers all
+  // of those. Beyond that, an empty slot is just an empty slot, and a live
+  // candidate could be using it.
   //
-  // Being retired is not a death sentence: the address is parked and re-probed
-  // (see parkedPeer* below), which is precisely what makes a short grace safe -
-  // a peer that comes back gets its slot back on its own.
-  offlineGraceMinHours: Number(pick(process.env.OFFLINE_GRACE_MIN_HOURS, '6')),
-  offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '168')),
-  offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '6')),
+  // It is still scaled by record, because a retired peer has to beat the
+  // current weakest to get back in and a mid-table peer might not manage it -
+  // so a better peer gets more room before it has to fight for its place:
+  // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max). 0.8% -> 1h
+  // (the floor), 5% -> 5h, 12% -> 12h, 24% and up -> the 24h ceiling. A peer
+  // with no track record yet gets the floor.
+  offlineGraceMinHours: Number(pick(process.env.OFFLINE_GRACE_MIN_HOURS, '1')),
+  offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '24')),
+  offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
 
   // Retired manual peers are kept in parked_peer and re-probed a few at a time
   // on each rotation tick (a TCP handshake each, so this stays a handful of

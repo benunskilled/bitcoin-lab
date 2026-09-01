@@ -137,15 +137,23 @@ async function resolveDialableAddress(candidate) {
 const weakestTrusted = queries.weakestTrustedPeer;
 
 /**
- * How long a manual peer may stay offline before its slot is reclaimed, scaled
- * by how well it has actually performed.
+ * How long a manual peer may stay offline before its slot is reclaimed.
+ *
+ * Two things decide this together, and they pull in opposite directions.
  *
  * A single flat timeout is the obvious design and the wrong one: it treats the
  * peer delivering 40% of your blocks first exactly like the one delivering
  * 0.8%, when the whole point of the ranking is that those are not the same
- * peer. So the grace period is bought with performance - roughly six hours per
- * percentage point, floored and capped by config - which turns "how long do we
- * wait?" into a question the peer has already answered itself.
+ * peer. So the wait is bought with performance - roughly an hour per
+ * percentage point - which turns "how long do we wait?" into a question the
+ * peer has already answered itself.
+ *
+ * But it is bought cheaply, because parking makes the decision reversible.
+ * Waiting days for a peer that might return only makes sense if losing the
+ * slot were final; it is not (see reviveParkedPeers). What the wait actually
+ * has to cover is the outages that fix themselves within the hour - a node
+ * restarting, a network blip - not "might be back next week". So the ceiling
+ * is a day rather than a week, and the floor an hour rather than six.
  *
  * See config.js for the numbers and the worked examples.
  */
