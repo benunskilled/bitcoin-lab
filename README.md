@@ -36,12 +36,18 @@ falls inside the detection window counts as **First**. A peer's lifetime
 raw count, so a peer that has merely been connected forever doesn't outrank a
 genuinely fast one.
 
-One honest detail about that percentage: Core reports `last_block` with
-one-second resolution, so several peers routinely share the same block. First %
-is therefore *how often a peer was in the fastest group*, not how often it beat
-everyone else by milliseconds. Across a few hundred blocks it still separates
-the fast peers from the rest reliably, which is what the eligibility threshold
-below is for.
+Two details make that number trustworthy. Core only sets `last_block` when the
+block was new to it — `if (new_block) { node.m_last_block_time = ... }` in its
+own net_processing.cpp — so a peer that relays a block we already have is not
+credited, and for any given block exactly one peer normally is: the one that
+actually got it to us first. And the comparison uses a window of a couple of
+seconds rather than an exact match, because `last_block` has one-second
+resolution while the ZMQ timestamp is millisecond-precise, so the second
+boundary can fall anywhere inside our detection instant.
+
+Two peers are therefore only ever credited for the same detection window in the
+rare case where two blocks are accepted within it — competing blocks at the same
+height, or two blocks in quick succession.
 
 Acting on the ranking is where the speed actually comes from:
 
