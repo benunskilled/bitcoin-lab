@@ -31,6 +31,27 @@ const logger = require('./lib/logger').make('relay-profiler');
 // this must comfortably straddle a second boundary in either direction.
 const FIRST_WINDOW_MS = 2500;
 
+/**
+ * Did this peer deliver the block we just detected?
+ *
+ * The window has to tolerate a second boundary landing anywhere inside our
+ * millisecond-precision detection instant, since `last_block` only has
+ * one-second resolution. The upper bound is tighter than the lower one on
+ * purpose: a peer that delivered the block did so *before* we heard about it,
+ * so more than a second into the future is a clock artifact, not a delivery.
+ *
+ * One function because this used to be written out twice - once for the row
+ * that goes into the database, once for the log line - and the two drifted:
+ * the log's copy had lost the upper bound and could report a higher "first"
+ * count than was actually stored.
+ */
+function isFirstPeer(peer, detectedAtMs) {
+  if (typeof peer.last_block !== 'number') return false;
+  const lastBlockMs = peer.last_block * 1000;
+  if (lastBlockMs <= 0) return false;
+  return Math.abs(lastBlockMs - detectedAtMs) <= FIRST_WINDOW_MS && lastBlockMs <= detectedAtMs + 1000;
+}
+
 function recordRace({ blockHash, detectedAtMs, peers }) {
   const database = db.instance;
 
@@ -50,8 +71,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
     const raceId = info.lastInsertRowid;
     for (const peer of peers) {
       const peerRow = db.getOrCreatePeer(peer.addr);
-      const lastBlockMs = typeof peer.last_block === 'number' ? peer.last_block * 1000 : 0;
-      const isFirst = lastBlockMs > 0 && Math.abs(lastBlockMs - detectedAtMs) <= FIRST_WINDOW_MS && lastBlockMs <= detectedAtMs + 1000;
+      const isFirst = isFirstPeer(peer, detectedAtMs);
       // peer_relay_stats (the rollup peerRanking reads instead of aggregating
       // this table on every request) is updated by a database trigger on this
       // insert, in this same transaction - see db.js. Nothing to do here.
@@ -106,7 +126,7 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     return;
   }
 
-  const firstCount = peers.filter((p) => typeof p.last_block === 'number' && Math.abs(p.last_block * 1000 - detectedAtMs) <= FIRST_WINDOW_MS).length;
+  const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
   logger.info('block race recorded', {
     blockHash,
     eligible: peers.length,
@@ -149,4 +169,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { recordRace, handleHashBlock, main, FIRST_WINDOW_MS };
+module.exports = { recordRace, handleHashBlock, main, isFirstPeer, FIRST_WINDOW_MS };

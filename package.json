@@ -1,7 +1,7 @@
 {
   "name": "bitcoin-lab",
-  "version": "1.12.8",
-  "description": "Peer relay performance profiler and stratum race for Bitcoin Core nodes on Umbrel.",
+  "version": "1.13.0",
+  "description": "Find your fastest Bitcoin peers, keep them, and see whether your mining pool got faster because of it. An Umbrel app for solo miners.",
   "license": "MIT",
   "private": true,
   "type": "commonjs",
@@ -18,5 +18,9 @@
   "dependencies": {
     "better-sqlite3": "^11.9.1",
     "zeromq": "^6.1.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benunskilled/bitcoin-lab.git"
   }
 }

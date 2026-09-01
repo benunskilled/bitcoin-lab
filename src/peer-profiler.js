@@ -27,11 +27,10 @@ const OFFLINE_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 function upsertSessions(peers) {
   const database = db.instance;
   const nowMs = Date.now();
-  const currentAddrs = new Set(peers.map((p) => p.addr));
 
   const openSessions = database
     .prepare(
-      `SELECT ps.id, ps.peer_id, p.address
+      `SELECT ps.id, ps.peer_id, ps.core_peer_id, ps.started_at, p.address
        FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
        WHERE ps.ended_at IS NULL`,
     )
@@ -39,10 +38,34 @@ function upsertSessions(peers) {
 
   const closeStmt = database.prepare(`UPDATE peer_session SET ended_at = ? WHERE id = ?`);
   const openByAddress = new Map();
+  // Same address in the snapshot is not the same session. Core hands every
+  // connection its own transient peer id and reports `conntime` per session,
+  // so a peer that dropped and came back between two polls (15s apart) is
+  // detectable - and it happens routinely, not rarely: adding a live peer as
+  // manual disconnects it on purpose so Core re-dials it as a manual
+  // connection, and every rotation kick does the same. Matching on address
+  // alone kept writing into the *old* row, so the session count never moved,
+  // the downtime was counted as connected time, and the whole historical
+  // session was retroactively relabelled with the new connection type.
+  const isSameSession = (stored, peer) => {
+    if (stored.core_peer_id != null && typeof peer.id === 'number') return stored.core_peer_id === peer.id;
+    // No id to compare (older rows) - fall back to conntime, allowing a
+    // second of slack for Core's own second-resolution rounding.
+    if (typeof peer.conntime !== 'number') return true;
+    return peer.conntime * 1000 <= stored.started_at + 1000;
+  };
+  const peerByAddress = new Map(peers.map((p) => [p.addr, p]));
   const tx1 = database.transaction(() => {
     for (const s of openSessions) {
-      if (!currentAddrs.has(s.address)) {
+      const peer = peerByAddress.get(s.address);
+      if (!peer) {
         closeStmt.run(nowMs, s.id);
+      } else if (!isSameSession(s, peer)) {
+        // Reconnected since the last poll. Close the old session at the
+        // connection time of the new one rather than "now", so the gap lands
+        // outside both sessions instead of being credited to the old one.
+        const endedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
+        closeStmt.run(Math.max(s.started_at, Math.min(endedAt, nowMs)), s.id);
       } else {
         openByAddress.set(s.address, s.id);
       }
@@ -203,9 +226,9 @@ async function main() {
   // see adoptExternalManualPeers for why this direction is needed too.
   try {
     const adoptResult = await adoptExternalManualPeers();
-    if (adoptResult.adopted > 0) logger.info('startup: adopted externally-managed manual peers', adoptResult);
+    if (adoptResult.adopted > 0) logger.info('startup: adopted externally-managed manual peers', { adopted: adoptResult.adopted });
 
-    const syncResult = await syncTrustedToAddnode();
+    const syncResult = await syncTrustedToAddnode(adoptResult.addedNodes);
     logger.info('startup trusted/addnode sync', syncResult);
   } catch (err) {
     // Bitcoin Core may simply not be up yet when this container starts. That
@@ -222,7 +245,7 @@ async function main() {
   // (e.g. a direct `bitcoin-cli addnode` call) since the last pass.
   setInterval(() => {
     adoptExternalManualPeers()
-      .then(() => syncTrustedToAddnode())
+      .then((adoptResult) => syncTrustedToAddnode(adoptResult.addedNodes))
       .catch((err) => logger.warn('periodic peer sync failed', { error: err.message }));
     try {
       logOfflineTrustedPeers();

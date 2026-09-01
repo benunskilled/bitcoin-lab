@@ -45,6 +45,13 @@ test('the rollup tracks inserts into relay_observation exactly', () => {
   // invariant rather than trusting any particular caller to remember.
   const a = db.getOrCreatePeer('198.51.100.1:8333');
   const b = db.getOrCreatePeer('198.51.100.2:8333');
+  // peerRanking() reports the peers that are connected or manual, so the
+  // fixture needs the open session any peer with relay history really has.
+  const openSession = db.instance.prepare(
+    'INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, ?, ?, ?)',
+  );
+  openSession.run(a.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
+  openSession.run(b.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
   const insertRace = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)');
   const insertObs = db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)');
 
@@ -81,7 +88,11 @@ test('the one-time migrations are recorded so they never run twice', () => {
     .prepare("SELECT key FROM meta WHERE key LIKE 'migration:%' ORDER BY key")
     .all()
     .map((r) => r.key);
-  assert.deepEqual(flags, ['migration:rollup_backfill_v1', 'migration:stratum_history_reset_v1_12_0']);
+  assert.deepEqual(flags, [
+    'migration:drop_redundant_indexes_v1_13_0',
+    'migration:rollup_backfill_v1',
+    'migration:stratum_history_reset_v1_12_0',
+  ]);
 });
 
 test('median and P90 match the previous implementation on every range', () => {

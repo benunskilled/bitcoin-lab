@@ -46,9 +46,19 @@ module.exports = {
   manualPeerPorts: [8333, 9333],
 
   // Bitcoin Core only actively maintains a limited number of simultaneous
-  // "manual" (addnode) connections - by default 8. We mirror that cap so we
-  // never try to addnode more than Core will actually hold open at once.
+  // "manual" (addnode) connections - MAX_ADDNODE_CONNECTIONS in its own
+  // net.h, 8. We mirror that cap so we never try to addnode more than Core
+  // will actually hold open at once. Note this is a pool of its own, not a
+  // share of Core's automatic outbound slots.
   maxManualPeers: Number(pick(process.env.MAX_MANUAL_PEERS, '8')),
+
+  // How many blocks a peer must have been eligible for before its First %
+  // counts as a track record rather than noise - roughly a day at ~144 blocks
+  // a day. Everything that judges a peer by its percentage uses this: the
+  // rotation loop (kicking and promoting alike) and the home-screen widget's
+  // "best peer". Those two used to disagree - the widget called a peer "best"
+  // off 5 blocks while rotation, correctly, would not touch it before 144.
+  minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '144')),
 
   // How long a relay race stays "open" for late stratum-style bookkeeping
   // is not needed here (relay races resolve synchronously on ZMQ), but the

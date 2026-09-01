@@ -94,6 +94,19 @@ function seedLivePeer({
   return address;
 }
 
+// A trusted peer that is NOT currently connected: a trusted_peer row plus a
+// closed session, which is exactly what Core retrying a manual peer that went
+// dark looks like from here.
+function seedOfflineTrustedPeer({ address = nextAddress(), eligible = 0, first = 0 } = {}) {
+  const peer = db.getOrCreatePeer(address);
+  db.instance
+    .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+    .run(peer.id, 'outbound', 'manual', Date.now() - 7200000, Date.now() - 3600000);
+  seedEligibility(peer.id, eligible, first);
+  db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)').run(address, null, Date.now());
+  return address;
+}
+
 function ranking() {
   return queries.peerRanking();
 }
@@ -208,9 +221,58 @@ test('caps promotion at one per tick even when multiple candidates qualify', asy
   assert.equal(trustedCount, 1, 'only the single best candidate may be promoted in one pass');
 });
 
+test('REGRESSION: an offline manual peer still occupies its slot', async () => {
+  // MAX_MANUAL_PEERS is 2 here. One live manual, one offline manual - the cap
+  // is reached. Counting only live manual peers made this look like a free
+  // slot, so every tick promoted another peer forever: Core maintains at most
+  // MAX_ADDNODE_CONNECTIONS addnodes and syncTrustedToAddnode hands those out
+  // oldest-first, so the newcomer never became live and never closed the gap.
+  seedLivePeer({ eligible: 144, first: 90, trusted: true });
+  seedOfflineTrustedPeer({ eligible: 144, first: 80 });
+  seedLivePeer({ eligible: 144, first: 20 }); // a candidate, but weaker than both manuals
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0, 'a full manual set must not gain a third peer just because one is offline');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+});
+
+test('REGRESSION: a stronger candidate replaces an offline manual peer with a worse record', async () => {
+  seedLivePeer({ eligible: 144, first: 90, trusted: true }); // 62.5%
+  const weakOffline = seedOfflineTrustedPeer({ eligible: 144, first: 5 }); // 3.5% - worst overall
+  const candidate = seedLivePeer({ eligible: 144, first: 60 }); // 41.7% - beats the offline one only
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 1);
+  assert.equal(
+    db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(weakOffline),
+    undefined,
+    'being offline is no protection for the worst record in the set',
+  );
+  assert.ok(db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(candidate));
+});
+
+test('REGRESSION: an inbound peer already trusted under its real address is not re-promoted', async () => {
+  // The inbound row carries the peer's ephemeral source port; the address it
+  // actually listens on is already a manual peer. Without a re-check after
+  // resolving, this "promoted" the same peer on every tick - burning the one
+  // promotion per pass forever and filling the log with false entries.
+  seedLivePeer({ address: '198.51.100.9:8333', eligible: 144, first: 95, trusted: true });
+  seedLivePeer({ address: '198.51.100.9:61234', direction: 'inbound', connectionType: 'inbound', eligible: 144, first: 95 });
+  mock.method(manualPeer, 'findListeningAddress', async (host) => `${host}:8333`);
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0, 'the peer is already manual under its listening address');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n, 0, 'and no promote row may be logged');
+});
+
 test('promotes a reachable inbound candidate by re-deriving its real listening port', async () => {
   const candidate = seedLivePeer({ address: '198.51.100.7:54321', direction: 'inbound', connectionType: 'inbound', eligible: 144, first: 40 });
-  mock.method(manualPeer, 'probePort', async (host, port) => host === '198.51.100.7' && port === 9333);
+  // The rotation's contract with manual-peer.js is findListeningAddress - the
+  // port scan itself is manual-peer's own business and is covered by its tests.
+  mock.method(manualPeer, 'findListeningAddress', async (host) => (host === '198.51.100.7' ? `${host}:9333` : null));
 
   const promoted = await peerRotation.promoteBestCandidate(ranking());
 
@@ -225,7 +287,7 @@ test('promotes a reachable inbound candidate by re-deriving its real listening p
 test('skips an unreachable inbound candidate and falls through to the next-best one', async () => {
   seedLivePeer({ address: '198.51.100.8:11111', direction: 'inbound', connectionType: 'inbound', eligible: 144, first: 90 });
   const fallback = seedLivePeer({ eligible: 144, first: 60 }); // outbound, worse first%, but reachable by construction
-  mock.method(manualPeer, 'probePort', async () => false); // inbound peer isn't actually listening on 8333 or 9333
+  mock.method(manualPeer, 'findListeningAddress', async () => null); // inbound peer isn't actually listening on 8333 or 9333
 
   const promoted = await peerRotation.promoteBestCandidate(ranking());
 

@@ -208,19 +208,13 @@ function serviceHealth() {
 }
 
 async function handleWidgetStats(req, res) {
-  const ranking = queries.peerRanking();
-  const stratum = queries.stratumRanking();
-  const bestPeer = ranking.filter((p) => p.eligible >= 5).sort((a, b) => (b.firstPct || 0) - (a.firstPct || 0))[0];
-  const bestPool = stratum.filter((p) => p.seen >= 3).sort((a, b) => (a.avgMs ?? Infinity) - (b.avgMs ?? Infinity))[0];
-  const live = queries.liveSummary();
+  const { live, bestPeer, bestPool, trustedTotal, trustedOnline } = queries.widgetStats();
 
   sendJson(res, 200, {
     type: 'four-stats',
     // Umbrel polls this endpoint on its own at this cadence regardless of
-    // whether the dashboard itself is even open, and each poll runs both
-    // peerRanking() and stratumRanking() - a home-screen glance stat
-    // doesn't need to be fresher than 60s, so this halves that background
-    // call volume for no visible difference.
+    // whether the dashboard itself is even open - a home-screen glance stat
+    // doesn't need to be fresher than 60s.
     refresh: '60s',
     link: '',
     items: [
@@ -231,15 +225,11 @@ async function handleWidgetStats(req, res) {
       // and Core's own reconnect can silently stall, so whether they're
       // ACTUALLY connected right now belongs on the at-a-glance home
       // widget, not only visible after opening the dashboard.
-      (() => {
-        const trustedPeers = ranking.filter((p) => p.trusted);
-        const onlineTrusted = trustedPeers.filter((p) => p.live).length;
-        return {
-          title: 'Trusted',
-          text: `${onlineTrusted}/${trustedPeers.length}`,
-          subtext: onlineTrusted === trustedPeers.length ? 'manual peers online' : 'manual peers - check dashboard',
-        };
-      })(),
+      {
+        title: 'Trusted',
+        text: `${trustedOnline}/${trustedTotal}`,
+        subtext: trustedOnline === trustedTotal ? 'manual peers online' : 'manual peers - check dashboard',
+      },
     ],
   });
 }
@@ -292,20 +282,15 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, queries.peerRanking());
   }
 
-  if (req.method === 'GET' && pathname === '/api/peers/live') {
-    return sendJson(res, 200, queries.liveSummary());
-  }
-
-  if (req.method === 'GET' && pathname === '/api/blocks/latest') {
-    return sendJson(res, 200, queries.latestBlock());
-  }
-
-  if (req.method === 'POST' && pathname === '/api/peers/trust') {
-    const { address, label } = await readBody(req);
-    if (!address) return sendJson(res, 400, { error: 'address required' });
-    const capacity = await peerSync.addTrustedPeer(address, label);
-    return sendJson(res, 200, { ok: true, ...(capacity.overCapacity ? { warning: `queued - Bitcoin Core only maintains ${capacity.max} manual connections at once` } : {}) });
-  }
+  // Removed in v1.13.0, all three unused by anything in this repo:
+  //   GET  /api/peers/live    - /api/status already carries liveSummary()
+  //   GET  /api/blocks/latest - blocks arrive over /api/events instead
+  //   POST /api/peers/trust   - the dangerous one. It wrote whatever address
+  //     it was handed straight into trusted_peer, with no port probe and no
+  //     bracket normalisation, so an IPv6 address added through it could
+  //     never match Core's own formatting and an unreachable one would be
+  //     re-addnode'd every ten minutes forever. Everything in the UI goes
+  //     through /api/peers/add-manual, which probes first.
 
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
     const { address } = await readBody(req);

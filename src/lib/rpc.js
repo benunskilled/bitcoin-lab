@@ -80,5 +80,11 @@ module.exports = {
     if (typeof addressOrId === 'number') return call('disconnectnode', ['', addressOrId]);
     return call('disconnectnode', [addressOrId]);
   },
-  getAddedNodeInfo: () => call('getaddednodeinfo').catch(() => []),
+  // Deliberately does NOT swallow errors into an empty array. Both callers in
+  // peer-sync.js catch this and skip their round with a log line, and that
+  // path was unreachable while a failed call returned [] - indistinguishable
+  // from "Core genuinely has no addnodes". With Core restarting, that meant
+  // firing eight doomed `addnode` calls and then logging
+  // "trusted/addnode sync complete { existingAddnodes: 0 }".
+  getAddedNodeInfo: () => call('getaddednodeinfo'),
 };

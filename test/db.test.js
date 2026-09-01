@@ -19,6 +19,17 @@ test.before(() => {
   db.open();
 });
 
+// A peer can only ever be eligible for a block while it is connected, so a
+// fixture that gives a peer relay history needs the session that goes with
+// it. peerRanking() reports the peers that are connected now or are manual,
+// not every address the node has ever seen (see queries.js) - a peer with
+// observations but no session at all is a state production cannot produce.
+function openSession(peerId, { direction = 'outbound', connectionType = 'outbound-full-relay' } = {}) {
+  db.instance
+    .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, ?, ?, ?)')
+    .run(peerId, direction, connectionType, Date.now() - 3600000);
+}
+
 test('seeds the default stratum pool list exactly once', () => {
   const rows = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get();
   assert.equal(rows.n, 8);
@@ -33,6 +44,8 @@ test('getOrCreatePeer is idempotent by address', () => {
 test('relay race first/eligible aggregation matches inserted observations', () => {
   const peerA = db.getOrCreatePeer('198.51.100.1:8333');
   const peerB = db.getOrCreatePeer('198.51.100.2:8333');
+  openSession(peerA.id);
+  openSession(peerB.id);
 
   const insertRace = db.instance.prepare(
     'INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)',
@@ -160,6 +173,8 @@ test('peer ranking sorts by first% (rate), not raw first count', () => {
   // above D even though D has "more firsts" overall.
   const peerC = db.getOrCreatePeer('198.51.100.30:8333');
   const peerD = db.getOrCreatePeer('198.51.100.31:8333');
+  openSession(peerC.id);
+  openSession(peerD.id);
   const insertRace = db.instance.prepare(
     'INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)',
   );

@@ -11,12 +11,12 @@ const logger = require('./logger').make('peer-rotation');
 const META_KEY = 'peer_rotation_enabled';
 
 // A peer's lifetime First/Eligible ranking only means something once it has
-// been through roughly a full day of blocks (~144/day, see config.js's own
-// note on relay_race growth) - judging a peer after two or three blocks
-// would kick or promote on pure noise. Applied identically to both passes
-// below, so nothing is acted on before it has had a fair, day-scale sample
-// to earn (or fail to earn) its ranking.
-const MIN_ELIGIBLE_FOR_JUDGEMENT = 144;
+// been through roughly a full day of blocks - judging a peer after two or
+// three blocks would kick or promote on pure noise. Applied identically to
+// both passes below, so nothing is acted on before it has had a fair,
+// day-scale sample to earn (or fail to earn) its ranking. Lives in config.js
+// because the widget has to agree with it (see minEligibleForJudgement).
+const MIN_ELIGIBLE_FOR_JUDGEMENT = config.minEligibleForJudgement;
 
 function isEnabled() {
   const row = db.instance.prepare(`SELECT value FROM meta WHERE key = ?`).get(META_KEY);
@@ -128,18 +128,18 @@ async function resolveDialableAddress(candidate) {
   if (candidate.direction === 'outbound') {
     return candidate.address;
   }
-  const host = manualPeer.hostFromAddress(candidate.address);
-  for (const port of config.manualPeerPorts) {
-    // eslint-disable-next-line no-await-in-loop
-    const reachable = await manualPeer.probePort(host, port);
-    if (reachable) return manualPeer.formatAddress(host, port);
-  }
-  return null;
+  return manualPeer.findListeningAddress(manualPeer.hostFromAddress(candidate.address));
 }
 
-function weakestLiveTrusted(liveTrusted) {
-  if (liveTrusted.length === 0) return null;
-  return liveTrusted.reduce((worst, p) => {
+// The weakest manual peer by lifetime record, offline ones included. Being
+// offline is deliberately not what makes a peer the weakest - a strong peer
+// that dropped a minute ago should not lose its slot to a mediocre live one -
+// but an offline peer that never delivered anything sorts to the bottom on
+// its record alone (firstPct null counts as worse than 0%), which is exactly
+// the slot worth reclaiming.
+function weakestTrusted(trusted) {
+  if (trusted.length === 0) return null;
+  return trusted.reduce((worst, p) => {
     const pPct = p.firstPct == null ? -1 : p.firstPct;
     const worstPct = worst.firstPct == null ? -1 : worst.firstPct;
     return pPct < worstPct ? p : worst;
@@ -149,18 +149,29 @@ function weakestLiveTrusted(liveTrusted) {
 /**
  * Pass 2: find the single best-performing non-trusted live peer and either
  * promote it into a free manual slot, or - if all `config.maxManualPeers`
- * slots are already taken by live trusted peers - swap it in for the
- * current weakest one, but only when the candidate is strictly better.
- * At most one promotion (direct or swap) happens per tick, so the manual
- * set drifts toward the best peers gradually rather than churning wholesale
- * on a single busy poll.
+ * slots are already taken - swap it in for the current weakest one, but only
+ * when the candidate is strictly better. At most one promotion (direct or
+ * swap) happens per tick, so the manual set drifts toward the best peers
+ * gradually rather than churning wholesale on a single busy poll.
+ *
+ * The slot count is over ALL manual peers, not just the currently-connected
+ * ones. Counting only live peers was a real bug: a manual peer that is merely
+ * offline (Core is still retrying it, and there is a whole panel devoted to
+ * showing this) left an apparently free slot behind, so every tick promoted
+ * one more peer - permanently, because Core only maintains
+ * MAX_ADDNODE_CONNECTIONS=8 addnode connections and syncTrustedToAddnode
+ * hands those out oldest-first, so the newcomer never became live and never
+ * closed the gap it was filling. trusted_peer grew by ~144 rows a day and the
+ * swap branch - the only thing that ever removes a manual peer - was
+ * unreachable the entire time.
  *
  * `ranking` is already sorted by lifetime firstPct DESC (see
  * queries.peerRanking's own ORDER BY), so within each filtered list here
  * the first entry is already the best one - no separate sort needed.
  */
 async function promoteBestCandidate(ranking) {
-  const liveTrusted = ranking.filter((p) => p.trusted && p.live);
+  const trusted = ranking.filter((p) => p.trusted);
+  const liveTrusted = trusted.filter((p) => p.live);
   const candidates = ranking.filter(
     (p) =>
       p.live &&
@@ -176,9 +187,19 @@ async function promoteBestCandidate(ranking) {
     const resolved = await resolveDialableAddress(candidate);
     if (!resolved) continue; // e.g. an inbound peer that isn't actually listening - try the next-best candidate
 
+    // The candidate was filtered as untrusted on the address the ranking row
+    // carries - but for an inbound peer that is its ephemeral source port,
+    // and resolveDialableAddress just turned it into the real listening
+    // address, which may already be a manual peer. Without this re-check the
+    // loop "promotes" the same peer again on every single tick: the upsert in
+    // addTrustedPeer quietly becomes a label update, a bogus promote row goes
+    // into the log, and the one promotion this tick was allowed is spent -
+    // permanently starving every genuine candidate behind it.
+    if (trusted.some((p) => p.address === resolved)) continue;
+
     const label = `auto-promoted (${candidate.firstPct.toFixed(1)}% first)`;
 
-    if (liveTrusted.length < config.maxManualPeers) {
+    if (trusted.length < config.maxManualPeers) {
       // eslint-disable-next-line no-await-in-loop
       await peerSync.addTrustedPeer(resolved, label);
       logAction({
@@ -186,14 +207,14 @@ async function promoteBestCandidate(ranking) {
         address: resolved,
         firstPct: candidate.firstPct,
         eligible: candidate.eligible,
-        note: `free manual slot (${liveTrusted.length}/${config.maxManualPeers} in use)`,
+        note: `free manual slot (${trusted.length}/${config.maxManualPeers} taken, ${liveTrusted.length} live)`,
       });
       logger.info('rotation: promoted a peer into a free manual slot', { address: resolved, firstPct: candidate.firstPct });
       return 1;
     }
 
-    const weakest = weakestLiveTrusted(liveTrusted);
-    if (!weakest) continue; // maxManualPeers is 0 or liveTrusted somehow empty - nothing to swap against
+    const weakest = weakestTrusted(trusted);
+    if (!weakest) continue; // maxManualPeers is 0 - nothing to swap against
     const weakestPct = weakest.firstPct == null ? -1 : weakest.firstPct;
     if (candidate.firstPct <= weakestPct) continue; // not strictly better - no point churning a slot for a lateral move
 
