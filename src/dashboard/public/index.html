@@ -144,15 +144,22 @@
         </label>
       </div>
       <!--
-        On its own line under the toggle, not beside it. Sat as a flex sibling
-        of the label it was squeezed into a ~400px column with half the card
-        empty to its right, so a paragraph that reads as four lines took eight.
+        Under the toggle, not beside it, and as short sentences rather than one
+        block: this is the label on a switch, read before flipping it, not
+        documentation. The full rules live in the README - what belongs here is
+        what the switch does and what it costs you.
       -->
-      <p class="hint rotation-hint">
-        Every ~10 minutes: drops outbound peers that have had a full day to prove themselves and never delivered a block first - Core replaces each with a fresh, random one - and reclaims the slot of any manual peer that has gone offline, after an hour per point of its own First %, at most a day. Reclaiming early is safe because it is reversible: those peers are parked below, re-tested for as long as their record deserves, and take a slot back as soon as they answer. Whatever slot is free then goes to the best candidate available - one peer joins the manual set per pass.
-      </p>
+      <div class="rotation-hint">
+        <p>Every ~10 minutes, one change at a time:</p>
+        <ul>
+          <li>Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.</li>
+          <li>Frees the slot of a manual peer that has gone offline. Good peers get longer: an hour per point of First %, up to a day.</li>
+          <li>Puts the best peer available into a free slot.</li>
+        </ul>
+        <p>Losing a slot is not losing the peer. It is parked below, tested regularly, and takes a slot back as soon as it answers again.</p>
+      </div>
       <div id="parked-peers" class="parked-peers" hidden>
-        <h3>Parked <span class="hint">manual peers that went offline - re-tested until they answer, the good ones for far longer than the weak ones</span></h3>
+        <h3>Parked <span class="hint">peers that lost their slot while offline - still being tested, back as soon as they answer</span></h3>
         <div class="table-wrap">
           <table id="parked-peer-table" class="peer-table">
             <thead>
