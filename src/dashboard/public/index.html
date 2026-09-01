@@ -144,6 +144,7 @@
         <span class="hint">Local Umbrel pool:</span>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="gobrrr">GoBrrr</button>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="bassin">Bassin</button>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="public-pool">Public Pool</button>
       </div>
       <form id="pool-add-form" class="inline-form">
         <input type="text" id="pool-label" placeholder="Label" required />
@@ -160,7 +161,7 @@
           placeholder="Port"
           min="1"
           max="65535"
-          title="A local Umbrel pool app's internal stratum port (usually 3333) - not the port your miner connects to on the LAN, that's a different, externally-published port."
+          title="The port the pool's stratum server listens on inside its own container - not the port your miner connects to on the LAN, which is often a different, externally-published number. ckpool-based pools (GoBrrr, Bassin) use 3333; Public Pool uses 2018. The buttons above fill this in for you."
           required
         />
         <button type="submit">Add Pool</button>

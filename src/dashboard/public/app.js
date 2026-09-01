@@ -593,16 +593,25 @@ function showToast(message, kind) {
   }
 }
 
-// A local Umbrel pool app isn't reachable at umbrel.local, and the port a
-// miner on the LAN connects to is the app's externally-published port, not
-// its internal one - Bitcoin Lab is already a container on the same network
-// as the pool, so it needs the pool's container name and its INTERNAL
-// stratum port instead. Verified against real installs (`docker ps`): both
-// publish container-internal 3333 externally under a different number
-// (GoBrrr as 21420, Bassin as 3456) - only 3333 works from in here.
+// Quick-fill for the solo pools available in the Umbrel app store - all three
+// of them, as of now.
+//
+// A local pool app is not reachable at umbrel.local, and the port a miner on
+// the LAN connects to is the app's externally-published port, not its internal
+// one. Bitcoin Lab is already a container on the same network as the pool, so
+// it needs the pool's container name (<app-id>_<service>_1) and the port the
+// stratum server actually listens on inside its container.
+//
+// Those two numbers are not always the same. GoBrrr and Bassin both run
+// ckpool on container-internal 3333 and publish it externally under a
+// different number (21420 and 3456), so only 3333 works from in here. Public
+// Pool is the exception that makes the point worth stating: it listens on
+// 2018 (STRATUM_PORT=2018 in its app manifest) and publishes it unchanged, so
+// 2018 is right on both sides.
 const LOCAL_POOL_TEMPLATES = {
   gobrrr: { label: 'GoBrrr', host: 'gobrrr-pool_ckpool_1', port: 3333 },
   bassin: { label: 'Bassin', host: 'bassin_ckpool_1', port: 3333 },
+  'public-pool': { label: 'Public Pool', host: 'public-pool_server_1', port: 2018 },
 };
 
 document.body.addEventListener('click', async (e) => {
