@@ -2,7 +2,7 @@
 
 const db = require('./db');
 const config = require('./config');
-const { ipv4HostFromAddress, ipv4InCidr } = require('./address');
+const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('./address');
 
 // A subver like "/electrs:0.11.1/" -> "electrs" - just enough to name which
 // local app a same-host peer connection belongs to.
@@ -148,10 +148,17 @@ function mapRankingRow(now) {
     const localUmbrelPeer = !sourceObscured
       && ipv4Host != null
       && ipv4InCidr(ipv4Host, config.umbrelInternalNetworkCidr);
+    // Tor / I2P / CJDNS: a real peer that ranks normally and really does
+    // deliver blocks, but that this app can never dial, so it can never be
+    // promoted. Carried on the row so the dashboard can say so instead of
+    // offering an action that always fails, and so the rotation loop can skip
+    // it rather than spending a probe on it every pass.
+    const privateNetwork = unreachableNetwork(r.address);
     return {
       address: r.address,
       sourceObscured,
       localUmbrelPeer,
+      privateNetwork,
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       trusted,
       trustedLabel: r.trustedLabel,

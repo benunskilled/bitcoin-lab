@@ -473,6 +473,12 @@ async function promoteBestCandidate(ranking) {
       !p.trusted &&
       !p.sourceObscured &&
       !p.localUmbrelPeer &&
+      // Tor, I2P and CJDNS peers have no address this container can dial, so
+      // resolveDialableAddress would probe and fail for each of them on every
+      // single pass. Skipping them here is not a policy decision about those
+      // networks - they stay in the ranking and keep earning First % - it just
+      // stops the loop from repeatedly attempting the impossible.
+      !p.privateNetwork &&
       p.eligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
       p.first > 0,
   );

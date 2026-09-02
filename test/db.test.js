@@ -651,3 +651,36 @@ test('weakestTrustedPeer breaks a tie towards the peer that is not even connecte
   );
   assert.equal(queries.weakestTrustedPeer([]), null);
 });
+
+test('Tor, I2P and CJDNS peers are ranked but flagged as impossible to keep', () => {
+  // All three are real peers that genuinely deliver blocks - they must appear
+  // in the ranking and earn First % like anyone else. What they cannot do is
+  // be promoted: this container dials plain TCP and has no route to any of
+  // these networks. The flag is what lets the dashboard say so instead of
+  // offering a button that always fails.
+  const cases = [
+    ['vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion:8333', 'Tor'],
+    ['ukeu3k5oycgaauneqgtnvselmt4yemvoilkln7jpvamvfx7dnkdq.b32.i2p:0', 'I2P'],
+    ['[fc32:17ea:e415:c3bf:9808:149d:b5a2:c9aa]:8333', 'CJDNS'],
+  ];
+  for (const [address] of cases) {
+    const peer = db.getOrCreatePeer(address);
+    db.instance
+      .prepare(`INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, 'inbound', 'inbound', ?)`)
+      .run(peer.id, Date.now() - 60000);
+  }
+  const ranking = queries.peerRanking();
+  for (const [address, network] of cases) {
+    const row = ranking.find((r) => r.address === address);
+    assert.ok(row, `${network} peers must still be ranked - they do deliver blocks`);
+    assert.equal(row.privateNetwork, network);
+  }
+
+  // An ordinary peer must not be caught by any of those patterns - fc00::/8 in
+  // particular sits next to perfectly normal IPv6.
+  const plain = db.getOrCreatePeer('[2001:db8::5]:8333');
+  db.instance
+    .prepare(`INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, 'outbound', 'outbound-full-relay', ?)`)
+    .run(plain.id, Date.now() - 60000);
+  assert.equal(queries.peerRanking().find((r) => r.address === '[2001:db8::5]:8333').privateNetwork, null);
+});
