@@ -679,3 +679,24 @@ test('REGRESSION: a manual peer always has a peer row, so the rotation can see i
   );
   assert.ok(ranking().some((p) => p.address === address));
 });
+
+test('the rotation loop never spends a probe on a peer it cannot dial', async () => {
+  // A strong Tor peer, and nothing else worth promoting. Before this it was
+  // picked as the best candidate on every single pass, probed, and failed -
+  // burning the tick's one move on an address that can never answer.
+  const address = 'vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion:8333';
+  const peer = db.getOrCreatePeer(address);
+  db.instance
+    .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, NULL)')
+    .run(peer.id, 'inbound', 'inbound', Date.now() - 3600000);
+  seedEligibility(peer.id, 200, 180); // 90% first - by record, the best peer there is
+
+  let probes = 0;
+  mock.method(manualPeer, 'findListeningAddress', async () => { probes += 1; return null; });
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0);
+  assert.equal(probes, 0, 'it must be skipped, not probed and rejected');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 0);
+});

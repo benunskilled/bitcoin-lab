@@ -75,10 +75,11 @@
       -->
       <p class="panel-note" id="outbound-note">
         <strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong>
-        Over Tor you are timing circuits rather than peers, and a .onion peer can never be made manual -
-        there is no address to dial directly. Leaving it on "both" is not enough: Core will still fill
-        outbound slots over Tor, and those slots are the ones this loop is trying to improve.
-        In Umbrel: Bitcoin Node → Settings → Outgoing connections → Clearnet only.
+        Over Tor or I2P you are timing the overlay network rather than the peer, and such a peer can never
+        be made manual - there is no address this app can dial back. Leaving it on "both" is not enough:
+        Core will still fill outbound slots over Tor, and those slots are the ones this loop is trying to
+        improve. In Umbrel: Bitcoin Node → Settings → Outgoing connections → Clearnet only.
+        (Inbound connections over Tor or I2P are normal either way - those peers dialled you.)
       </p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">

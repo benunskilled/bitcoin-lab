@@ -99,17 +99,28 @@ Bitcoin Node → Settings → Outgoing connections → Clearnet only.
 
 Not "both" — that is the setting that looks safe and isn't. Core will keep
 filling outbound slots over Tor, and outbound slots are exactly what the
-rotation loop is trying to improve: every one held by a `.onion` peer is a slot
-that can never be promoted and never usefully measured.
+rotation loop is trying to improve: every one held by an undialable peer is a
+slot that can never be promoted and never usefully measured.
 
 Over Tor you are not measuring peers, you are measuring circuits — the variance
-between two Tor hops dwarfs the differences this app exists to find. And a
-`.onion` peer can never be made manual at all: promotion needs a TCP handshake
-to a real listening address and there is none to dial, so such a peer sits in
-the ranking accumulating a First % that can never be acted on.
+between two Tor hops dwarfs the differences this app exists to find.
 
-The dashboard says this under Outbound Peers, and counts how many of your
-current peers are on Tor whenever any are.
+The harder limit applies to three networks, not one. Bitcoin Core also speaks
+I2P and CJDNS, and this app reaches peers exactly one way: a direct TCP
+connection out of its own container, which has no Tor proxy, no I2P bridge and
+no CJDNS interface — and asking for any of them would mean asking for access to
+the host's networking, which this app deliberately never does. So a Tor, I2P or
+CJDNS peer **ranks normally and really does deliver blocks** — it simply cannot
+be promoted, because promotion needs a handshake to a dialable address and
+there is none.
+
+Those peers are labelled in the Actions column with the network and "can't be
+kept", rather than being offered a button that always fails, and the note under
+Outbound Peers counts them by network whenever any are connected.
+
+Inbound connections over Tor or I2P are perfectly normal even with outgoing set
+to clearnet only — those peers dialled you, and they are welcome. The setting
+governs the outbound slots, which are the ones the loop can actually improve.
 
 ### Stratum Race
 

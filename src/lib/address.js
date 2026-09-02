@@ -26,7 +26,7 @@
 // IPv6-shaped; a bare address with two or more colons is always a portless
 // IPv6 host.
 function resolveHostPort(input) {
-  const bracketed = input.match(/^\[(.+)\](?::(\d{2,5}))?$/);
+  const bracketed = input.match(/^\[(.+)\](?::(\d{1,5}))?$/);
   if (bracketed) {
     const [, addr, portStr] = bracketed;
     return { addr, port: portStr ? Number(portStr) : null };
@@ -35,7 +35,10 @@ function resolveHostPort(input) {
   if (colonCount >= 2) {
     return { addr: input, port: null };
   }
-  const explicitPortMatch = input.match(/^(.+):(\d{2,5})$/);
+  // 1-5 digits, not 2-5: Core reports I2P peers with port 0, and the narrower
+  // pattern left ":0" glued to the host. Single-digit ports are not valid for
+  // anything anyway - isValidPort rejects them later, with a real message.
+  const explicitPortMatch = input.match(/^(.+):(\d{1,5})$/);
   if (explicitPortMatch) {
     return { addr: explicitPortMatch[1], port: Number(explicitPortMatch[2]) };
   }
@@ -56,6 +59,38 @@ function hostFromAddress(address) {
   const simple = address.match(/^([^:]+):\d+$/);
   if (simple) return simple[1];
   return address;
+}
+
+/**
+ * The overlay network an address belongs to, when it is one this app cannot
+ * dial - or null for an ordinary reachable address.
+ *
+ * Bitcoin Core speaks to four networks besides IPv4/IPv6, and the app reaches
+ * peers exactly one way: a direct TCP connection from inside its own
+ * container. That container has no Tor SOCKS proxy, no I2P SAM bridge and no
+ * CJDNS interface, and giving it any of them would mean asking for access to
+ * the host's networking - which this app deliberately never does.
+ *
+ * So a peer on one of these networks is perfectly real, ranks normally, and
+ * genuinely delivers blocks - it simply cannot be promoted to a manual peer,
+ * because promotion needs a handshake to a dialable address and there is none.
+ * Naming that up front is the difference between an honest "can't be kept" and
+ * a button that fails with "no node answering on 8333 or 9333", which reads as
+ * if the peer merely had the wrong port open.
+ *
+ * Core's own formats: Tor v3 is a 56-character base32 host under .onion, I2P a
+ * 52-character base32 host under .b32.i2p (reported with port 0), and CJDNS is
+ * an IPv6 address inside fc00::/8.
+ */
+function unreachableNetwork(address) {
+  const value = String(address || '').toLowerCase();
+  if (value.includes('.onion')) return 'Tor';
+  if (value.includes('.i2p')) return 'I2P';
+  // CJDNS: fc00::/8, i.e. an IPv6 literal whose first byte is 0xfc.
+  const bracketed = value.match(/^\[([0-9a-f:]+)\]/);
+  const host = bracketed ? bracketed[1] : value;
+  if (/^fc[0-9a-f]{2}:/.test(host)) return 'CJDNS';
+  return null;
 }
 
 // Bare IPv4 "host:port" only - used purely to recognize Umbrel's own internal
@@ -79,6 +114,7 @@ function ipv4InCidr(ip, cidr) {
 
 module.exports = {
   resolveHostPort,
+  unreachableNetwork,
   formatAddress,
   hostFromAddress,
   ipv4HostFromAddress,

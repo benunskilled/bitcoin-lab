@@ -300,6 +300,24 @@ button.danger { color: var(--bad); }
 }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
 
+/* Why there is no action here, rather than a button that cannot work. Same
+   slot geometry as a button so the Disconnect beside it stays in column, but
+   visible - unlike span.action-slot above, which is the empty placeholder. */
+.action-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: help;
+}
+
 /* Manual Peers: unused capacity (below the app's manual-connection cap)
    rendered as actual empty rows at the bottom of the table, not just a
    text footnote - makes "how much room is left" visible at a glance the

@@ -201,11 +201,24 @@ function actionsCell(p, options = {}) {
   // the peer's real one (see queries.js) - there's nothing real to probe or
   // addnode, so "Add as Manual" would just try to add Docker's internal
   // gateway as a manual peer.
+  // A Tor, I2P or CJDNS peer gets a reason rather than a button. The button
+  // used to be offered and always failed, with "no node answering on 8333 or
+  // 9333" - which reads as though the peer had the wrong port open, when in
+  // fact this container has no way to reach that network at all and never
+  // will. Saying so is more useful than letting someone try.
+  // Deliberately NOT class="action-slot": that selector carries
+  // `visibility: hidden` for the empty placeholders, which swallowed this
+  // label whole - present in the DOM, invisible on screen. .action-note keeps
+  // the same slot geometry and actually shows.
+  const undialable = p.privateNetwork
+    ? `<span class="action-note" title="A ${escapeHtml(p.privateNetwork)} peer reaches you over its own network, and this app dials out over plain TCP only - there is no address it can call back on, so it can never be made a manual peer. It still ranks normally and can still deliver a block first.">${escapeHtml(p.privateNetwork)} only</span>`
+    : null;
+
   const primary = p.trusted
     ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
-    : ((p.sourceObscured || p.localUmbrelPeer)
+    : (undialable || ((p.sourceObscured || p.localUmbrelPeer)
       ? placeholder
-      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
+      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`));
 
   // Disconnect still works fine for a source-obscured peer: it's exactly
   // the (masked) address Core itself uses internally for the connection.
@@ -255,13 +268,24 @@ function firstPctCell(p) {
 function reportTorPeers(livePeers) {
   const note = document.getElementById('outbound-note');
   if (!note) return;
-  const onion = livePeers.filter((p) => typeof p.address === 'string' && p.address.includes('.onion')).length;
   const existing = document.getElementById('tor-count');
-  if (onion === 0) {
+
+  // Counted by network rather than lumped together: an operator who sees "3 on
+  // I2P" knows which setting to look at, and "9 unreachable" tells them
+  // nothing. Inbound I2P in particular is normal even with outgoing
+  // connections set to clearnet only - those peers dialled you.
+  const byNetwork = new Map();
+  for (const p of livePeers) {
+    if (!p.privateNetwork) continue;
+    byNetwork.set(p.privateNetwork, (byNetwork.get(p.privateNetwork) || 0) + 1);
+  }
+  if (byNetwork.size === 0) {
     if (existing) existing.remove();
     return;
   }
-  const text = ` ${onion} of your ${livePeers.length} current peers ${onion === 1 ? 'is' : 'are'} on Tor and cannot be promoted.`;
+  const parts = [...byNetwork.entries()].sort().map(([net, n]) => `${n} on ${net}`);
+  const total = [...byNetwork.values()].reduce((a, b) => a + b, 0);
+  const text = ` Right now ${parts.join(', ')} - ${total === 1 ? 'that peer ranks' : 'those peers rank'} normally but cannot be kept as manual connections.`;
   if (existing) { existing.textContent = text; return; }
   const span = document.createElement('span');
   span.id = 'tor-count';
