@@ -31,8 +31,36 @@ function openSession(peerId, { direction = 'outbound', connectionType = 'outboun
 }
 
 test('seeds the default stratum pool list exactly once', () => {
-  const rows = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get();
-  assert.equal(rows.n, 8);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n, 8);
+
+  // Counting after a single open() proves nothing: the seed uses INSERT OR
+  // IGNORE against a unique (host, port), so the count would be 8 with or
+  // without the pools_seeded guard. What the guard is actually for is the
+  // first boot, where all four processes race open() and the loser used to die
+  // on a meta primary-key conflict. So: seed again, and assert both that
+  // nothing is duplicated AND that a user's own edits survive it.
+  db.instance.prepare(`UPDATE stratum_pool SET enabled = 0 WHERE label = 'AtlasPool'`).run();
+  db.instance.prepare(`DELETE FROM stratum_pool WHERE label = 'Parasite Pool'`).run();
+
+  db.seedDefaultPools();
+
+  assert.equal(
+    db.instance.prepare(`SELECT COUNT(*) AS n FROM stratum_pool WHERE label = 'Parasite Pool'`).get().n,
+    0,
+    'a default pool the user deleted must stay deleted - re-seeding must not resurrect it',
+  );
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n, 7, 'and nothing is duplicated');
+  assert.equal(
+    db.instance.prepare(`SELECT enabled FROM stratum_pool WHERE label = 'AtlasPool'`).get().enabled,
+    0,
+    'nor undo what the user changed about one they kept',
+  );
+
+  // Leave the fixture as found for the tests that follow.
+  db.instance
+    .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES ('Parasite Pool','parasite.wtf',42069,1,1,?)`)
+    .run(Date.now());
+  db.instance.prepare(`UPDATE stratum_pool SET enabled = 1 WHERE label = 'AtlasPool'`).run();
 });
 
 test('getOrCreatePeer is idempotent by address', () => {
@@ -223,8 +251,12 @@ test('a live peer Core reports as connection_type "manual" is treated as trusted
 });
 
 test('peer ranking uses ping as the tiebreaker when first% is tied', () => {
-  const peerLowPing = db.getOrCreatePeer('198.51.100.40:8333');
-  const peerHighPing = db.getOrCreatePeer('198.51.100.41:8333');
+  // The low-ping peer deliberately sorts LAST alphabetically. The final
+  // ORDER BY term is p.address ASC, so with the fixture the other way round
+  // (as it was) this test passed with both ping clauses deleted from the
+  // query - the address tiebreaker alone produced the asserted order.
+  const peerLowPing = db.getOrCreatePeer('198.51.100.41:8333');
+  const peerHighPing = db.getOrCreatePeer('198.51.100.40:8333');
   const insertRace = db.instance.prepare(
     'INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)',
   );
@@ -243,8 +275,8 @@ test('peer ranking uses ping as the tiebreaker when first% is tied', () => {
   insertSession.run(peerHighPing.id, 4002, Date.now(), 220, 220);
 
   const ranking = queries.peerRanking();
-  const idxLow = ranking.findIndex((r) => r.address === '198.51.100.40:8333');
-  const idxHigh = ranking.findIndex((r) => r.address === '198.51.100.41:8333');
+  const idxLow = ranking.findIndex((r) => r.address === '198.51.100.41:8333');
+  const idxHigh = ranking.findIndex((r) => r.address === '198.51.100.40:8333');
   assert.ok(idxLow < idxHigh, 'both peers tied at 100% first - lower ping should rank first');
 });
 
@@ -523,7 +555,11 @@ test('pruneOldData keeps peers with relay history and trusted peers forever, onl
   assert.equal(liveSession.ended_at, null);
 });
 
-test('stratum_observation upsert lets a late-but-real report correct an already-recorded miss, never the reverse', () => {
+// Note: this asserts the SQL clause's own semantics, not a path through
+// stratum-race.js - the scenario it describes can no longer arise there (see
+// the scope note on that upsert). Kept because the clause is kept, and because
+// "never overwrites a real result" is the half of it that must not regress.
+test('the stratum_observation upsert corrects a miss but never overwrites a real result', () => {
   // Exercises the exact SQL pattern stratum-race.js's handleNotify() uses -
   // reproduces the bug this was written to fix: if a real mining.notify's
   // write was delayed (e.g. by DB lock contention with the retention
@@ -565,4 +601,53 @@ test('stratum_observation upsert lets a late-but-real report correct an already-
 
 test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('liveSummary counts each connection under exactly one heading', () => {
+  // This feeds the header stat grid, the "N peers connected" pill and the
+  // Umbrel widget's Live Peers tile, and had no test at all: deleting the
+  // inbound/outbound/manual accumulators left the whole suite green.
+  db.instance.exec('DELETE FROM peer_session');
+  const mk = (address, direction, connectionType) => {
+    const peer = db.getOrCreatePeer(address);
+    db.instance
+      .prepare(`INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, ?, ?, ?)`)
+      .run(peer.id, direction, connectionType, Date.now() - 60000);
+  };
+  mk('192.0.2.210:8333', 'inbound', 'inbound');
+  mk('192.0.2.211:8333', 'inbound', 'inbound');
+  mk('192.0.2.212:8333', 'outbound', 'outbound-full-relay');
+  mk('192.0.2.213:8333', 'outbound', 'block-relay-only');
+  mk('192.0.2.214:8333', 'outbound', 'manual');
+
+  const s = queries.liveSummary();
+  assert.equal(s.total, 5);
+  assert.equal(s.inbound, 2);
+  assert.equal(s.outbound, 3, 'manual connections are outbound too - Core dialled them');
+  assert.equal(s.manual, 1);
+  assert.equal(s.outboundFullRelay, 1);
+  assert.equal(s.blockRelayOnly, 1);
+  assert.equal(s.inbound + s.outbound, s.total, 'every connection is one or the other, never both or neither');
+});
+
+test('weakestTrustedPeer breaks a tie towards the peer that is not even connected', () => {
+  // The documented tiebreak had no coverage: deleting it left the suite green,
+  // and eviction then depended on array order in all three callers.
+  const live = { address: 'a:8333', firstPct: 5, live: true };
+  const offline = { address: 'b:8333', firstPct: 5, live: false };
+  assert.equal(queries.weakestTrustedPeer([live, offline]).address, 'b:8333');
+  assert.equal(queries.weakestTrustedPeer([offline, live]).address, 'b:8333', 'and not by input order');
+
+  // But being offline must never outweigh a genuinely better record - that is
+  // what the performance-scaled grace period is for, not this.
+  const strongOffline = { address: 'c:8333', firstPct: 30, live: false };
+  const weakLive = { address: 'd:8333', firstPct: 1, live: true };
+  assert.equal(queries.weakestTrustedPeer([strongOffline, weakLive]).address, 'd:8333');
+
+  // No record at all sorts below 0%.
+  assert.equal(
+    queries.weakestTrustedPeer([{ address: 'e:8333', firstPct: 0, live: true }, { address: 'f:8333', firstPct: null, live: true }]).address,
+    'f:8333',
+  );
+  assert.equal(queries.weakestTrustedPeer([]), null);
 });

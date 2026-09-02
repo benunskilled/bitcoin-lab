@@ -315,7 +315,30 @@ tr.empty-slot td { color: var(--muted); }
    fixed layout with matching widths per column is what makes Address,
    Actions etc. actually line up vertically across the three panels instead
    of each table silently sizing its own columns from its own content. */
-table.peer-table { table-layout: fixed; }
+table.peer-table {
+  table-layout: fixed;
+  /* Without a floor, table-layout:fixed + width:100% means the columns shrink
+     with the window instead of the wrapper scrolling: .table-wrap's overflow-x
+     never engages. At 390px all nine cells were clipped and Ping/Session/Total
+     overprinted each other. The nine columns need roughly this much to stay
+     readable; below it the wrapper scrolls, which is what it was always for. */
+  min-width: 900px;
+}
+
+/* The scroll containers are reachable by keyboard - at narrow widths they are
+   the only way to see the right-hand columns, and a div that scrolls but
+   cannot be focused is unusable without a mouse. */
+.table-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Short, static guidance under a panel heading. */
+.panel-note {
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+  max-width: 88ch;
+}
+.panel-note strong { color: var(--text); font-weight: 600; }
 .col-address { width: 16%; }
 .col-client { width: 12%; }
 /* Widest of the remaining columns on purpose - "OUTBOUND-FULL-RELAY" is the

@@ -88,9 +88,21 @@ function peerRankingSql() {
          )
        ) latest ON latest.peer_id = p.id
        -- Only what anything actually consumes: live peers and manual ones.
-       -- Without this the query walked every peer the node had ever seen -
-       -- a table that, by design, never shrinks - to render ten rows.
-       WHERE os.peer_id IS NOT NULL OR tp.address IS NOT NULL
+       --
+       -- Written as a subquery on p.id rather than as a predicate reading
+       -- "os.peer_id IS NOT NULL OR tp.address IS NOT NULL", which reads more
+       -- naturally and is a trap: as a predicate on the join result it can only be applied AFTER
+       -- the join, so SQLite walked every row of the peer table - which by
+       -- design never shrinks - doing five index seeks each, to return ~200
+       -- rows. The plan opened with SCAN p, and the cost tracked the number of
+       -- peers the node had ever seen: 1.6ms on a fresh install, 8ms after a
+       -- year, 23ms on a busy one. This form drives the query from the two
+       -- small sets instead, and the plan opens with a primary-key search.
+       WHERE p.id IN (
+         SELECT peer_id FROM peer_session WHERE ended_at IS NULL
+         UNION
+         SELECT id FROM peer WHERE address IN (SELECT address FROM trusted_peer)
+       )
        -- Rank by how OFTEN a peer is first, not how often it's merely been
        -- around (a peer online forever racks up a high raw "first" count
        -- at a mediocre rate) - percentage first. Ping is the 2nd-level

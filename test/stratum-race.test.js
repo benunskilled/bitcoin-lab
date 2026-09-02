@@ -149,7 +149,7 @@ test('only a pool first report counts, repeats are ignored', () => {
   assert.equal(rows[0].latencyMs, 0, 'the later refresh must not overwrite the first timing');
 });
 
-test('a late report still corrects its own miss row', () => {
+test('a report for an already-closed race stays a miss', () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
@@ -157,8 +157,16 @@ test('a late report still corrects its own miss row', () => {
   race.handleNotify(a, prevhash(40), t0);
   race.finalizeRace(prevhash(40)); // B is recorded as a miss here
 
-  // B's notify arrives after the race closed: it reopens nothing, but the
-  // upsert must replace its own miss rather than being dropped.
+  // B's notify arrives after the race closed. rememberPrevhash() has already
+  // marked this prevhash as seen, so handleNotify takes the stale-prevhash
+  // early return (added for the lagging-pool regression below) and never
+  // reaches the upsert at all. The miss therefore stands - which is right: a
+  // report that arrives after the race is over cannot be timed against it.
+  //
+  // The test used to be named "a late report still corrects its own miss row"
+  // while asserting the opposite, which left a reader believing corrections
+  // happen. They do not, and the DO UPDATE branch in the upsert is
+  // consequently unreachable from this path - see db.js's note on it.
   race.handleNotify(b, prevhash(40), t0 + 9_000_000n);
 
   const rows = observationsFor(prevhash(40));

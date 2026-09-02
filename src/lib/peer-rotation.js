@@ -166,18 +166,33 @@ function offlineGraceMs(firstPct) {
 }
 
 /**
- * How long this manual peer has been unreachable. Normally that is the time
- * since its last session closed; for a peer that has never once connected
- * since it was added, the clock runs from when it was added instead - it was
- * reachable at that moment (every add path probes first), so silence since
- * then is exactly the same signal. Returns null when neither is known, which
- * means "no evidence it is offline" and is treated as such.
+ * How long this manual peer has been unreachable *as a manual peer*.
+ *
+ * Two clocks, and the answer is whichever started later. The obvious one is
+ * the time since its last session closed. The other is the time since it
+ * joined the manual set, and leaving it out was a genuine bug: a peer whose
+ * last session ended five hours ago but which was added to the manual set one
+ * minute ago is not five hours overdue, it is one minute old. Core has not
+ * even had a chance to dial it yet.
+ *
+ * Reading only the session clock made the rotation loop eat itself. Retiring
+ * parks the peer; the revival pass probes it, finds it answering, and puts it
+ * straight back; the next tick reads the same stale session end and retires it
+ * again - park, revive, park, revive, every ten minutes forever. Since only
+ * one peer may join the manual set per tick, that loop consumed the tick's one
+ * move every single time, so no genuine candidate was ever promoted while it
+ * ran. Taking the later of the two clocks is what stops it: being (re-)added
+ * restarts the grace period, which is what "grace" means.
+ *
+ * Returns null when neither clock is known - "no evidence it is offline".
  */
 function offlineForMs(peer, now) {
   if (peer.live) return null;
-  if (peer.offlineSinceMs != null) return peer.offlineSinceMs;
-  if (peer.trustedSince != null) return now - peer.trustedSince;
-  return null;
+  const sinceLastSeen = peer.offlineSinceMs;
+  const sinceAdded = peer.trustedSince != null ? now - peer.trustedSince : null;
+  if (sinceLastSeen == null) return sinceAdded;
+  if (sinceAdded == null) return sinceLastSeen;
+  return Math.min(sinceLastSeen, sinceAdded);
 }
 
 /**

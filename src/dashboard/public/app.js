@@ -247,6 +247,28 @@ function firstPctCell(p) {
   return `<td title="${p.first} of ${p.eligible} eligible blocks">${pctText}<span class="hint"> (${p.first}/${p.eligible})</span></td>`;
 }
 
+// The clearnet note under Outbound Peers is static advice; this makes it
+// specific when it actually applies. A .onion peer can never be promoted - the
+// port probe has no address to dial - so a node running its outgoing
+// connections over Tor is collecting a ranking it cannot act on, and that is
+// worth saying with a number rather than leaving as general guidance.
+function reportTorPeers(livePeers) {
+  const note = document.getElementById('outbound-note');
+  if (!note) return;
+  const onion = livePeers.filter((p) => typeof p.address === 'string' && p.address.includes('.onion')).length;
+  const existing = document.getElementById('tor-count');
+  if (onion === 0) {
+    if (existing) existing.remove();
+    return;
+  }
+  const text = ` ${onion} of your ${livePeers.length} current peers ${onion === 1 ? 'is' : 'are'} on Tor and cannot be promoted.`;
+  if (existing) { existing.textContent = text; return; }
+  const span = document.createElement('span');
+  span.id = 'tor-count';
+  span.textContent = text;
+  note.appendChild(span);
+}
+
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 
@@ -327,12 +349,20 @@ document.addEventListener('focusout', () => {
   setTimeout(flushDeferredRenders, 0);
 });
 
-function renderPeerTables(peers) {
-  if (deferRender('peers', '.peer-table', () => renderPeerTables(peers))) return;
+// `force` skips the defer gate. That gate exists to stop a background poll
+// destroying an interaction in progress - but the show-all toggle IS the
+// interaction, and it was being blocked by it: "Add as Manual" holds
+// actionsInFlight for up to six seconds of port probing, during which the
+// button did nothing. Worse, a second click (the natural response) flipped the
+// flag back and overwrote the deferred closure, so the button then did nothing
+// at all. A user-initiated, purely local re-render must never be deferred.
+function renderPeerTables(peers, options = {}) {
+  if (!options.force && deferRender('peers', '.peer-table', () => renderPeerTables(peers))) return;
   const livePeers = peers.filter((p) => p.live);
   // Manuals get their own dedicated panel below - keep them out of Outbound
   // entirely rather than showing the same peer in two tables.
   const outboundPeers = livePeers.filter((p) => p.direction === 'outbound' && !p.trusted);
+  reportTorPeers(livePeers);
   const manualPeers = peers.filter((p) => p.trusted);
 
   // The ranking table can get long with a lot of live peers - show only the
@@ -443,6 +473,16 @@ function renderPeerTables(peers) {
 // when the state changed.
 let rotationToggleEpoch = 0;
 
+// Only ever the actions this app writes, and only as a class name from a fixed
+// list. This was the single place in the file where a value went into
+// innerHTML - into a class attribute AND the text - without escaping. Nothing
+// a Bitcoin peer controls can reach it today, which is exactly the kind of
+// reasoning that stops being true after a refactor.
+const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive']);
+function rotationActionClass(action) {
+  return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
+}
+
 function rotationActionLabel(action) {
   if (action === 'kick') return 'Kicked';
   if (action === 'promote') return 'Promoted';
@@ -493,7 +533,7 @@ async function refreshRotation() {
   tbody.innerHTML = (data.log || []).map((entry) => `
     <tr>
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
-      <td><span class="pill rotation-${entry.action}">${rotationActionLabel(entry.action)}</span></td>
+      <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
       <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(replaced ${fmtPct(entry.replacedFirstPct)} peer)</span>` : ''}</td>
@@ -568,8 +608,9 @@ function reportRefreshHealth(errors) {
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
   const collapsing = showAllLivePeers;
   showAllLivePeers = !showAllLivePeers;
-  // Purely a client-side slice of data already in hand.
-  if (lastPeerRanking) renderPeerTables(lastPeerRanking);
+  // Purely a client-side slice of data already in hand - and forced, because
+  // this is the user acting, not a poll arriving.
+  if (lastPeerRanking) renderPeerTables(lastPeerRanking, { force: true });
   else refreshPeers();
 
   // Collapsing removes however many rows were on screen - potentially
