@@ -209,6 +209,10 @@ const DEFAULT_POOLS = [
   ['Parasite Pool', 'parasite.wtf', 42069],
 ];
 
+// A VACUUM is only worth its exclusive lock if this share of the file is
+// actually free space waiting to be reclaimed.
+const VACUUM_MIN_FREE_FRACTION = 0.1;
+
 let db;
 
 function open() {
@@ -287,6 +291,25 @@ function runMigrations() {
       db.prepare(`DROP INDEX IF EXISTS idx_peer_session_peer`).run();
       db.prepare(`DROP INDEX IF EXISTS idx_stratum_obs_pool`).run();
     });
+
+    // peerRanking() is driven FROM peer, so a manual peer with no row there is
+    // invisible to it - and therefore to every rotation pass. It can never be
+    // retired however long it has been gone, is never a candidate for the
+    // weakest slot, and is never displayed, while still counting against
+    // MAX_MANUAL_PEERS. One addnode entry Core never manages to connect (a
+    // non-Bitcoin service answering on 8333, a peer that rejects us, Core's
+    // own slots full) silently costs a slot permanently.
+    //
+    // Both paths that create trusted peers now create the peer row alongside;
+    // this gives the same treatment to the ones already sitting in installed
+    // databases, so they become visible - and therefore retirable - too.
+    migrate('trusted_peer_rows_v1_15_5', 'gave every manual peer a peer row so the rotation can see it', () => {
+      db.prepare(
+        `INSERT OR IGNORE INTO peer (address, first_seen_at)
+         SELECT tp.address, tp.created_at FROM trusted_peer tp
+         WHERE NOT EXISTS (SELECT 1 FROM peer p WHERE p.address = tp.address)`,
+      ).run();
+    });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
   }
@@ -331,10 +354,27 @@ function seedDefaultPools() {
   if (tx()) logger.info('seeded default stratum pools', { count: DEFAULT_POOLS.length });
 }
 
+// Held for the life of the process rather than compiled per call. This is on
+// two hot paths - once per connected peer per 15-second poll, and once per
+// connected peer inside the relay profiler's per-block write transaction - so
+// at ~200 peers it was compiling 400 statements every poll. Measured: the peer
+// poll went 4.58ms -> 1.45ms and the block write transaction 8.25ms -> 4.00ms,
+// which is time this process holds the write lock against the other three.
+//
+// Lazily initialised because `db` does not exist until open() runs. Reading
+// first is deliberate: after the first sighting of a peer the row is always
+// already there, so the common path is a single indexed SELECT and no write.
+let getPeerStmt = null;
+let insertPeerStmt = null;
 function getOrCreatePeer(address) {
-  const now = Date.now();
-  db.prepare(`INSERT OR IGNORE INTO peer (address, first_seen_at) VALUES (?, ?)`).run(address, now);
-  return db.prepare(`SELECT * FROM peer WHERE address = ?`).get(address);
+  if (!getPeerStmt) {
+    getPeerStmt = db.prepare(`SELECT * FROM peer WHERE address = ?`);
+    insertPeerStmt = db.prepare(`INSERT OR IGNORE INTO peer (address, first_seen_at) VALUES (?, ?)`);
+  }
+  const existing = getPeerStmt.get(address);
+  if (existing) return existing;
+  insertPeerStmt.run(address, Date.now());
+  return getPeerStmt.get(address);
 }
 
 // DELETEs (queries.pruneOldData) free up rows but SQLite never shrinks the
@@ -349,6 +389,32 @@ function maybeVacuum() {
   const row = db.prepare(`SELECT value FROM meta WHERE key = 'last_vacuum_at'`).get();
   const last = row ? Number(row.value) : 0;
   if (Date.now() - last < VACUUM_INTERVAL_MS) return false;
+
+  // A calendar is the wrong trigger for this. VACUUM rewrites the entire file
+  // under an exclusive lock, and this file is append-only in every way that
+  // matters: relay_observation and relay_race are deliberately never pruned
+  // (they ARE the ranking), so the only deletions are transient peer sessions
+  // and expired stratum history - a rounding error against the relay data.
+  // Measured on a year-old database: freelist_count was 0, and the VACUUM took
+  // eleven seconds on NVMe to reclaim nothing. On the SD or USB storage an
+  // Umbrel usually runs on, considerably longer.
+  //
+  // That matters beyond wasted I/O. The exclusive lock outlasts the 10s
+  // busy_timeout that db.js sets *because of* this VACUUM, so a block landing
+  // inside the window loses its race - the one kind of data this app cannot
+  // reconstruct. Ask the file whether there is anything to reclaim instead,
+  // which makes this a no-op in the normal case and lets it run after an
+  // unusually large prune, the only case it was ever for.
+  const freePages = db.pragma('freelist_count', { simple: true });
+  const totalPages = db.pragma('page_count', { simple: true });
+  if (!totalPages || freePages / totalPages < VACUUM_MIN_FREE_FRACTION) {
+    // Still stamp it, so this check runs weekly rather than on every prune.
+    db.prepare(`INSERT INTO meta (key, value) VALUES ('last_vacuum_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .run(String(Date.now()));
+    logger.debug('skipped VACUUM - nothing worth reclaiming', { freePages, totalPages });
+    return false;
+  }
+  logger.info('running VACUUM', { freePages, totalPages });
   db.exec('VACUUM');
   db.prepare(`INSERT INTO meta (key, value) VALUES ('last_vacuum_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
     .run(String(Date.now()));
@@ -374,4 +440,10 @@ module.exports = {
   getOrCreatePeer,
   maybeVacuum,
   rebuildRelayStats,
+  // Exported so the suite can run them a second time and assert they are
+  // genuinely no-ops. Asserting a list of flag names instead proved nothing:
+  // the guard could be removed and the test stayed green, over a migration
+  // that deletes the user's whole stratum history.
+  runMigrations,
+  seedDefaultPools,
 };

@@ -83,16 +83,53 @@ test('rebuildRelayStats restores the invariant from the raw rows alone', () => {
   assertRollupMatchesRawRows('after rebuild');
 });
 
-test('the one-time migrations are recorded so they never run twice', () => {
-  const flags = db.instance
-    .prepare("SELECT key FROM meta WHERE key LIKE 'migration:%' ORDER BY key")
-    .all()
-    .map((r) => r.key);
-  assert.deepEqual(flags, [
-    'migration:drop_redundant_indexes_v1_13_0',
-    'migration:rollup_backfill_v1',
-    'migration:stratum_history_reset_v1_12_0',
-  ]);
+test('the one-time migrations really do not run twice', () => {
+  // This used to assert a hardcoded list of migration flag names, which is a
+  // test of the list, not of the guard: with `if (done) return` removed from
+  // migrate(), it stayed green. What hangs on that guard is not academic -
+  // stratum_history_reset_v1_12_0 does DELETE FROM stratum_observation, so a
+  // regression there would wipe the user's entire race history on every single
+  // container restart, silently, with this test still passing.
+  //
+  // So: put data in the way of each destructive migration, re-run them, and
+  // assert the data is still there.
+  const poolId = db.instance
+    .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at)
+              VALUES ('Migration Guard', 'guard.example', 3333, 1, 0, ?)`)
+    .run(Date.now()).lastInsertRowid;
+  const raceId = db.instance
+    .prepare(`INSERT INTO stratum_race (prevhash, created_at) VALUES ('migration-guard-race', ?)`)
+    .run(Date.now()).lastInsertRowid;
+  db.instance
+    .prepare(`INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, 42, 1)`)
+    .run(raceId, poolId);
+
+  const flagsBefore = db.instance
+    .prepare("SELECT key, value FROM meta WHERE key LIKE 'migration:%' ORDER BY key").all();
+  assert.ok(flagsBefore.length > 0, 'migrations must record that they ran at all');
+
+  db.runMigrations();
+
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race WHERE prevhash = ?').get('migration-guard-race').n,
+    1,
+    'a second migration pass must not clear the stratum history',
+  );
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_observation WHERE race_id = ?').get(raceId).n,
+    1,
+  );
+  assert.deepEqual(
+    db.instance.prepare("SELECT key, value FROM meta WHERE key LIKE 'migration:%' ORDER BY key").all(),
+    flagsBefore,
+    'and must not re-stamp the flags either - the timestamps are the evidence it ran once',
+  );
+
+  // This file shares one database across its tests, and the percentile tests
+  // below aggregate over every stratum row present. Leave the fixture as found.
+  db.instance.prepare('DELETE FROM stratum_observation WHERE race_id = ?').run(raceId);
+  db.instance.prepare('DELETE FROM stratum_race WHERE id = ?').run(raceId);
+  db.instance.prepare('DELETE FROM stratum_pool WHERE id = ?').run(poolId);
 });
 
 test('median and P90 match the previous implementation on every range', () => {

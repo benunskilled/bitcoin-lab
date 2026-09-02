@@ -36,6 +36,17 @@ falls inside the detection window counts as **First**. A peer's lifetime
 raw count, so a peer that has merely been connected forever doesn't outrank a
 genuinely fast one.
 
+One dependency worth stating, because nothing in the app can detect it: that
+comparison happens in wall-clock time. `process.hrtime.bigint()` is captured
+first and is what keeps this app's own work off the measurement, but it is a
+monotonic counter with no relationship to Core's Unix timestamps — so the
+First/Eligible decision is `Date.now()` against Core's `last_block`. **If this
+container's clock and Bitcoin Core's disagree by more than about two and a half
+seconds, every block records zero firsts and the entire ranking sits at 0%**,
+with no error logged anywhere. Both normally take their time from the same
+host, so this is rare; but if First % is still empty after a day of blocks,
+check the clocks before looking at anything else.
+
 Two details make that number trustworthy. Core only sets `last_block` when the
 block was new to it — `if (new_block) { node.m_last_block_time = ... }` in its
 own net_processing.cpp — so a peer that relays a block we already have is not
@@ -81,6 +92,25 @@ touches. Bitcoin Lab keeps its own persisted copy and re-asserts it at startup
 and every ten minutes, so a restart does not cost you the peers you spent days
 identifying.
 
+### One setting that matters more than any of the above
+
+**Set Bitcoin Core's outgoing connections to clearnet only.** On Umbrel:
+Bitcoin Node → Settings → Outgoing connections → Clearnet only.
+
+Not "both" — that is the setting that looks safe and isn't. Core will keep
+filling outbound slots over Tor, and outbound slots are exactly what the
+rotation loop is trying to improve: every one held by a `.onion` peer is a slot
+that can never be promoted and never usefully measured.
+
+Over Tor you are not measuring peers, you are measuring circuits — the variance
+between two Tor hops dwarfs the differences this app exists to find. And a
+`.onion` peer can never be made manual at all: promotion needs a TCP handshake
+to a real listening address and there is none to dial, so such a peer sits in
+the ranking accumulating a First % that can never be acted on.
+
+The dashboard says this under Outbound Peers, and counts how many of your
+current peers are on Tor whenever any are.
+
 ### Stratum Race
 
 Each configured pool gets its own TCP connection and is timed purely on when
@@ -103,9 +133,11 @@ operator can actually do something about.
 
 ## Peer rotation (optional, off by default)
 
-A toggle on the dashboard automates the loop above. Every ~10 minutes it makes
-at most one improvement, so the peer set drifts toward the best peers rather
-than churning:
+A toggle on the dashboard automates the loop above. Every ~10 minutes it runs
+four passes. At most one peer *joins* the manual set per pass, so that set
+drifts toward the best peers rather than churning; removals are not limited
+that way, because a peer that has proved itself useless and a peer that is not
+there at all are not competing over anything:
 
 1. **Kicks dead weight** — disconnects any live outbound peer that has been
    eligible for at least `MIN_ELIGIBLE_FOR_JUDGEMENT` blocks (144, roughly a
@@ -154,8 +186,10 @@ the only honest measure available:
 | 30% | 24 hours (max) | 12 hours (max speed) | 150 days |
 
 The early re-probes are the same for everyone — the first comes on the next
-pass, then 30 minutes, an hour, two, four, eight — so a peer of any strength
-that returns quickly is noticed quickly. The scaling only decides what happens
+pass, then an hour later, then two, four, eight, sixteen — so a peer of any
+strength that returns quickly is noticed quickly. (The 30-minute base only
+appears for a peer that answers but has not earned a slot: its failure count
+stays at zero, so it keeps being asked often.) The scaling only decides what happens
 after roughly the first day, where the difference between chasing a 30% peer
 and a 1% peer actually starts to cost something.
 
@@ -187,7 +221,8 @@ dashboard subscribes to ZMQ on its own separate socket for live block events,
 for the same reason.
 
 The three workers have no HTTP port, so each writes a heartbeat into the shared
-`meta` table every 30 seconds. `GET /api/health` reports all four, and each
+`meta` table every 30 seconds; the dashboard writes one the same way, so all
+four report through the same mechanism. `GET /api/health` reports all four, and each
 worker's container healthcheck reads that heartbeat back read-only. The
 heartbeat runs on its own timer rather than as a side effect of work, because
 with ~10 minutes between blocks "nothing happened recently" is a healthy state
@@ -221,7 +256,14 @@ npm test
 ## Configuration
 
 All configuration is environment variables (see `src/lib/config.js`) — no
-config files to hand-edit, no SSH. On Umbrel these are supplied automatically
+config files to hand-edit, no SSH.
+
+Worth knowing before you install: Stratum Race opens one persistent TCP
+connection to each enabled pool, and eight public pools are enabled by default,
+so a fresh install starts talking to eight external mining pools straight away.
+It subscribes and authorizes but never submits a share; the address it
+authorizes with is a well-known burn address, configurable below. Disable or
+delete any of them on the dashboard. On Umbrel these are supplied automatically
 via the `bitcoin` app dependency contract (`APP_BITCOIN_*`); for local use set
 the plain `BITCOIN_*` equivalents (`docker-compose.dev.yml` is a working
 example).
@@ -250,6 +292,16 @@ example).
 | `PARKED_PEER_FULL_SPEED_PCT` | First % from which a parked peer is chased at full speed | `20` |
 | `PARKED_PEER_RETENTION_DAYS_PER_PCT` | Days a parked peer is remembered, per point of First % | `5` |
 | `PARKED_PEER_MIN_RETENTION_DAYS` / `_MAX_` | Floor and ceiling on that | `2` / `180` |
+| `BITCOIN_ZMQ_HOST` / `APP_BITCOIN_NODE_IP` | ZMQ host, when it differs from the RPC host | RPC host |
+| `BITCOIN_ZMQ_HASHBLOCK_URL` | Full ZMQ URL, overriding host and port together | - |
+| `BITCOIN_NETWORK` / `APP_BITCOIN_NETWORK` | Network label shown in the header | `mainnet` |
+| `SQLITE_PATH` | Full path to the database file, overriding `DATA_DIR` | `$DATA_DIR/sqlite/bitcoinlab.db` |
+| `STRATUM_AUTHORIZE_ADDRESS` | Address sent in `mining.authorize` when racing a pool - never receives anything, so it is a burn address by default | `1BitcoinEater…f59kuE` |
+| `STRATUM_IDLE_TIMEOUT_MS` | Silence after which a pool connection is considered dead and reopened | `21600000` (6h) |
+| `PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES` | Shortest gap between two tests of the same parked peer | `30` |
+| `PARKED_PEER_MAX_RETENTION_DAYS` | Ceiling on how long a parked peer is remembered | `180` |
+| `DOCKER_PROXY_MASKED_HOST` | The gateway address Docker substitutes for relayed inbound IPv6 peers | `10.21.0.1` |
+| `UMBREL_INTERNAL_NETWORK_CIDR` | Range treated as "another app on this Umbrel" rather than a peer | `10.21.0.0/16` |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug` | `info` |
 
 ## Known limitations

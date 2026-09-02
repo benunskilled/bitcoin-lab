@@ -134,3 +134,120 @@ test('an unknown API route is a 404, not a crash', async () => {
   assert.equal(status, 404);
   assert.equal(body.error, 'not found');
 });
+
+// --- Routes the frontend depends on and nothing tested ----------------------
+//
+// Twelve of sixteen API routes had no test at all, including the one behind
+// the Test button and every "400 address required" guard the dashboard relies
+// on. These cover the contract each route actually promises its caller.
+
+test('GET /api/status reports the peer counts and the manual cap', async () => {
+  const { status, body } = await api('/api/status');
+  assert.equal(status, 200);
+  assert.equal(typeof body.network, 'string');
+  assert.equal(typeof body.live.total, 'number');
+  assert.equal(typeof body.live.inbound, 'number');
+  assert.equal(typeof body.live.outbound, 'number');
+  // The frontend sizes the Manual Peers panel from this; without it the empty
+  // slot rows silently fall back to a hardcoded 8.
+  assert.equal(typeof body.maxManualPeers, 'number');
+});
+
+test('GET /api/peers/ranking answers with an array the tables can render', async () => {
+  const { status, body } = await api('/api/peers/ranking');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body));
+});
+
+test('the peer routes say what is missing rather than failing obscurely', async () => {
+  for (const route of ['/api/peers/untrust', '/api/peers/add-manual', '/api/peers/disconnect']) {
+    // eslint-disable-next-line no-await-in-loop
+    const { status, body } = await api(route, { method: 'POST', body: JSON.stringify({}) });
+    assert.equal(status, 400, `${route} must reject a body with no address`);
+    assert.match(body.error, /address/i);
+  }
+});
+
+test('POST /api/peers/probe answers without touching anything', async () => {
+  const before = db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n;
+  const { status, body } = await api('/api/peers/probe', {
+    method: 'POST',
+    body: JSON.stringify({ host: 'not a host at all !!' }),
+  });
+  assert.equal(status, 422, 'unreachable is an answer, not a server error');
+  assert.match(body.error, /invalid host/i);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, before, 'probing is never an action');
+});
+
+test('a malformed body is the callers mistake, not a 500', async () => {
+  const res = await fetch(`${baseUrl}/api/peers/untrust`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{not json',
+  });
+  assert.equal(res.status, 400, 'answering 500 sends whoever is debugging this to the wrong place');
+});
+
+test('GET /api/rotation carries the toggle, the log and the parked peers', async () => {
+  const { status, body } = await api('/api/rotation');
+  assert.equal(status, 200);
+  assert.equal(typeof body.enabled, 'boolean');
+  assert.ok(Array.isArray(body.log));
+  assert.ok(Array.isArray(body.parked), 'the Parked table has no other source');
+});
+
+test('POST /api/rotation/toggle round-trips, and GET agrees afterwards', async () => {
+  const on = await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled: true }) });
+  assert.equal(on.status, 200);
+  assert.equal(on.body.enabled, true);
+  assert.equal((await api('/api/rotation')).body.enabled, true);
+
+  const off = await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled: false }) });
+  assert.equal(off.body.enabled, false);
+  assert.equal((await api('/api/rotation')).body.enabled, false, 'the dashboard reads this back on every poll');
+});
+
+test('PATCH /api/pools/:id will not disable a pool because the body was empty', async () => {
+  const created = await api('/api/pools', {
+    method: 'POST',
+    body: JSON.stringify({ label: 'Patch Guard', host: 'patch.example', port: 3333 }),
+  });
+  assert.equal(created.status, 200);
+  const id = db.instance.prepare(`SELECT id FROM stratum_pool WHERE label = 'Patch Guard'`).get().id;
+
+  // This used to answer 200 and set enabled = 0.
+  const empty = await api(`/api/pools/${id}`, { method: 'PATCH', body: JSON.stringify({}) });
+  assert.equal(empty.status, 400);
+  assert.equal(
+    db.instance.prepare('SELECT enabled FROM stratum_pool WHERE id = ?').get(id).enabled,
+    1,
+    'the pool must still be enabled',
+  );
+
+  const real = await api(`/api/pools/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled: false }) });
+  assert.equal(real.status, 200);
+  assert.equal(db.instance.prepare('SELECT enabled FROM stratum_pool WHERE id = ?').get(id).enabled, 0);
+
+  assert.equal((await api('/api/pools/999999', { method: 'PATCH', body: JSON.stringify({ enabled: true }) })).status, 404);
+  assert.equal((await api(`/api/pools/${id}`, { method: 'DELETE' })).status, 200);
+});
+
+test('GET /api/widget/stats gives Umbrel four tiles it can render', async () => {
+  const { status, body } = await api('/api/widget/stats');
+  assert.equal(status, 200);
+  assert.equal(body.type, 'four-stats');
+  assert.equal(body.items.length, 4, 'the four-stats widget type requires exactly four');
+  for (const item of body.items) {
+    assert.equal(typeof item.title, 'string');
+    assert.equal(typeof item.text, 'string', 'a missing value renders as an empty tile on the home screen');
+  }
+});
+
+test('serveStatic refuses to walk out of the public directory', async () => {
+  for (const attempt of ['/../package.json', '/..%2fpackage.json', '/%2e%2e/package.json']) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await fetch(`${baseUrl}${attempt}`);
+    assert.ok(res.status === 404 || res.status === 403, `${attempt} must not be served`);
+  }
+  assert.equal((await fetch(`${baseUrl}/favicon.svg`)).status, 200, 'but real assets still serve');
+});

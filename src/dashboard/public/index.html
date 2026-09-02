@@ -10,7 +10,7 @@
 </head>
 <body>
   <div id="block-wave" class="block-wave" aria-hidden="true"></div>
-  <div id="action-toast" class="action-toast" hidden></div>
+  <div id="action-toast" class="action-toast" role="status" aria-live="polite" hidden></div>
 
   <header class="topbar">
     <h1>Bitcoin Lab</h1>
@@ -66,6 +66,20 @@
 
     <details class="card" open>
       <summary><h2>Outbound Peers</h2></summary>
+      <!--
+        The single setting that most affects whether any of this measures what
+        it claims to. Over Tor the numbers are circuit latency, not peer
+        latency, and a .onion peer can never become manual at all - the port
+        probe has no address to dial. Said here rather than in the README
+        because this is the table where it shows.
+      -->
+      <p class="panel-note" id="outbound-note">
+        <strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong>
+        Over Tor you are timing circuits rather than peers, and a .onion peer can never be made manual -
+        there is no address to dial directly. Leaving it on "both" is not enough: Core will still fill
+        outbound slots over Tor, and those slots are the ones this loop is trying to improve.
+        In Umbrel: Bitcoin Node → Settings → Outgoing connections → Clearnet only.
+      </p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
@@ -103,6 +117,7 @@
         <input
           type="text"
           id="manual-add-input"
+          aria-label="Peer IP address"
           placeholder="IP address, e.g. 203.0.113.5"
           title="A bare IP is probed on 8333, then 9333. Add an explicit :port to use only that one. IPv6 goes in brackets: [2001:db8::1]"
           required
@@ -150,7 +165,7 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Every ~10 minutes, one change at a time:</p>
+        <p>Every ~10 minutes. At most one peer joins the manual set per pass; removals are not limited that way:</p>
         <ul>
           <li>Makes a peer that really delivers blocks manual, so Core holds on to it - the best one available, into a free slot or in place of a weaker manual peer.</li>
           <li>Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.</li>
@@ -209,10 +224,11 @@
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="public-pool">Public Pool</button>
       </div>
       <form id="pool-add-form" class="inline-form">
-        <input type="text" id="pool-label" placeholder="Label" required />
+        <input type="text" id="pool-label" aria-label="Pool name" placeholder="Label" required />
         <input
           type="text"
           id="pool-host"
+          aria-label="Pool host"
           placeholder="Host"
           title="A local Umbrel pool app isn't reached at umbrel.local - use its container name instead (e.g. gobrrr-pool_ckpool_1), same network as this app."
           required
@@ -220,6 +236,7 @@
         <input
           type="number"
           id="pool-port"
+          aria-label="Pool port"
           placeholder="Port"
           min="1"
           max="65535"

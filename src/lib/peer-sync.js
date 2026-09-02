@@ -117,6 +117,11 @@ async function adoptExternalManualPeers() {
   for (const { addednode } of addedNodes) {
     if (!addednode || known.has(addednode)) continue;
     insert.run(addednode, now);
+    // Same reason as in addTrustedPeer: a manual peer with no `peer` row is
+    // invisible to peerRanking(), so no rotation pass can ever see it while it
+    // still occupies one of the eight slots. An addnode entry Core has never
+    // managed to connect is precisely the case that produces one.
+    db.getOrCreatePeer(addednode);
     adopted += 1;
     logger.info('adopted externally-managed manual peer into trusted_peer', { address: addednode });
   }
@@ -168,27 +173,26 @@ async function disconnectIfLiveNonManual(address) {
 }
 
 /**
- * Adds an address to the manual set, in an order that makes every step
- * conditional on the one before it actually having worked.
+ * Adds an address to the manual set. Nothing changes until the step that can
+ * actually fail has succeeded.
  *
- * The order is the whole point. It used to be: write the row, disconnect the
- * peer's existing session, then addnode. Two things were wrong with that.
+ * The order is the whole point, and it has been wrong twice. It used to write
+ * the row, disconnect the peer's existing session, then addnode - so an add
+ * that Core then refused had already cost the user a live connection. That was
+ * fixed by moving the disconnect last. But the eviction that makes room at
+ * capacity was still done up front, so a refused addnode left the manual set
+ * one peer smaller than it started, with no mention of it anywhere.
  *
- * First, nothing checked the cap, so an add beyond the eighth slot wrote a row
- * that syncTrustedToAddnode would then leave queued indefinitely - a manual
- * peer in the UI that Core had never been told about. `evictToFit` is the
- * answer for a deliberate user action: make room by dropping the weakest
- * current manual peer, or refuse and say so, but never pretend.
+ * So `addnode add` now goes FIRST, before any of our own state moves. Core's
+ * addnode list holds more entries than the eight connections it will maintain
+ * (MAX_ADDNODE_CONNECTIONS caps concurrent connections, not list length), so a
+ * momentary ninth entry is harmless and is resolved by the eviction two lines
+ * later. If the call is refused, we return having touched nothing at all:
+ * no row, no eviction, no dropped connection.
  *
- * Second, the disconnect ran before the peer was actually in the manual list.
- * Disconnecting is not free - it drops a live connection and relies on Core
- * dialling back - so doing it for an add that then does not happen costs the
- * user a working peer for nothing. That is exactly the fear that stops anyone
- * from trying an inbound peer to see whether it is reachable. So: decide
- * capacity, write the row, register the addnode, and only once the peer is
- * genuinely a manual peer, disconnect whatever stale non-manual session it
- * still has so Core redials it as one. A real addnode failure rolls the row
- * back and the connection is never touched.
+ * Only then, in order: record the peer, take the slot back from the weakest
+ * current manual peer if one was needed, and finally disconnect whatever stale
+ * non-manual session the new peer still has so Core redials it as a manual one.
  *
  * `evictToFit` is off by default because the rotation loop does its own,
  * stricter capacity arithmetic (a promotion must beat the peer it replaces);
@@ -200,20 +204,16 @@ async function addTrustedPeer(address, label, options = {}) {
     db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address),
   );
 
-  let evicted = null;
+  // Decide capacity before anything happens, but do not act on it yet.
+  let toEvict = null;
   if (!alreadyTrusted) {
-    const count = db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer`).get().n;
+    const count = countTrusted();
     if (count >= config.maxManualPeers) {
       if (!evictToFit) {
-        return {
-          ok: false,
-          count,
-          max: config.maxManualPeers,
-          error: `all ${config.maxManualPeers} manual slots are taken`,
-        };
+        return { ok: false, count, max: config.maxManualPeers, error: `all ${config.maxManualPeers} manual slots are taken` };
       }
-      evicted = queries.weakestTrustedPeer(queries.peerRanking().filter((p) => p.trusted));
-      if (!evicted) {
+      toEvict = queries.weakestTrustedPeer(queries.peerRanking().filter((p) => p.trusted));
+      if (!toEvict || toEvict.address === address) {
         return {
           ok: false,
           count,
@@ -221,45 +221,56 @@ async function addTrustedPeer(address, label, options = {}) {
           error: `all ${config.maxManualPeers} manual slots are taken and none could be freed`,
         };
       }
-      await removeTrustedPeer(evicted.address);
-      parkPeer(evicted);
-      logger.info('freed a manual slot to stay within the cap', {
-        removed: evicted.address,
-        removedFirstPct: evicted.firstPct,
-        forAddress: address,
-        max: config.maxManualPeers,
-      });
     }
   }
 
-  db.instance
-    .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?) ON CONFLICT(address) DO UPDATE SET label = excluded.label`)
-    .run(address, label || null, Date.now());
-
-  // A parked peer that gets added back by any route is no longer parked -
-  // otherwise the revival pass keeps probing an address that already has a
-  // slot, and could "revive" it a second time.
-  db.instance.prepare(`DELETE FROM parked_peer WHERE address = ?`).run(address);
-
+  // The one step that can be refused, done before anything is at stake.
   try {
     await rpc.addNode(address, 'add');
   } catch (err) {
     // "Node already added" means the end state we wanted is already true -
     // Core's addnode list survives independently of ours (a bitcoin.conf
     // -addnode=, a bitcoin-cli call, or our own previous sync), so this is a
-    // success, not a failure. Anything else is a genuine refusal and must not
-    // leave a row behind claiming Core knows about this peer.
+    // success, not a failure. Anything else is a genuine refusal, and at this
+    // point nothing of ours has moved.
     if (!/already added/i.test(err.message || '')) {
-      if (!alreadyTrusted) {
-        db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(address);
-      }
-      logger.warn('addnode refused, peer not added as manual', { address, error: err.message });
+      logger.warn('addnode refused, nothing changed', { address, error: err.message });
       return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: err.message };
     }
     logger.debug('addnode call while trusting peer', { address, error: err.message });
   }
 
-  // Only now: the peer really is in the manual list.
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?) ON CONFLICT(address) DO UPDATE SET label = excluded.label`)
+    .run(address, label || null, Date.now());
+
+  // A manual peer must exist in `peer` too, even if Core has never reported a
+  // session for it. peerRanking() is driven FROM peer, so without this row the
+  // peer is invisible to every rotation pass - it can never be retired, never
+  // be considered the weakest, and never be shown - while still consuming one
+  // of the eight slots forever. That is exactly what happens when the TCP
+  // probe answers but Core never establishes a connection (a non-Bitcoin
+  // service on 8333, a peer that rejects us, Core's own slots full).
+  db.getOrCreatePeer(address);
+
+  // Only now is the parked entry safe to drop. Doing it before the addnode
+  // meant a refused call destroyed the record of a peer we had spent months
+  // ranking - the precise loss parking exists to prevent.
+  db.instance.prepare(`DELETE FROM parked_peer WHERE address = ?`).run(address);
+
+  let evicted = null;
+  if (toEvict) {
+    await removeTrustedPeer(toEvict.address);
+    parkPeer(toEvict);
+    evicted = toEvict;
+    logger.info('freed a manual slot to stay within the cap', {
+      removed: evicted.address,
+      removedFirstPct: evicted.firstPct,
+      forAddress: address,
+      max: config.maxManualPeers,
+    });
+  }
+
   await disconnectIfLiveNonManual(address);
 
   return {

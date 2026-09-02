@@ -22,6 +22,7 @@ const rpc = require('../src/lib/rpc');
 const manualPeer = require('../src/lib/manual-peer');
 const queries = require('../src/lib/queries');
 const peerRotation = require('../src/lib/peer-rotation');
+const peerSync = require('../src/lib/peer-sync');
 
 test.before(() => {
   db.open();
@@ -578,4 +579,103 @@ test('the slower ceiling actually holds a weak peer back that a strong one would
 
   assert.deepEqual(probed, [strong]);
   assert.ok(!probed.includes(weak));
+});
+
+// --- REGRESSIONS: the rotation loop eating itself (v1.15.5) ------------------
+//
+// Every one of these reproduces a defect that shipped in v1.15.0-v1.15.4 and
+// was found by review rather than by this suite. They are written as the
+// scenario, not as the fix, so they stay meaningful if the implementation
+// changes again.
+
+test('REGRESSION: (re-)joining the manual set restarts the offline clock', () => {
+  const now = Date.now();
+  // Last seen five hours ago, but added to the manual set one minute ago.
+  const peer = { live: false, offlineSinceMs: 5 * HOUR, trustedSince: now - 60_000 };
+  const measured = peerRotation.offlineGraceMs(1); // 1% -> the 1h floor
+  assert.ok(
+    Math.min(peer.offlineSinceMs, now - peer.trustedSince) < measured,
+    'a peer added a minute ago is one minute old, not five hours overdue',
+  );
+});
+
+test('REGRESSION: a manual peer added seconds ago is not retired on the next tick', async () => {
+  // The exact shape that caused it: a stale closed session, and a
+  // trusted_peer row created just now.
+  const address = nextAddress();
+  const peer = db.getOrCreatePeer(address);
+  const endedAt = Date.now() - 5 * HOUR;
+  db.instance
+    .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+    .run(peer.id, 'outbound', 'manual', endedAt - HOUR, endedAt);
+  seedEligibility(peer.id, 200, 2); // 1% -> one hour of grace
+  db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)').run(address, null, Date.now());
+
+  const retired = await peerRotation.retireOfflineManualPeers(ranking());
+
+  assert.equal(retired, 0, 'it has been manual for seconds, not five hours');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 1);
+});
+
+test('REGRESSION: park/revive does not loop, and does not starve a real candidate', async () => {
+  peerRotation.setEnabled(true);
+  // A weak manual peer with a stale closed session - the loop's seed.
+  const stale = nextAddress();
+  const sp = db.getOrCreatePeer(stale);
+  const endedAt = Date.now() - 5 * HOUR;
+  db.instance
+    .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+    .run(sp.id, 'outbound', 'manual', endedAt - HOUR, endedAt);
+  seedEligibility(sp.id, 200, 2);
+  db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)').run(stale, null, Date.now());
+  // A genuinely strong live candidate waiting for a slot.
+  const candidate = seedLivePeer({ eligible: 200, first: 180 });
+  mock.method(manualPeer, 'probePort', async () => true);
+  mock.method(manualPeer, 'findListeningAddress', async (host) => `${host}:8333`);
+
+  const ticks = [];
+  for (let i = 0; i < 4; i++) ticks.push(await peerRotation.tick()); // eslint-disable-line no-await-in-loop
+
+  const parks = db.instance.prepare(`SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'park'`).get().n;
+  const revives = db.instance.prepare(`SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'revive'`).get().n;
+  assert.equal(parks, 0, 'the freshly added peer is not parked at all');
+  assert.equal(revives, 0);
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(candidate).n,
+    1,
+    'and the 90% candidate actually gets promoted - the loop used to eat every tick\'s one move',
+  );
+  peerRotation.setEnabled(false);
+});
+
+test('REGRESSION: a refused addnode leaves the parked entry intact', async () => {
+  const address = nextAddress();
+  db.instance
+    .prepare(`INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
+              VALUES (?, NULL, 40, 450, ?, NULL, 0)`)
+    .run(address, Date.now() - HOUR);
+  mock.method(manualPeer, 'probePort', async () => true);
+  rpc.addNode.mock.mockImplementation(async () => { throw new Error('Error: Node address is invalid'); });
+
+  await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 0);
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(address).n,
+    1,
+    'months of ranking data must survive one failed RPC call',
+  );
+});
+
+test('REGRESSION: a manual peer always has a peer row, so the rotation can see it', async () => {
+  const address = nextAddress();
+  mock.method(manualPeer, 'probePort', async () => true);
+
+  await peerSync.addTrustedPeer(address, 'test');
+
+  assert.ok(
+    db.instance.prepare('SELECT 1 FROM peer WHERE address = ?').get(address),
+    'without this row it is invisible to peerRanking and can never be retired',
+  );
+  assert.ok(ranking().some((p) => p.address === address));
 });

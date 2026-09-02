@@ -397,9 +397,17 @@ async function router(req, res, pathname, url) {
       }
       return sendJson(res, 200, { ok: true });
     }
-    const { enabled } = await readBody(req);
-    db.instance.prepare(`UPDATE stratum_pool SET enabled = ? WHERE id = ?`).run(enabled ? 1 : 0, id);
-    return sendJson(res, 200, { ok: true });
+    const body = await readBody(req);
+    // `enabled` absent used to mean `undefined` -> 0, so a PATCH with an empty
+    // body silently disabled the pool and answered 200. Say what was wrong.
+    if (typeof body.enabled !== 'boolean') {
+      return sendJson(res, 400, { error: 'enabled must be true or false' });
+    }
+    const updated = db.instance
+      .prepare(`UPDATE stratum_pool SET enabled = ? WHERE id = ?`)
+      .run(body.enabled ? 1 : 0, id);
+    if (updated.changes === 0) return sendJson(res, 404, { error: `no pool with id ${id}` });
+    return sendJson(res, 200, { ok: true, enabled: body.enabled });
   }
 
   if (req.method === 'GET' && pathname === '/api/widget/stats') {
@@ -421,6 +429,14 @@ const server = http.createServer(async (req, res) => {
     }
     serveStatic(req, res, pathname);
   } catch (err) {
+    // A malformed request body is the caller's mistake, not ours - answering
+    // 500 "internal error" sends whoever is debugging it looking in the wrong
+    // place entirely.
+    if (/invalid JSON body|body too large/i.test(err.message || '')) {
+      logger.debug('rejected a malformed request body', { path: pathname, error: err.message });
+      if (!res.headersSent) sendJson(res, 400, { error: err.message });
+      return;
+    }
     logger.error('request handler error', { path: pathname, error: err.message });
     if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
   }

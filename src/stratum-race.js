@@ -243,9 +243,20 @@ function handleNotify(pool, prevhash, receivedAtHr) {
     // Upsert rather than a plain INSERT OR IGNORE: if finalizeRace() already
     // recorded a miss for this (race, pool) - e.g. this notify's write was
     // delayed by DB lock contention past the race timeout - a late-but-real
-    // report should still correct it rather than being silently dropped by
-    // the earlier miss row. Never overwrites an already-recorded real result
-    // (the WHERE guards on latency_ms IS NULL).
+    // report corrects it rather than being silently dropped by the earlier
+    // miss row. Never overwrites an already-recorded real result (the WHERE
+    // guards on latency_ms IS NULL).
+    //
+    // Honest scope note: the case this was written for - a notify arriving
+    // after its own race was finalised - can no longer reach here, because
+    // handleNotify marks the prevhash as seen before building the race and
+    // takes the stale-prevhash early return on the way back in. What the
+    // upsert still protects is the same collision arising any other way (a
+    // retry, a second connection to the same pool, a finalize racing this
+    // write inside the busy_timeout window), which is cheap insurance for one
+    // clause. It is kept deliberately, not by accident - and the test named
+    // for it asserts what actually happens now, which is that the miss
+    // stands.
     db.instance
       .prepare(
         `INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank)
