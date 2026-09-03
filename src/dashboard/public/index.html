@@ -75,11 +75,8 @@
       -->
       <p class="panel-note" id="outbound-note">
         <strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong>
-        Over Tor or I2P you are timing the overlay network rather than the peer, and such a peer can never
-        be made manual - there is no address this app can dial back. Leaving it on "both" is not enough:
-        Core will still fill outbound slots over Tor, and those slots are the ones this loop is trying to
-        improve. In Umbrel: Bitcoin Node → Settings → Outgoing connections → Clearnet only.
-        (Inbound connections over Tor or I2P are normal either way - those peers dialled you.)
+        A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
+        app can dial back. Inbound connections over Tor or I2P are fine either way: those peers dialled you.
       </p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
@@ -166,14 +163,13 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Every ~10 minutes. At most one peer joins the manual set per pass; removals are not limited that way:</p>
+        <p>Every ~10 minutes, at most one promotion per pass:</p>
         <ul>
-          <li>Makes a peer that really delivers blocks manual, so Core holds on to it - the best one available, into a free slot or in place of a manual peer it clearly beats.</li>
+          <li>Makes the best peer that really delivers manual - into a free slot, or in place of a manual peer it clearly beats.</li>
           <li>Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.</li>
-          <li>Frees the slot of a manual peer that has gone offline. Good peers get longer: an hour per point of First %, up to a day.</li>
+          <li>Frees the slot of a manual peer that has gone offline. The better its record, the longer it keeps the slot first.</li>
         </ul>
-        <p>A peer that has only just taken a slot keeps it for its first 50 blocks, so the set cannot churn against itself.</p>
-        <p>Losing a slot is not losing the peer. It is parked below, tested regularly, and takes a slot back as soon as it answers again.</p>
+        <p>A new slot holder is safe for its first 50 blocks. A peer that loses a slot is parked below, re-tested, and back as soon as it answers.</p>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
         <h3>Parked <span class="hint">peers that lost their slot while offline - still being tested, back as soon as they answer</span></h3>
