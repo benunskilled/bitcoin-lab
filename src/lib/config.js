@@ -53,12 +53,26 @@ module.exports = {
   maxManualPeers: Number(pick(process.env.MAX_MANUAL_PEERS, '8')),
 
   // How many blocks a peer must have been eligible for before its First %
-  // counts as a track record rather than noise - roughly a day at ~144 blocks
-  // a day. Everything that judges a peer by its percentage uses this: the
-  // rotation loop (kicking and promoting alike) and the home-screen widget's
-  // "best peer". Those two used to disagree - the widget called a peer "best"
-  // off 5 blocks while rotation, correctly, would not touch it before 144.
-  minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '144')),
+  // counts as a track record rather than noise - about eight hours at ~144
+  // blocks a day. Everything that judges a peer by its percentage uses this:
+  // the rotation loop (kicking and promoting alike) and the home-screen
+  // widget's "best peer". Those two used to disagree - the widget called a peer
+  // "best" off 5 blocks while rotation, correctly, would not touch it yet.
+  //
+  // This was 144, a full day, and that was too patient in the direction that
+  // matters. A peer delivering 15% of blocks was watched for twenty hours and
+  // then dropped by Core before the loop was allowed to keep it - the app spent
+  // most of a day watching a good peer it was not permitted to act on. At 50 a
+  // strong peer is claimed in a third of the time.
+  //
+  // The cost is at the other end: kicking gets less patient too. A peer whose
+  // true rate is 5% goes 50 blocks without delivering 7.7% of the time and 144
+  // blocks only 0.06% of the time, so the loop will occasionally drop a
+  // mid-table peer that was merely unlucky. That is survivable - the record is
+  // keyed by address and survives the disconnect, so if Core dials it again its
+  // history resumes - while the peer lost to waiting is gone with nothing
+  // learned.
+  minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '50')),
 
   // Blocks a peer must have been eligible for before it can be pushed OUT of
   // the manual set by a better one. Without it the rotation eats itself: a peer

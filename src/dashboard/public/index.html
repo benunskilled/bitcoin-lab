@@ -166,7 +166,7 @@
         <p>Every ~10 minutes, at most one promotion per pass:</p>
         <ul>
           <li>Makes the best peer that really delivers manual - into a free slot, or in place of a manual peer it clearly beats.</li>
-          <li>Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.</li>
+          <li>Drops an outbound peer that has been connected through 50 blocks without ever delivering one first. Core replaces it with a new random one.</li>
           <li>Frees the slot of a manual peer that has gone offline. The better its record, the longer it keeps the slot first.</li>
         </ul>
         <p>A new slot holder is safe for its first 50 blocks. A peer that loses a slot is parked below, re-tested, and back as soon as it answers.</p>

@@ -17,6 +17,7 @@ process.env.DATA_DIR = tmpDir;
 process.env.LOG_LEVEL = 'error';
 process.env.MAX_MANUAL_PEERS = '2';
 
+const config = require('../src/lib/config');
 const db = require('../src/lib/db');
 const rpc = require('../src/lib/rpc');
 const manualPeer = require('../src/lib/manual-peer');
@@ -149,7 +150,7 @@ test('ignores a feeler even if it somehow racked up enough eligible blocks', asy
 });
 
 test('does not kick a peer that has not reached the eligibility threshold yet', async () => {
-  seedLivePeer({ eligible: 143, first: 0 });
+  seedLivePeer({ eligible: config.minEligibleForJudgement - 1, first: 0 });
   const kicked = await peerRotation.kickDeadWeight(ranking());
   assert.equal(kicked, 0);
 });
@@ -181,7 +182,7 @@ test('promotes the best candidate into a free manual slot', async () => {
 });
 
 test('does not promote a candidate that has not reached the eligibility threshold', async () => {
-  seedLivePeer({ eligible: 143, first: 50 });
+  seedLivePeer({ eligible: config.minEligibleForJudgement - 1, first: 50 });
   const promoted = await peerRotation.promoteBestCandidate(ranking());
   assert.equal(promoted, 0);
 });
