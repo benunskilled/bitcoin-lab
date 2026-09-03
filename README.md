@@ -31,8 +31,8 @@ Bitcoin Lab makes that difference visible — and you do not have to act on it
 yourself: switch the rotation on and it does the finding, testing and swapping
 for you.
 
-For the first day the numbers mean nothing. A peer is not judged until it has
-been connected through 144 blocks, so expect an empty ranking, and an idle
+For the first hours the numbers mean nothing. A peer is not judged until it has
+been connected through 50 blocks, so expect an empty ranking, and an idle
 rotation if you turned it on.
 
 After a few days the difference is noticeable. Then it flattens: the eight slots
@@ -42,7 +42,7 @@ them — which gets rarer the better they are.
 A non-listening node typically has one to three peers that ever deliver.
 Curated, all eight manual slots do.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.7)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.9)
 
 ## What it buys you
 
@@ -158,8 +158,8 @@ staying.
 A toggle on the dashboard automates the loop. Every ~10 minutes it:
 
 1. **Kicks dead weight** — disconnects any live outbound peer that has been
-   eligible for at least 144 blocks (roughly a day) and never once delivered a
-   block. Never a manual or inbound peer.
+   eligible for at least 50 blocks (about eight hours) and never once delivered
+   a block. Never a manual or inbound peer.
 2. **Parks a manual peer that has been offline too long** — the slot is freed,
    its record kept.
 3. **Puts a parked peer back** when it answers again.
@@ -291,7 +291,7 @@ example).
 | `STRATUM_HISTORY_RETENTION_DAYS` | How long stratum race history is kept | `365` |
 | `FEELER_PEER_RETENTION_DAYS` | How long sessions of peers with no relay history are kept | `14` |
 | `MAX_MANUAL_PEERS` | Manual peers addnode'd at once — mirrors Core's `MAX_ADDNODE_CONNECTIONS` | `8` |
-| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `144` |
+| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `50` |
 | `NEW_MANUAL_PEER_GRACE_BLOCKS` | Blocks a newly added manual peer cannot be displaced for | `50` |
 | `MIN_SWAP_MARGIN_PCT` | How much better a challenger must be, in points of First %, to take a slot | `0.2` |
 | `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" | `30` |
