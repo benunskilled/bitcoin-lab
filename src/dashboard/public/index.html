@@ -168,10 +168,11 @@
       <div class="rotation-hint">
         <p>Every ~10 minutes. At most one peer joins the manual set per pass; removals are not limited that way:</p>
         <ul>
-          <li>Makes a peer that really delivers blocks manual, so Core holds on to it - the best one available, into a free slot or in place of a weaker manual peer.</li>
+          <li>Makes a peer that really delivers blocks manual, so Core holds on to it - the best one available, into a free slot or in place of a manual peer it clearly beats.</li>
           <li>Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.</li>
           <li>Frees the slot of a manual peer that has gone offline. Good peers get longer: an hour per point of First %, up to a day.</li>
         </ul>
+        <p>A peer that has only just taken a slot keeps it for its first 50 blocks, so the set cannot churn against itself.</p>
         <p>Losing a slot is not losing the peer. It is parked below, tested regularly, and takes a slot back as soon as it answers again.</p>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
@@ -192,6 +193,7 @@
           </table>
         </div>
       </div>
+      <h3>Rotation log <span id="rotation-log-count" class="hint"></span></h3>
       <div class="table-wrap">
         <table id="rotation-log-table" class="rotation-log-table">
           <thead>
@@ -206,6 +208,7 @@
           <tbody></tbody>
         </table>
       </div>
+      <button type="button" id="rotation-log-limit-toggle" class="secondary" hidden></button>
     </details>
 
     <section class="card">
@@ -268,6 +271,36 @@
         </table>
       </div>
     </section>
+
+    <!-- Closed by default and last on the page: nothing here is part of daily
+         use, and both buttons destroy data that cannot be recovered. -->
+    <details class="card" id="storage-card">
+      <summary><h2>Storage <span id="storage-total" class="hint"></span></h2></summary>
+
+      <div class="reset-group">
+        <h3>Peer measurement data <span id="reset-peers-size" class="hint"></span></h3>
+        <p class="hint">Block races, peer sessions, First %, the rotation log and the parked
+          peers. Your manual peers are kept — only their record starts again.</p>
+        <button type="button" id="reset-peers" class="secondary">Reset peer data…</button>
+        <div id="reset-peers-confirm" class="reset-confirm" hidden>
+          <p class="warn">This cannot be undone. <span id="reset-peers-detail"></span></p>
+          <button type="button" id="reset-peers-yes" class="danger">Yes, delete it</button>
+          <button type="button" id="reset-peers-no" class="secondary">Cancel</button>
+        </div>
+      </div>
+
+      <div class="reset-group">
+        <h3>Pool history <span id="reset-pools-size" class="hint"></span></h3>
+        <p class="hint">Every stratum race and latency measured so far. The pools themselves
+          stay configured — only their history goes.</p>
+        <button type="button" id="reset-pools" class="secondary">Reset pool history…</button>
+        <div id="reset-pools-confirm" class="reset-confirm" hidden>
+          <p class="warn">This cannot be undone. <span id="reset-pools-detail"></span></p>
+          <button type="button" id="reset-pools-yes" class="danger">Yes, delete it</button>
+          <button type="button" id="reset-pools-no" class="secondary">Cancel</button>
+        </div>
+      </div>
+    </details>
   </main>
 
   <script src="/app.js"></script>

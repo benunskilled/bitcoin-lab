@@ -60,6 +60,31 @@ module.exports = {
   // off 5 blocks while rotation, correctly, would not touch it before 144.
   minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '144')),
 
+  // Blocks a peer must have been eligible for before it can be pushed OUT of
+  // the manual set by a better one. Without it the rotation eats itself: a peer
+  // that has just taken a slot has almost no record yet, so it reads as the
+  // weakest of the eight and is evicted by anyone with any record at all -
+  // which puts it back in the candidate pool, where its full history counts
+  // again and wins the slot straight back. Seen in the wild as two peers
+  // swapping every ten minutes for hours, each swap a real disconnect and a
+  // real addnode.
+  //
+  // This protects only against eviction by a better peer. It deliberately does
+  // NOT hold a slot for a peer that never connects - retireOfflineManualPeers
+  // still frees that one on the offline grace below.
+  newManualGraceBlocks: Number(pick(process.env.NEW_MANUAL_PEER_GRACE_BLOCKS, '50')),
+
+  // How much better a challenger must be, in percentage points of First %,
+  // before taking a manual slot away from someone is worth the churn.
+  // "Strictly better" was too weak: 0.6% displacing 0.4% costs a disconnect and
+  // an addnode for a difference of one block in five hundred.
+  //
+  // Deliberately small. The interesting differences at the bottom of a curated
+  // set are fractions of a point - 1.1 / 1.0 / 0.6 / 0.4 on a real node - and a
+  // large threshold would freeze the rotation exactly where it still has work
+  // to do.
+  minSwapMarginPct: Number(pick(process.env.MIN_SWAP_MARGIN_PCT, '0.2')),
+
   // How long a manual peer may stay offline before the rotation loop gives its
   // slot to someone else.
   //
@@ -184,7 +209,11 @@ module.exports = {
   // ranking data for the Stratum Race feature, kept far longer than the
   // peer-session data below - it's inherently small (a handful of pools)
   // and exists specifically to answer "which pool wins over months".
-  stratumHistoryRetentionDays: Number(pick(process.env.STRATUM_HISTORY_RETENTION_DAYS, '180')),
+  //
+  // A year, because it turned out to be cheap: measured on a real node it is
+  // about 1,500 rows a day across a race and its observations - some 0.1 MB,
+  // so 36 MB for the full year. The peer tables cost that in a month.
+  stratumHistoryRetentionDays: Number(pick(process.env.STRATUM_HISTORY_RETENTION_DAYS, '365')),
 
   // A peer that has EVER appeared in relay_observation (i.e. was actually
   // connected at the moment a block landed, at least once) is one of the
@@ -198,6 +227,11 @@ module.exports = {
   // actual source of unbounded growth, not the real ranking data, so they
   // get a much shorter window.
   feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
+
+  // How many rotation-log entries exist at all. Not a retention window: the
+  // table is trimmed to this on every write, so what is stored is exactly what
+  // the dashboard can show. Nothing is kept that is not shown.
+  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '30')),
 
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };

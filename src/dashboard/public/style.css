@@ -236,6 +236,21 @@ button.secondary {
 }
 button.danger { color: var(--bad); }
 
+/* The storage panel. Both groups here delete data permanently, so the warning
+   is a step of its own rather than a modal - it has room to say what goes. */
+.reset-group { margin: 0 0 22px; max-width: 72ch; }
+.reset-group:last-child { margin-bottom: 4px; }
+.reset-group h3 { margin: 0 0 4px; }
+.reset-group p { margin: 0 0 10px; }
+.reset-confirm {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+}
+.reset-confirm p.warn { margin: 0 0 10px; font-size: 13px; color: var(--bad); }
+.reset-confirm button { margin-right: 8px; }
+
 .hint { font-size: 12px; color: var(--muted); }
 
 /* Plain native checkbox + label, same convention as the Stratum Race
@@ -264,6 +279,9 @@ button.danger { color: var(--bad); }
   color: var(--muted);
 }
 .rotation-hint p { margin: 0; }
+/* Zero margin was fine while one paragraph sat above the list and one below.
+   With two below, they ran together into a single wall of text. */
+.rotation-hint p + p { margin-top: 8px; }
 .rotation-hint ul { margin: 4px 0 8px; padding-left: 18px; }
 .rotation-hint li { margin: 2px 0; }
 

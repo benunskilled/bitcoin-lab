@@ -432,7 +432,9 @@ test('peer ranking treats the docker-proxy masked gateway as sourceObscured, not
 
 test('pruneOldData keeps peers with relay history and trusted peers forever, only ages out feelers and stale stratum history', () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
-  const veryOldTs = Date.now() - 200 * DAY_MS; // outside even the old flat 180-day window
+  // Comfortably outside every retention window, including the 365-day one
+  // the stratum history uses - it is the fixture for "ancient".
+  const veryOldTs = Date.now() - 400 * DAY_MS;
   const staleFeelerTs = Date.now() - 20 * DAY_MS; // outside the default 14-day feeler window
   const freshFeelerTs = Date.now() - 2 * DAY_MS; // inside the default 14-day feeler window
 
@@ -504,7 +506,7 @@ test('pruneOldData keeps peers with relay history and trusted peers forever, onl
     .run(longLivedPeer.id, 8005, veryOldTs);
 
   // Old stratum race/observation - this history still ages out on its own
-  // (much longer, default 180-day) schedule, unaffected by the peer changes.
+  // (much longer, default one-year) schedule, unaffected by the peer changes.
   const oldStratumPool = db.instance.prepare('SELECT id FROM stratum_pool LIMIT 1').get();
   const oldStratumRaceId = db.instance
     .prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)')
@@ -683,4 +685,73 @@ test('Tor, I2P and CJDNS peers are ranked but flagged as impossible to keep', ()
     .prepare(`INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, 'outbound', 'outbound-full-relay', ?)`)
     .run(plain.id, Date.now() - 60000);
   assert.equal(queries.peerRanking().find((r) => r.address === '[2001:db8::5]:8333').privateNetwork, null);
+});
+
+
+test('resetPeerData clears the measurement history but keeps the manual peers', () => {
+  const kept = '203.0.113.177:8333';
+  db.instance.prepare('INSERT OR REPLACE INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)').run(kept, 'hard-won', Date.now());
+  const keptPeer = db.getOrCreatePeer(kept);
+  const stranger = db.getOrCreatePeer('198.51.100.77:8333');
+  const raceId = db.instance
+    .prepare('INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, NULL, ?)')
+    .run('reset-test-hash', Date.now()).lastInsertRowid;
+  db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 1)').run(raceId, keptPeer.id);
+  db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 0)').run(raceId, stranger.id);
+  db.instance.prepare('INSERT INTO parked_peer (address, first_pct, eligible, parked_at, probe_failures) VALUES (?, 5, 100, ?, 0)').run('198.51.100.9:8333', Date.now());
+
+  const result = db.resetPeerData();
+
+  assert.ok(result.keptManualPeers >= 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(kept).n, 1, 'the manual set is the whole point');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM relay_race').get().n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM relay_observation').get().n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM peer_relay_stats').get().n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer').get().n, 0);
+  // The manual peer gets an empty peer row back, so it appears in the ranking
+  // at once rather than only when Core next reconnects it.
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM peer WHERE address = ?').get(kept).n, 1);
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM peer WHERE address NOT IN (SELECT address FROM trusted_peer)').get().n,
+    0,
+    'and nobody but the manual peers survives',
+  );
+});
+
+test('resetPeerData leaves the delete trigger in place, so the rollup stays maintained afterwards', () => {
+  // It is dropped for the duration - firing it once per row is pointless when
+  // the rollup is being cleared anyway, and ruinous at a hundred thousand rows.
+  // If it were not restored, every later prune would silently stop decrementing
+  // and the ranking would drift upwards forever.
+  db.resetPeerData();
+
+  const present = db.instance
+    .prepare("SELECT COUNT(*) AS n FROM sqlite_schema WHERE type = 'trigger' AND name = 'trg_relay_observation_delete'")
+    .get().n;
+  assert.equal(present, 1);
+
+  const peer = db.getOrCreatePeer('203.0.113.200:8333');
+  const raceId = db.instance
+    .prepare('INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, NULL, ?)')
+    .run('trigger-check-hash', Date.now()).lastInsertRowid;
+  db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 1)').run(raceId, peer.id);
+  assert.equal(db.instance.prepare('SELECT eligible AS e FROM peer_relay_stats WHERE peer_id = ?').get(peer.id).e, 1);
+
+  db.instance.prepare('DELETE FROM relay_observation WHERE race_id = ?').run(raceId);
+  assert.equal(db.instance.prepare('SELECT eligible AS e FROM peer_relay_stats WHERE peer_id = ?').get(peer.id).e, 0, 'the trigger still counts down');
+});
+
+test('resetPoolHistory clears the races but keeps the configured pools', () => {
+  const pool = db.instance.prepare('SELECT id FROM stratum_pool LIMIT 1').get();
+  const poolsBefore = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n;
+  const raceId = db.instance
+    .prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)')
+    .run('reset-pool-prevhash', Date.now()).lastInsertRowid;
+  db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, 42, 1)').run(raceId, pool.id);
+
+  db.resetPoolHistory();
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_observation').get().n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n, poolsBefore, 'the pool list is configuration, not history');
 });

@@ -700,3 +700,114 @@ test('the rotation loop never spends a probe on a peer it cannot dial', async ()
   assert.equal(probes, 0, 'it must be skipped, not probed and rejected');
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 0);
 });
+
+// ---------------------------------------------------------------------------
+// v1.15.7: the two guards that stopped the manual set churning against itself.
+//
+// Both come from a loop observed on a real node: two peers 0.2 points apart
+// swapped the same slot every ten minutes for hours, each swap a genuine
+// disconnect and a genuine addnode. Two separate causes, so two separate
+// guards - a minimum margin, and a grace period for a peer that has only just
+// taken a slot and therefore has no record to be judged on yet.
+// ---------------------------------------------------------------------------
+
+test('a challenger only 0.2 points better does not take a slot', async () => {
+  // Both slots full. The weakest holder sits at 0.4% (2/500), which is exactly
+  // the pair seen in the wild.
+  seedLivePeer({ eligible: 500, first: 100, trusted: true }); // 20%
+  const holder = seedLivePeer({ eligible: 500, first: 2, trusted: true }); // 0.4%
+  seedLivePeer({ eligible: 500, first: 3 }); // 0.6% - better, but only just
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0, '0.6 against 0.4 is not worth a disconnect');
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(holder).n,
+    1,
+    'the holder keeps its slot',
+  );
+});
+
+test('a challenger clearly better than the weakest holder does take the slot', async () => {
+  // Same setup, but 1.0% against 0.4% - a difference of 0.6 points, well past
+  // the margin. The guard must not have frozen the rotation.
+  seedLivePeer({ eligible: 500, first: 100, trusted: true }); // 20%
+  const holder = seedLivePeer({ eligible: 500, first: 2, trusted: true }); // 0.4%
+  const challenger = seedLivePeer({ eligible: 500, first: 5 }); // 1.0%
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(challenger).n, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(holder).n, 0);
+  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('swap');
+  assert.equal(logRow.replaced_address, holder);
+});
+
+test('a peer that has only just taken a slot cannot be evicted for having no record yet', async () => {
+  // The newcomer reads as 0% because it has seen three blocks, not because it
+  // is bad. Before the grace it was therefore the weakest of the set and any
+  // candidate with a history displaced it immediately.
+  const newcomer = seedLivePeer({ eligible: 3, first: 0, trusted: true });
+  seedLivePeer({ eligible: 500, first: 100, trusted: true }); // 20%, the real weakest-eligible
+  seedLivePeer({ eligible: 500, first: 50 }); // 10% - would have beaten the newcomer
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0, 'nobody may be displaced: the newcomer is shielded, the other is better');
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(newcomer).n,
+    1,
+    'the newcomer keeps the slot it just took',
+  );
+});
+
+test('REGRESSION: a parked peer cannot evict a freshly added one, which is what made the set ping-pong', async () => {
+  // The exact loop from the wild, at the revive end of it: a parked peer with a
+  // small but real record answers again, and the only slot it could take is
+  // held by a peer added moments ago whose record is still empty. Without the
+  // grace it evicted the newcomer, the newcomer's full history then won the
+  // slot straight back through promoteBestCandidate, and round it went.
+  const newcomer = seedLivePeer({ eligible: 3, first: 0, trusted: true });
+  seedLivePeer({ eligible: 500, first: 100, trusted: true }); // 20%
+  const parked = seedParked({ firstPct: 0.4, eligible: 565 });
+  mock.method(manualPeer, 'probePort', async () => true);
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 0, 'answering is not enough when nobody may be displaced');
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(newcomer).n,
+    1,
+    'the freshly added peer must still hold its slot',
+  );
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(parked).n,
+    1,
+    'and the parked peer stays parked, to be re-tried later',
+  );
+  // Alive, so its backoff must not grow - it should be asked again promptly
+  // once a slot genuinely frees up.
+  assert.equal(db.instance.prepare('SELECT probe_failures AS f FROM parked_peer WHERE address = ?').get(parked).f, 0);
+});
+
+test('the rotation log never holds more than it can show', async () => {
+  // Nothing is kept that is not shown: the table is trimmed on every write to
+  // exactly the number the dashboard offers behind "Show all", so there is no
+  // retention window to reason about and no way for a misbehaving loop to
+  // leave tens of thousands of rows behind before anyone notices.
+  const limit = require('../src/lib/config').rotationLogEntries;
+
+  for (let i = 0; i < limit + 15; i += 1) {
+    peerRotation.logAction({ action: 'kick', address: `198.51.100.${i}:8333`, firstPct: 0, eligible: 144, note: `entry ${i}` });
+  }
+
+  const stored = db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n;
+  assert.equal(stored, limit, 'older entries go on the way in, not on a sweep');
+
+  // And it is the NEWEST that survive - trimming the wrong end would quietly
+  // freeze the log at whatever it held first.
+  const notes = peerRotation.recentLog().map((e) => e.note);
+  assert.equal(notes[0], `entry ${limit + 14}`, 'newest first');
+  assert.ok(!notes.includes('entry 0'), 'the oldest is gone');
+});

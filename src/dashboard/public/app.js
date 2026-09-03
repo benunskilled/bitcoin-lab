@@ -57,6 +57,15 @@ function fmtPct(p) {
   return p == null ? '-' : `${p.toFixed(1)}%`;
 }
 
+// Disk used by the measurement data. One decimal below a gigabyte and two
+// above it, so the number stays readable as the file grows past the point
+// where anyone would care about the megabytes.
+function fmtBytes(bytes) {
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
+
 function statusPillClass(status) {
   if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
   if (status.includes('MANUAL')) return 'manual';
@@ -89,7 +98,9 @@ async function refreshStatus() {
   // count with "connecting…" - reporting the app as broken when only the
   // one cosmetic value was missing.
   const el = document.getElementById('status');
-  el.textContent = `${s.network} · ${s.live.total} peers connected`;
+  const parts = [s.network, `${s.live.total} peers connected`];
+  if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
+  el.textContent = parts.join(' · ');
 
   setBlockHeight(s.blockHeight);
 
@@ -295,6 +306,13 @@ function reportTorPeers(livePeers) {
 
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
+
+// The rotation log is a diary, and a diary is mostly interesting at the end.
+// Fifty rows is half a screenful nobody asked for, so only the most recent few
+// are shown until someone wants the rest.
+const ROTATION_LOG_LIMIT = 5;
+let showAllRotationLog = false; // toggled by #rotation-log-limit-toggle
+let lastRotationLog = null; // kept so the toggle can re-render without refetching
 
 // The most recent ranking payload, kept so purely visual changes (the "show
 // all" toggle) can re-render from it instead of re-fetching the single most
@@ -552,9 +570,32 @@ async function refreshRotation() {
 
   renderParkedPeers(data.parked);
 
+  lastRotationLog = data.log || [];
+  renderRotationLog(lastRotationLog);
+}
+
+function renderRotationLog(log) {
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (!tbody) return;
-  tbody.innerHTML = (data.log || []).map((entry) => `
+
+  const visible = showAllRotationLog ? log : log.slice(0, ROTATION_LOG_LIMIT);
+
+  const countLabel = document.getElementById('rotation-log-count');
+  if (countLabel) {
+    countLabel.textContent = log.length <= ROTATION_LOG_LIMIT
+      ? ''
+      : `showing ${visible.length} of ${log.length}`;
+  }
+
+  const toggle = document.getElementById('rotation-log-limit-toggle');
+  if (toggle) {
+    toggle.hidden = log.length <= ROTATION_LOG_LIMIT;
+    toggle.textContent = showAllRotationLog
+      ? `Show latest ${ROTATION_LOG_LIMIT} only`
+      : `Show all ${log.length}`;
+  }
+
+  tbody.innerHTML = visible.map((entry) => `
     <tr>
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
@@ -628,6 +669,14 @@ function reportRefreshHealth(errors) {
   banner.hidden = false;
   banner.textContent = `The dashboard has not been able to refresh for ${consecutiveFailedRefreshes} rounds (${errors[0].message}). The numbers below are stale.`;
 }
+
+document.getElementById('rotation-log-limit-toggle').addEventListener('click', () => {
+  showAllRotationLog = !showAllRotationLog;
+  // Purely a client-side slice of data already in hand. No scroll correction
+  // here: the log sits at the bottom of its panel and the button moves with
+  // it, so collapsing cannot strand the reader the way the peer table can.
+  if (lastRotationLog) renderRotationLog(lastRotationLog);
+});
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
   const collapsing = showAllLivePeers;
@@ -993,6 +1042,62 @@ function startEventStream() {
     }
   });
 }
+
+/**
+ * Storage panel. Its numbers come from their own endpoint because getting them
+ * exactly means walking every page of the database - too expensive to poll, so
+ * it is fetched when the panel is opened and again after a reset.
+ */
+async function refreshStorage() {
+  let s;
+  try {
+    s = await api('/api/storage');
+  } catch (err) {
+    return; // the panel simply shows nothing rather than breaking the page
+  }
+  const set = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  set('storage-total', fmtBytes(s.totalBytes));
+  set('reset-peers-size', `${fmtBytes(s.peerData.bytes)} · ${s.peerData.rows.toLocaleString()} rows`);
+  set('reset-pools-size', `${fmtBytes(s.poolHistory.bytes)} · ${s.poolHistory.rows.toLocaleString()} rows`);
+  set('reset-peers-detail', `${s.peerData.rows.toLocaleString()} rows, ${fmtBytes(s.peerData.bytes)}, will be deleted.`);
+  set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString()} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
+}
+
+// Two steps rather than a browser confirm(): the warning can then say what is
+// actually about to go, in rows and megabytes, instead of asking whether the
+// user is sure about something unspecified.
+function wireReset(scope) {
+  const ask = document.getElementById(`reset-${scope}`);
+  const panel = document.getElementById(`reset-${scope}-confirm`);
+  const yes = document.getElementById(`reset-${scope}-yes`);
+  const no = document.getElementById(`reset-${scope}-no`);
+  if (!ask || !panel || !yes || !no) return;
+
+  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; });
+  no.addEventListener('click', () => { panel.hidden = true; ask.hidden = false; });
+  yes.addEventListener('click', async () => {
+    yes.disabled = true;
+    try {
+      await api('/api/reset', { method: 'POST', body: JSON.stringify({ scope }) });
+    } finally {
+      yes.disabled = false;
+      panel.hidden = true;
+      ask.hidden = false;
+    }
+    await refreshStorage();
+    await refreshStatus();
+    await refreshPeers();
+  });
+}
+
+document.getElementById('storage-card').addEventListener('toggle', (e) => {
+  if (e.target.open) refreshStorage();
+});
+wireReset('peers');
+wireReset('pools');
 
 startRefreshLoop();
 startEventStream();

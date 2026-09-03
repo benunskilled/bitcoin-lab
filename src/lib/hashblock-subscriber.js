@@ -16,6 +16,24 @@ const zmq = require('zeromq');
  * after the message arrives, before decoding, so nothing downstream can
  * pollute the measurement.
  */
+/**
+ * The block hash carried by a `pubhashblock` message, as a display-order hex
+ * string - the form bitcoin-cli prints and every explorer accepts.
+ *
+ * There is nothing to convert. Core has already reversed the bytes by the time
+ * they reach the wire (zmqpublishnotifier.cpp: `data[31 - i] = hash.begin()[i]`),
+ * so the payload is display order and this only hex-encodes it.
+ *
+ * It is a named function purely so that fact can be nailed down by a test:
+ * until v1.15.7 this reversed the bytes a second time, and nothing anywhere
+ * noticed, because a backwards hash still works perfectly well as a database
+ * key. What it does not work as is a hash you hand back to Core, which is why
+ * every getblockheader call failed and block_height was NULL on every race.
+ */
+function blockHashFromZmq(payload) {
+  return Buffer.from(payload).toString('hex');
+}
+
 function start({ url, logger, onBlock, reconnectDelayMs = 5000 }) {
   let stopped = false;
   let socket = null;
@@ -35,10 +53,7 @@ function start({ url, logger, onBlock, reconnectDelayMs = 5000 }) {
           // Capture the timestamp FIRST, before any parsing or async work.
           const t0 = process.hrtime.bigint();
           const detectedAtMs = Date.now();
-          // pubhashblock payload is the 32-byte block hash in internal
-          // (little-endian) byte order; reverse for the conventional
-          // display/RPC hex string.
-          const blockHash = Buffer.from(msg).reverse().toString('hex');
+          const blockHash = blockHashFromZmq(msg);
           state.lastBlockAtMs = detectedAtMs;
           try {
             onBlock({ blockHash, detectedAtMs, t0 });
@@ -72,4 +87,4 @@ function start({ url, logger, onBlock, reconnectDelayMs = 5000 }) {
   };
 }
 
-module.exports = { start };
+module.exports = { start, blockHashFromZmq };

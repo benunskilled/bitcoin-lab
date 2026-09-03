@@ -281,6 +281,10 @@ async function router(req, res, pathname, url) {
       network: config.bitcoin.network,
       live: queries.liveSummary(),
       maxManualPeers: config.maxManualPeers,
+      // The measurement data only ever grows - roughly a megabyte a day at a
+      // couple of hundred peers. Shown so that is visible from the start
+      // rather than discovered when the disk fills.
+      databaseBytes: db.sizeBytes(),
     });
   }
 
@@ -297,6 +301,23 @@ async function router(req, res, pathname, url) {
   //     never match Core's own formatting and an unreachable one would be
   //     re-addnode'd every ten minutes forever. Everything in the UI goes
   //     through /api/peers/add-manual, which probes first.
+
+  // Its own endpoint rather than a field on /api/status: dbstat walks every
+  // page of the database to get exact per-table sizes, which is fine on demand
+  // and wrong in a twenty-second poll.
+  if (req.method === 'GET' && pathname === '/api/storage') {
+    return sendJson(res, 200, db.storageBreakdown());
+  }
+
+  // Irreversible, so it takes an explicit scope rather than defaulting to
+  // anything. There is no "reset everything" - the two groups are separate
+  // decisions, and the manual peers are never part of either.
+  if (req.method === 'POST' && pathname === '/api/reset') {
+    const { scope } = await readBody(req);
+    if (scope === 'peers') return sendJson(res, 200, { ok: true, scope, ...db.resetPeerData() });
+    if (scope === 'pools') return sendJson(res, 200, { ok: true, scope, ...db.resetPoolHistory() });
+    return sendJson(res, 400, { error: 'scope must be "peers" or "pools"' });
+  }
 
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
     const { address } = await readBody(req);
