@@ -434,11 +434,166 @@ function rebuildRelayStats() {
   tx();
 }
 
+/**
+ * Throw away all peer measurement data and start counting again, keeping the
+ * manual peers themselves.
+ *
+ * The point of the feature: after changing something that invalidates the
+ * history - switching Core to clearnet-only, moving the node, fixing a bug in
+ * how blocks were timed - the lifetime percentages describe a world that no
+ * longer exists, and there is no honest way to read them. The eight peers
+ * found the hard way should not have to be found again for that.
+ *
+ * `trusted_peer` is untouched, so the manual set survives. Their peer rows are
+ * recreated empty, which is what makes the reset safe rather than disruptive:
+ * a manual peer at 0 of 0 blocks sits inside the new-peer grace and inside
+ * MIN_ELIGIBLE_FOR_JUDGEMENT, so the rotation will not touch anyone for the
+ * first day while the new record builds.
+ *
+ * relay_observation is emptied with the delete trigger dropped for the
+ * duration. It maintains peer_relay_stats one row at a time, which is right
+ * for a handful of rows and wrong for a hundred thousand - and pointless here,
+ * since the rollup is being cleared in the same breath.
+ */
+function resetPeerData() {
+  const before = storageBreakdown().peerData;
+  const tx = db.transaction(() => {
+    db.prepare(`DROP TRIGGER IF EXISTS trg_relay_observation_delete`).run();
+    try {
+      db.prepare(`DELETE FROM relay_observation`).run();
+      db.prepare(`DELETE FROM peer_relay_stats`).run();
+      db.prepare(`DELETE FROM relay_race`).run();
+      db.prepare(`DELETE FROM peer_session`).run();
+      db.prepare(`DELETE FROM parked_peer`).run();
+      db.prepare(`DELETE FROM rotation_log`).run();
+      db.prepare(`DELETE FROM peer`).run();
+    } finally {
+      // Recreated inside the same transaction, so a failure anywhere above
+      // rolls the whole thing back and cannot leave the rollup unmaintained.
+      db.prepare(
+        `CREATE TRIGGER trg_relay_observation_delete
+         AFTER DELETE ON relay_observation
+         BEGIN
+           UPDATE peer_relay_stats
+              SET eligible = eligible - 1, first = first - OLD.first
+            WHERE peer_id = OLD.peer_id;
+         END`,
+      ).run();
+    }
+    // Give every surviving manual peer its (empty) peer row back, so it shows
+    // up in the ranking immediately instead of only once Core reconnects it.
+    const addresses = db.prepare(`SELECT address FROM trusted_peer`).all();
+    const insert = db.prepare(`INSERT OR IGNORE INTO peer (address, first_seen_at) VALUES (?, ?)`);
+    for (const row of addresses) insert.run(row.address, Date.now());
+    return addresses.length;
+  });
+  const keptManualPeers = tx();
+  logger.warn('peer measurement data reset', { keptManualPeers, freedBytes: before.bytes, deletedRows: before.rows });
+  return { keptManualPeers, freedBytes: before.bytes, deletedRows: before.rows };
+}
+
+/**
+ * Throw away the stratum pool history. The configured pools themselves stay -
+ * only their measured races and latencies go.
+ */
+function resetPoolHistory() {
+  const before = storageBreakdown().poolHistory;
+  const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM stratum_observation`).run();
+    db.prepare(`DELETE FROM stratum_race`).run();
+  });
+  tx();
+  logger.warn('stratum pool history reset', { freedBytes: before.bytes, deletedRows: before.rows });
+  return { freedBytes: before.bytes, deletedRows: before.rows };
+}
+
+/**
+ * How much disk this app's data actually occupies, write-ahead log included.
+ *
+ * Worth surfacing rather than leaving to be discovered: relay_observation is
+ * deliberately never pruned - it is the ranking - so the file only ever grows,
+ * at roughly a megabyte a day on a node with a couple of hundred peers. That is
+ * a fine price for the measurement, but nobody should have to find it out by
+ * running out of disk.
+ *
+ * The WAL is counted because it is real disk usage and can be a large fraction
+ * of the total between checkpoints. A missing file is simply zero - the sizes
+ * are for display, and a failed stat must never take the status endpoint down.
+ */
+function sizeBytes() {
+  let total = 0;
+  for (const suffix of ['', '-wal', '-shm']) {
+    try {
+      total += fs.statSync(config.sqlitePath + suffix).size;
+    } catch { /* not there (yet) - contributes nothing */ }
+  }
+  return total;
+}
+
+// The two groups the user can clear independently, and what each is made of.
+// Everything not listed here is configuration or the manual peers themselves,
+// and is never touched by a reset.
+const PEER_DATA_TABLES = [
+  'relay_race', 'relay_observation', 'peer_relay_stats',
+  'peer', 'peer_session', 'parked_peer', 'rotation_log',
+];
+const POOL_HISTORY_TABLES = ['stratum_race', 'stratum_observation'];
+
+/**
+ * Bytes on disk per group, plus row counts, so the reset dialog can say what
+ * it is about to delete instead of asking for blind confirmation.
+ *
+ * Uses SQLite's dbstat virtual table, which is exact - it reports the pages
+ * actually occupied, indexes included - and expensive: it walks every page in
+ * the file. That is why this is its own endpoint rather than part of the
+ * status poll. Called when someone opens the reset panel, not every twenty
+ * seconds.
+ *
+ * Indexes are charged to the table they belong to, which is the whole point:
+ * relay_observation's index is a large part of what deleting it would free.
+ */
+function storageBreakdown() {
+  const owner = new Map();
+  for (const row of db.prepare(`SELECT name, tbl_name FROM sqlite_schema WHERE type IN ('table','index')`).all()) {
+    owner.set(row.name, row.tbl_name);
+  }
+
+  const bytesByTable = new Map();
+  for (const row of db.prepare(`SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name`).all()) {
+    const table = owner.get(row.name) || row.name;
+    bytesByTable.set(table, (bytesByTable.get(table) || 0) + row.bytes);
+  }
+
+  const group = (tables) => {
+    let bytes = 0;
+    let rows = 0;
+    for (const t of tables) {
+      bytes += bytesByTable.get(t) || 0;
+      try {
+        rows += db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+      } catch { /* table not present in an older schema - contributes nothing */ }
+    }
+    return { bytes, rows };
+  };
+
+  return {
+    peerData: group(PEER_DATA_TABLES),
+    poolHistory: group(POOL_HISTORY_TABLES),
+    totalBytes: sizeBytes(),
+  };
+}
+
 module.exports = {
   open,
   get instance() { return db; },
   getOrCreatePeer,
   maybeVacuum,
+  sizeBytes,
+  storageBreakdown,
+  resetPeerData,
+  resetPoolHistory,
+  PEER_DATA_TABLES,
+  POOL_HISTORY_TABLES,
   rebuildRelayStats,
   // Exported so the suite can run them a second time and assert they are
   // genuinely no-ops. Asserting a list of flag names instead proved nothing:

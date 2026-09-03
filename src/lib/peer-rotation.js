@@ -18,6 +18,45 @@ const META_KEY = 'peer_rotation_enabled';
 // because the widget has to agree with it (see minEligibleForJudgement).
 const MIN_ELIGIBLE_FOR_JUDGEMENT = config.minEligibleForJudgement;
 
+/**
+ * The manual peers that may be evicted right now to make room for a better
+ * one - everybody except those still inside their new-peer grace.
+ *
+ * A peer that has only just taken a slot has barely any record yet, so it
+ * reads as the weakest of the eight no matter how good it actually is. Both
+ * eviction paths would then hand its slot to anyone with a longer history,
+ * which drops the newcomer back into the candidate pool - where its own full
+ * history counts again and immediately wins the slot back. That loop ran for
+ * hours on a real node, one disconnect and one addnode every ten minutes,
+ * between two peers 0.2 points apart.
+ *
+ * Note this only shields against being out-ranked. A peer that never connects
+ * at all is still retired by retireOfflineManualPeers on the offline grace -
+ * otherwise a bad address would hold a scarce slot for fifty blocks it was
+ * never present for.
+ *
+ * With every slot inside the grace this returns nothing, and no swap happens
+ * this pass. That is the intended outcome, not a failure: there is no one it
+ * would be fair to displace yet.
+ */
+function evictableTrusted(trusted) {
+  return trusted.filter((p) => (p.eligible == null ? 0 : p.eligible) >= config.newManualGraceBlocks);
+}
+
+/**
+ * Is the challenger enough better than the peer holding the slot to be worth
+ * the swap? A missing record scores below zero, so a peer with any measured
+ * percentage still beats one with none.
+ *
+ * Strictly-better was the old rule and it churned slots for nothing: taking a
+ * slot costs a real disconnect and a real addnode, and 0.6% against 0.4% is a
+ * difference of one block in five hundred.
+ */
+function beatsHolder(challengerPct, holderPct) {
+  const score = (pct) => (pct == null ? -1 : pct);
+  return score(challengerPct) - score(holderPct) > config.minSwapMarginPct;
+}
+
 function isEnabled() {
   const row = db.instance.prepare(`SELECT value FROM meta WHERE key = ?`).get(META_KEY);
   return row ? row.value === '1' : false;
@@ -46,16 +85,29 @@ function logAction(entry) {
       replacedFirstPct: entry.replacedFirstPct == null ? null : entry.replacedFirstPct,
       note: entry.note || null,
     });
+
+  // Nothing is kept that is not shown. The dashboard offers the newest
+  // ROTATION_LOG_ENTRIES behind its "Show all" button, so the table holds
+  // exactly that many and the rest goes on the way in - no retention window to
+  // reason about, no daily sweep, and no way for a misbehaving loop to leave
+  // fifty thousand rows behind before anyone looks.
+  //
+  // id DESC is the tiebreaker, not decoration: two actions in one tick can
+  // share a millisecond, and on equal `at` the order is otherwise undefined -
+  // which would let this delete the newer of the two.
+  db.instance
+    .prepare(`DELETE FROM rotation_log WHERE id NOT IN (SELECT id FROM rotation_log ORDER BY at DESC, id DESC LIMIT ?)`)
+    .run(config.rotationLogEntries);
 }
 
-function recentLog(limit = 50) {
+function recentLog(limit = config.rotationLogEntries) {
   return db.instance
     .prepare(
       `SELECT id, at, action, address,
               first_pct AS firstPct, eligible,
               replaced_address AS replacedAddress, replaced_first_pct AS replacedFirstPct,
               note
-       FROM rotation_log ORDER BY at DESC LIMIT ?`,
+       FROM rotation_log ORDER BY at DESC, id DESC LIMIT ?`,
     )
     .all(limit);
 }
@@ -373,11 +425,11 @@ async function reviveParkedPeers(ranking) {
 
     let replaced = null;
     if (trusted.length >= config.maxManualPeers) {
-      const weakest = weakestTrusted(trusted);
-      const score = (pct) => (pct == null ? -1 : pct);
-      if (!weakest || score(parked.firstPct) <= score(weakest.firstPct)) {
+      const weakest = weakestTrusted(evictableTrusted(trusted));
+      if (!weakest || !beatsHolder(parked.firstPct, weakest.firstPct)) {
         // Reachable but not worth a slot right now - reset the failure count
         // (it is alive, after all) and leave it parked for a better moment.
+        // Also lands here when every slot is still inside its new-peer grace.
         db.instance.prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`).run(now, parked.address);
         continue;
       }
@@ -518,10 +570,11 @@ async function promoteBestCandidate(ranking) {
       return 1;
     }
 
-    const weakest = weakestTrusted(trusted);
-    if (!weakest) continue; // maxManualPeers is 0 - nothing to swap against
-    const weakestPct = weakest.firstPct == null ? -1 : weakest.firstPct;
-    if (candidate.firstPct <= weakestPct) continue; // not strictly better - no point churning a slot for a lateral move
+    const weakest = weakestTrusted(evictableTrusted(trusted));
+    // Nothing to swap against: maxManualPeers is 0, or every current slot is
+    // still inside its new-peer grace and none of them may be displaced yet.
+    if (!weakest) continue;
+    if (!beatsHolder(candidate.firstPct, weakest.firstPct)) continue;
 
     // eslint-disable-next-line no-await-in-loop
     await peerSync.removeTrustedPeer(weakest.address);

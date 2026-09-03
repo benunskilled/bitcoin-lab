@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-lab",
-  "version": "1.15.6",
+  "version": "1.15.7",
   "description": "Find your fastest Bitcoin peers, keep them, and see whether your mining pool got faster because of it. An Umbrel app for solo miners.",
   "license": "MIT",
   "private": true,
@@ -16,7 +16,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "better-sqlite3": "^11.9.1",
+    "better-sqlite3": "^12.11.1",
     "zeromq": "^6.1.2"
   },
   "repository": {
