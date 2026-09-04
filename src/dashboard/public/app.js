@@ -104,6 +104,20 @@ async function refreshStatus() {
 
   setBlockHeight(s.blockHeight);
 
+  // The whole history behind the table below, in four numbers: how many
+  // outbound peers Core has handed this node, how many stayed long enough to
+  // be judged, how many ever delivered a block first, how many were kept.
+  // Counted by IP, so a host that reconnected or was promoted under a second
+  // address counts once. The table underneath shows ten peers right now; this
+  // says what those ten are a sample of.
+  const funnel = document.getElementById('outbound-funnel');
+  if (funnel) {
+    const f = s.outboundFunnel;
+    funnel.textContent = f
+      ? `${f.seen} seen · ${f.tested} tested · ${f.delivered} delivered · ${f.promoted} kept`
+      : '';
+  }
+
   const stats = [
     ['Total', s.live.total],
     ['Inbound', s.live.inbound],

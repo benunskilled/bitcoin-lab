@@ -755,3 +755,41 @@ test('resetPoolHistory clears the races but keeps the configured pools', () => {
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_observation').get().n, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n, poolsBefore, 'the pool list is configuration, not history');
 });
+
+test('resetting peer data clears the promotion record with everything else', () => {
+  db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.99', Date.now());
+  assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM promoted_peer`).get().n, 1);
+
+  db.resetPeerData();
+
+  // The funnel's other three numbers come from the tables this reset empties,
+  // so a surviving "kept" count would read as a contradiction rather than as
+  // history worth keeping.
+  assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM promoted_peer`).get().n, 0);
+});
+
+test('the promotion record is charged to the peer data group', () => {
+  assert.ok(db.PEER_DATA_TABLES.includes('promoted_peer'),
+    'otherwise its bytes belong to no group and the storage panel quietly under-reports');
+});
+
+test('the backfill counts peers that were kept before the record existed', () => {
+  // An installed node: manual peers and a parked one, none of them in
+  // promoted_peer because the table did not exist when they were kept.
+  db.instance.prepare(`DELETE FROM promoted_peer`).run();
+  db.instance.prepare(`DELETE FROM trusted_peer`).run();
+  db.instance.prepare(`DELETE FROM parked_peer`).run();
+  const now = Date.now();
+  db.instance.prepare(`INSERT OR REPLACE INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`).run('203.0.113.41:8333', null, now);
+  db.instance.prepare(`INSERT OR REPLACE INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`).run('[2001:db8::5]:8333', null, now);
+  db.instance.prepare(`INSERT OR REPLACE INTO parked_peer (address, first_pct, eligible, parked_at, probe_failures) VALUES (?, ?, ?, ?, 0)`).run('198.51.100.41:8333', 3.2, 400, now);
+  // Same host as the first manual peer, under the port an inbound peer dials
+  // from: must not become a second row.
+  db.instance.prepare(`INSERT OR REPLACE INTO parked_peer (address, first_pct, eligible, parked_at, probe_failures) VALUES (?, ?, ?, ?, 0)`).run('203.0.113.41:51234', 1.0, 200, now);
+
+  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:promoted_peer_backfill_v1_15_10');
+  db.runMigrations();
+
+  const ips = db.instance.prepare(`SELECT ip FROM promoted_peer ORDER BY ip`).all().map(r => r.ip);
+  assert.deepEqual(ips, ['198.51.100.41', '203.0.113.41', '[2001:db8::5]']);
+});

@@ -193,6 +193,24 @@ CREATE TABLE IF NOT EXISTS rotation_log (
   note TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rotation_log_at ON rotation_log(at DESC);
+
+-- Every IP the rotation has ever made manual, one row each, forever.
+--
+-- rotation_log cannot answer "how many peers were ever promoted": it is
+-- trimmed to the last thirty actions on every write, so the count silently
+-- shrinks as the loop keeps working. This table is the durable half of that
+-- question and nothing else - no percentages, no timestamps beyond the first,
+-- because the peer's own record already lives in peer_relay_stats.
+--
+-- Keyed by IP rather than by address on purpose. A promoted inbound peer joins
+-- under its listening port, so the same host appears once as 203.0.113.5:51234
+-- and again as 203.0.113.5:8333; counting addresses would count it twice. The
+-- primary key makes the de-duplication a property of the schema rather than
+-- something every reader has to remember.
+CREATE TABLE IF NOT EXISTS promoted_peer (
+  ip TEXT PRIMARY KEY,
+  first_promoted_at INTEGER NOT NULL
+);
 `;
 
 // label, host, port - sourced from public solo-pool directories (Aug 2026).
@@ -308,6 +326,37 @@ function runMigrations() {
         `INSERT OR IGNORE INTO peer (address, first_seen_at)
          SELECT tp.address, tp.created_at FROM trusted_peer tp
          WHERE NOT EXISTS (SELECT 1 FROM peer p WHERE p.address = tp.address)`,
+      ).run();
+    });
+
+    // promoted_peer starts empty, so an installed node would report "0 kept"
+    // next to eight manual peers it has been keeping for weeks - a number that
+    // is not merely incomplete but visibly wrong to the person reading it.
+    //
+    // Backfilled from both places a kept peer can be: the manual set, and the
+    // parked list, which is where a peer that lost its slot while offline
+    // waits. Both were kept at some point, which is what the count says.
+    //
+    // The address is stripped to its IP by the same rule the query uses -
+    // brackets kept for IPv6, everything from the first colon dropped
+    // otherwise - so a host that appears in both lists, or twice under
+    // different ports, still counts once. INSERT OR IGNORE plus the primary
+    // key does the rest. A fresh install finds nothing to copy and the flag
+    // is set anyway, so this never runs twice.
+    migrate('promoted_peer_backfill_v1_15_10', 'counted the peers already kept before the record existed', () => {
+      db.prepare(
+        `INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at)
+         SELECT CASE WHEN instr(address, ']') > 0
+                     THEN substr(address, 1, instr(address, ']'))
+                     ELSE substr(address, 1, instr(address, ':') - 1) END,
+                created_at
+           FROM trusted_peer
+         UNION ALL
+         SELECT CASE WHEN instr(address, ']') > 0
+                     THEN substr(address, 1, instr(address, ']'))
+                     ELSE substr(address, 1, instr(address, ':') - 1) END,
+                parked_at
+           FROM parked_peer`,
       ).run();
     });
   } finally {
@@ -466,6 +515,12 @@ function resetPeerData() {
       db.prepare(`DELETE FROM peer_session`).run();
       db.prepare(`DELETE FROM parked_peer`).run();
       db.prepare(`DELETE FROM rotation_log`).run();
+      // Goes with the rest, not on its own. Everything the funnel shows -
+      // seen, judged, delivered - is derived from the tables above and returns
+      // to zero here; a "kept" count that survived would leave the header
+      // reading "0 seen, 0 judged, 0 delivered, 8 kept", which is not a
+      // statistic but a contradiction.
+      db.prepare(`DELETE FROM promoted_peer`).run();
       db.prepare(`DELETE FROM peer`).run();
     } finally {
       // Recreated inside the same transaction, so a failure anywhere above
@@ -535,7 +590,7 @@ function sizeBytes() {
 // and is never touched by a reset.
 const PEER_DATA_TABLES = [
   'relay_race', 'relay_observation', 'peer_relay_stats',
-  'peer', 'peer_session', 'parked_peer', 'rotation_log',
+  'peer', 'peer_session', 'parked_peer', 'rotation_log', 'promoted_peer',
 ];
 const POOL_HISTORY_TABLES = ['stratum_race', 'stratum_observation'];
 
