@@ -53,6 +53,7 @@ test.afterEach(() => {
     DELETE FROM trusted_peer;
     DELETE FROM parked_peer;
     DELETE FROM rotation_log;
+    DELETE FROM promoted_peer;
     DELETE FROM peer;
   `);
 });
@@ -811,4 +812,68 @@ test('the rotation log never holds more than it can show', async () => {
   const notes = peerRotation.recentLog().map((e) => e.note);
   assert.equal(notes[0], `entry ${limit + 14}`, 'newest first');
   assert.ok(!notes.includes('entry 0'), 'the oldest is gone');
+});
+
+// --- the outbound funnel -----------------------------------------------
+//
+// Four counts over the whole history rather than the live snapshot, and every
+// one of them de-duplicated by IP. The de-duplication is the part worth
+// testing: it is the difference between "this node has seen 74 peers" and a
+// number that grows every time a host reconnects on a different port.
+
+test('the funnel counts outbound peers by IP, not by address', () => {
+  // Same host, two addresses - which is exactly what a promoted inbound peer
+  // looks like: once on its ephemeral source port, once on 8333.
+  seedLivePeer({ address: '203.0.113.77:51234', eligible: 60, first: 5 });
+  seedLivePeer({ address: '203.0.113.77:8333', eligible: 60, first: 5 });
+  seedLivePeer({ address: '198.51.100.9:8333', eligible: 60, first: 2 });
+
+  const f = queries.outboundFunnel();
+  assert.equal(f.seen, 2);
+  assert.equal(f.tested, 2);
+  assert.equal(f.delivered, 2);
+});
+
+test('the funnel separates seen, judged and delivered', () => {
+  seedLivePeer({ address: '203.0.113.10:8333', eligible: 5, first: 0 });   // too new to judge
+  seedLivePeer({ address: '203.0.113.11:8333', eligible: 300, first: 0 }); // judged, never delivered
+  seedLivePeer({ address: '203.0.113.12:8333', eligible: 300, first: 7 }); // judged and delivering
+
+  const f = queries.outboundFunnel();
+  assert.equal(f.seen, 3);
+  assert.equal(f.tested, 2);
+  assert.equal(f.delivered, 1);
+});
+
+test('the funnel ignores inbound peers', () => {
+  seedLivePeer({ address: '203.0.113.20:8333', eligible: 300, first: 9 });
+  seedLivePeer({ address: '198.51.100.20:44444', direction: 'inbound', connectionType: 'inbound', eligible: 300, first: 9 });
+
+  const f = queries.outboundFunnel();
+  assert.equal(f.seen, 1);
+  assert.equal(f.delivered, 1);
+});
+
+test('promotions are remembered after the rotation log has been trimmed away', async () => {
+  const address = seedLivePeer({ eligible: 300, first: 100 });
+  await peerRotation.promoteBestCandidate(ranking());
+  assert.equal(queries.outboundFunnel().promoted, 1);
+
+  // Push the promotion out of the thirty rows the log keeps.
+  for (let i = 0; i < config.rotationLogEntries + 5; i += 1) {
+    seedLivePeer({ eligible: 300, first: 0 });
+    await peerRotation.kickDeadWeight(ranking());
+  }
+  const stillLogged = db.instance
+    .prepare(`SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'promote'`)
+    .get().n;
+  assert.equal(stillLogged, 0, 'the log should have trimmed the promotion away');
+  assert.equal(queries.outboundFunnel().promoted, 1, 'but the count must survive it');
+  assert.ok(address);
+});
+
+test('the same host promoted twice counts once', () => {
+  db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 1);
+  db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 2);
+  assert.equal(queries.outboundFunnel().promoted, 1);
 });

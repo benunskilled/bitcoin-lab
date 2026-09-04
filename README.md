@@ -42,7 +42,7 @@ them — which gets rarer the better they are.
 A non-listening node typically has one to three peers that ever deliver.
 Curated, all eight manual slots do.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.9)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.10)
 
 ## What it buys you
 
@@ -180,6 +180,18 @@ A manual peer that goes dark loses its slot, but not its record: it is *parked*,
 re-probed on every pass, and put back the moment it answers. A weak peer keeps
 its slot about an hour and is remembered for four days; a strong one keeps it a
 day and is remembered for five months.
+
+## What the loop has been through
+
+The Outbound Peers card carries four numbers over the whole history, counted by
+IP so a host that reconnected or was kept under a second address counts once:
+how many outbound peers Core has handed this node, how many stayed connected
+long enough to be judged, how many ever delivered a block first, and how many
+were kept.
+
+On my node the middle pair is the whole argument: of 74 random outbound peers
+that lasted 50 blocks, 12 ever delivered one. Five in six are along for the
+ride, measured rather than asserted.
 
 ## Storage
 

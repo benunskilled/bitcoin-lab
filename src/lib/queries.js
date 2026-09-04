@@ -638,6 +638,52 @@ function widgetStats() {
   };
 }
 
+/**
+ * The outbound funnel: how many random peers Core has handed this node, how
+ * many stayed long enough to be judged, how many ever delivered a block first,
+ * and how many were kept.
+ *
+ * Counted by IP, not by address. Core reaches an outbound peer on its listening
+ * port so its address is stable, but a promoted inbound peer joins under a
+ * second address - the ephemeral source port it dialled from, then :8333 - and
+ * counting addresses would count that host twice. rtrim/instr does the port
+ * stripping in SQL so the de-duplication survives a table of any size; the
+ * bracketed IPv6 form ([::1]:8333) keeps its brackets, which is fine because it
+ * is stripped the same way every time.
+ *
+ * "Promoted" is the one number that cannot come from the tables the others use.
+ * rotation_log holds thirty rows, so it would report a count that shrinks while
+ * the loop works; promoted_peer exists for exactly this and nothing else.
+ */
+function outboundFunnel() {
+  const IP = `CASE WHEN instr(p.address, ']') > 0
+                   THEN substr(p.address, 1, instr(p.address, ']'))
+                   ELSE substr(p.address, 1, instr(p.address, ':') - 1) END`;
+  const OUTBOUND = `EXISTS (SELECT 1 FROM peer_session ps
+                             WHERE ps.peer_id = p.id AND ps.direction = 'outbound')`;
+
+  const row = db.instance
+    .prepare(
+      `SELECT
+         COUNT(DISTINCT ${IP})                                                    AS seen,
+         COUNT(DISTINCT CASE WHEN s.eligible >= @bar THEN ${IP} END)              AS tested,
+         COUNT(DISTINCT CASE WHEN s.eligible >= @bar AND s.first > 0 THEN ${IP} END) AS delivered
+       FROM peer p
+       LEFT JOIN peer_relay_stats s ON s.peer_id = p.id
+       WHERE ${OUTBOUND}`,
+    )
+    .get({ bar: config.minEligibleForJudgement });
+
+  const promoted = db.instance.prepare(`SELECT COUNT(*) AS n FROM promoted_peer`).get().n;
+
+  return {
+    seen: row.seen || 0,
+    tested: row.tested || 0,
+    delivered: row.delivered || 0,
+    promoted: promoted || 0,
+  };
+}
+
 module.exports = {
   peerRanking,
   weakestTrustedPeer,
@@ -648,4 +694,5 @@ module.exports = {
   deletePool,
   pruneOldData,
   widgetStats,
+  outboundFunnel,
 };

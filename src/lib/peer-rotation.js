@@ -6,6 +6,7 @@ const config = require('./config');
 const peerSync = require('./peer-sync');
 const queries = require('./queries');
 const manualPeer = require('./manual-peer');
+const { hostFromAddress } = require('./address');
 const logger = require('./logger').make('peer-rotation');
 
 const META_KEY = 'peer_rotation_enabled';
@@ -98,6 +99,25 @@ function logAction(entry) {
   db.instance
     .prepare(`DELETE FROM rotation_log WHERE id NOT IN (SELECT id FROM rotation_log ORDER BY at DESC, id DESC LIMIT ?)`)
     .run(config.rotationLogEntries);
+
+  // The one thing above that must outlive the trim. "How many peers has this
+  // ever promoted?" cannot be answered from a table that keeps thirty rows,
+  // and the answer is the point of the whole loop - so a promotion is also
+  // written somewhere permanent.
+  //
+  // Here rather than at the two call sites in promoteBestCandidate: they
+  // already share beatsHolder and evictableTrusted because writing the same
+  // rule out twice is how the two swap paths drifted apart in the first place.
+  // Every promotion passes through logAction, so this cannot be forgotten by a
+  // future third path.
+  //
+  // Keyed by IP, and INSERT OR IGNORE: the same host promoted again - after
+  // being parked and revived, say - is not a second peer discovered.
+  if (entry.action === 'promote' || entry.action === 'swap') {
+    db.instance
+      .prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`)
+      .run(hostFromAddress(entry.address), Date.now());
+  }
 }
 
 function recentLog(limit = config.rotationLogEntries) {
