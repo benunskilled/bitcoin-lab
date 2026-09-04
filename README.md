@@ -244,6 +244,11 @@ seconds; `GET /api/health` reports all four.
 Everything reaches Bitcoin Core through its RPC and ZMQ interfaces. Pull this app
 off the machine and the node is exactly as it was.
 
+Between them the four processes hold about 80 MB of memory on a live node — a
+Node runtime each and almost nothing on top, because everything that grows lives
+in SQLite. CPU is idle between blocks. Umbrel adds its own proxy container in
+front, which costs about as much again.
+
 ## Install
 
 Bitcoin Lab ships as an Umbrel Community App — see
@@ -337,8 +342,8 @@ example).
   act on — those rows are labelled honestly instead of showing a meaningless
   local IP.
 - **Relay observations are never pruned.** They *are* the ranking, so they are
-  kept regardless of age — about a megabyte a day on a node with a couple of
-  hundred peers, half a gigabyte a year. The Storage panel shows what it
+  kept regardless of age — about four megabytes a day on a node with a couple of
+  hundred peers, one and a half gigabytes a year. The Storage panel shows what it
   currently costs, and lets you delete it if you want the space back.
 - **Core has to share this app's clock.** Point it at a node on a different
   machine and the two clocks have to agree to within about two seconds —
