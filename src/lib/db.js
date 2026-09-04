@@ -567,9 +567,10 @@ function resetPoolHistory() {
  *
  * Worth surfacing rather than leaving to be discovered: relay_observation is
  * deliberately never pruned - it is the ranking - so the file only ever grows,
- * at roughly a megabyte a day on a node with a couple of hundred peers. That is
- * a fine price for the measurement, but nobody should have to find it out by
- * running out of disk.
+ * at roughly four megabytes a day on a node with a couple of hundred peers -
+ * measured, 23 MB over 5.7 days and 864 blocks at about 200 peers, so a gigabyte
+ * and a half a year. That is a fine price for the measurement, but nobody should
+ * have to find it out by running out of disk.
  *
  * The WAL is counted because it is real disk usage and can be a large fraction
  * of the total between checkpoints. A missing file is simply zero - the sizes

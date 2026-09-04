@@ -281,9 +281,9 @@ async function router(req, res, pathname, url) {
       network: config.bitcoin.network,
       live: queries.liveSummary(),
       maxManualPeers: config.maxManualPeers,
-      // The measurement data only ever grows - roughly a megabyte a day at a
-      // couple of hundred peers. Shown so that is visible from the start
-      // rather than discovered when the disk fills.
+      // The measurement data only ever grows - roughly four megabytes a day at
+      // a couple of hundred peers, measured. Shown so that is visible from the
+      // start rather than discovered when the disk fills.
       databaseBytes: db.sizeBytes(),
       // Four counts over the whole history, not the current snapshot: how many
       // outbound peers Core has handed this node, how many lasted long enough
