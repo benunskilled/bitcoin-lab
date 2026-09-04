@@ -137,12 +137,22 @@ async function refreshStatus() {
 // previous height at the moment the event arrives with the new one.
 function setBlockHeight(height) {
   const heightEl = document.getElementById('block-height-number');
+  // The height is Core's own getblockcount, so it is there from the first
+  // status response - it does not wait for a block. Null means Core did not
+  // answer, and until one ever does, the slot says so in small type rather
+  // than showing a 42px dash that reads as a fault in this app. The markup
+  // starts as "–" instead: that is the fraction of a second before the first
+  // response, which is not the same thing as no answer.
   if (height == null) {
-    if (lastKnownHeight == null) heightEl.textContent = '–';
+    if (lastKnownHeight == null) {
+      heightEl.textContent = 'no answer from Bitcoin Core yet';
+      heightEl.classList.add('waiting');
+    }
     return;
   }
   if (lastKnownHeight != null && height < lastKnownHeight) return;
 
+  heightEl.classList.remove('waiting');
   heightEl.textContent = height.toLocaleString();
   if (lastKnownHeight != null && height > lastKnownHeight) {
     heightEl.classList.remove('bump');
@@ -165,9 +175,6 @@ function triggerBlockWave() {
 // connect with the current state), so this no longer fetches anything.
 function applyBlockUpdate(race) {
   if (!race) return;
-
-  const hashEl = document.getElementById('block-hash-short');
-  hashEl.textContent = `${race.blockHash.slice(0, 16)}…`;
 
   // The height rides along on this event. Reading it here is what keeps the
   // big number in step with the wave and the highlighted rows - it used to
