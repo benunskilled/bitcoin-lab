@@ -285,38 +285,11 @@ function firstPctCell(p) {
   return `<td title="${p.first} of ${p.eligible} eligible blocks">${pctText}<span class="hint"> (${p.first}/${p.eligible})</span></td>`;
 }
 
-// The clearnet note under Outbound Peers is static advice; this makes it
-// specific when it actually applies. A .onion peer can never be promoted - the
-// port probe has no address to dial - so a node running its outgoing
-// connections over Tor is collecting a ranking it cannot act on, and that is
-// worth saying with a number rather than leaving as general guidance.
-function reportTorPeers(livePeers) {
-  const note = document.getElementById('outbound-note');
-  if (!note) return;
-  const existing = document.getElementById('tor-count');
-
-  // Counted by network rather than lumped together: an operator who sees "3 on
-  // I2P" knows which setting to look at, and "9 unreachable" tells them
-  // nothing. Inbound I2P in particular is normal even with outgoing
-  // connections set to clearnet only - those peers dialled you.
-  const byNetwork = new Map();
-  for (const p of livePeers) {
-    if (!p.privateNetwork) continue;
-    byNetwork.set(p.privateNetwork, (byNetwork.get(p.privateNetwork) || 0) + 1);
-  }
-  if (byNetwork.size === 0) {
-    if (existing) existing.remove();
-    return;
-  }
-  const parts = [...byNetwork.entries()].sort().map(([net, n]) => `${n} on ${net}`);
-  const total = [...byNetwork.values()].reduce((a, b) => a + b, 0);
-  const text = ` Right now ${parts.join(', ')} - ${total === 1 ? 'that peer ranks' : 'those peers rank'} normally but cannot be kept as manual connections.`;
-  if (existing) { existing.textContent = text; return; }
-  const span = document.createElement('span');
-  span.id = 'tor-count';
-  span.textContent = text;
-  note.appendChild(span);
-}
+// The clearnet note under Outbound Peers used to get a live count of Tor/I2P
+// peers appended to it. Removed: the note is advice about a setting, and the
+// peers it talks about already carry an "I2P only" badge in their own row,
+// with the reason in its tooltip. A sentence repeating that above the table
+// said the same thing twice.
 
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
@@ -418,7 +391,6 @@ function renderPeerTables(peers, options = {}) {
   // Manuals get their own dedicated panel below - keep them out of Outbound
   // entirely rather than showing the same peer in two tables.
   const outboundPeers = livePeers.filter((p) => p.direction === 'outbound' && !p.trusted);
-  reportTorPeers(livePeers);
   const manualPeers = peers.filter((p) => p.trusted);
 
   // The ranking table can get long with a lot of live peers - show only the
