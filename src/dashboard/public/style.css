@@ -437,10 +437,14 @@ th.col-actions { padding-left: 20px; }
   text-shadow: 0 0 18px rgba(247, 147, 26, .85);
 }
 
-.hero-sub {
-  font-size: 12px;
+/* Core has not answered yet, said in the number's own slot: sentence-sized
+   rather than 42px, and muted, so it reads as a state rather than as a fault
+   in this app. Dropped the moment a height arrives. */
+.hero-n.waiting {
+  font-size: 15px;
+  font-weight: 400;
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  line-height: 1.6;
 }
 
 .hero-grid .stat-grid { flex: 1; }
