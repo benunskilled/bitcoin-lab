@@ -430,6 +430,90 @@ test('peer ranking treats the docker-proxy masked gateway as sourceObscured, not
   assert.equal(row.localUmbrelPeer, false);
 });
 
+test('an inbound Tor peer is read from Core\'s network, not from its proxy address', () => {
+  // The real case this column exists for. An inbound Tor connection reaches
+  // Core through Umbrel's Tor container, so getpeerinfo reports it with that
+  // container's address inside the internal Docker range - the same range a
+  // sibling app like electrs connects from. Classified by address alone, every
+  // one of them reads as "another Umbrel app": mislabelled in the dashboard,
+  // and excluded from promotion for the wrong reason. And they accumulate -
+  // each inbound connection arrives under a fresh source port, so this is one
+  // row per connection, not one per node.
+  //
+  // Core knows: it reports network 'onion' regardless of the address.
+  const torPeer = db.getOrCreatePeer('10.21.22.10:52690');
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'inbound', 'inbound', 'onion', '/Satoshi:28.1.0/', ?, 90, 90)`,
+    )
+    .run(torPeer.id, 7101, Date.now());
+
+  const row = queries.peerRanking().find((r) => r.address === '10.21.22.10:52690');
+
+  assert.equal(row.privateNetwork, 'Tor');
+  assert.equal(row.localUmbrelPeer, false, 'a Tor peer is an external peer, whatever address it arrives under');
+  assert.equal(row.localAppName, null);
+});
+
+test('a sibling app in the same address range is still a local app', () => {
+  // The other half of the rule above: Core reports the ordinary networks for
+  // a local sibling, so the address range keeps deciding for those. Without
+  // this, the fix for Tor would have turned every local app into an external
+  // peer, which is the same bug pointing the other way.
+  const electrs = db.getOrCreatePeer('10.21.21.11:53401');
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'inbound', 'inbound', 'not_publicly_routable', '/electrs:0.11.1/', ?, 5, 5)`,
+    )
+    .run(electrs.id, 7102, Date.now());
+
+  const row = queries.peerRanking().find((r) => r.address === '10.21.21.11:53401');
+
+  assert.equal(row.privateNetwork, null);
+  assert.equal(row.localUmbrelPeer, true);
+  assert.equal(row.localAppName, 'electrs');
+});
+
+test('sessions written before the network column fall back to reading the address', () => {
+  // Every session already in an installed database has network NULL. Those
+  // must keep classifying exactly as they did, or an update would blank the
+  // labels on all existing history at once.
+  const onion = 'vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion:8333';
+  const peer = db.getOrCreatePeer(onion);
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'outbound', 'outbound-full-relay', NULL, '/Satoshi:27.0.0/', ?, 200, 200)`,
+    )
+    .run(peer.id, 7103, Date.now());
+
+  assert.equal(queries.peerRanking().find((r) => r.address === onion).privateNetwork, 'Tor');
+});
+
+test('an offline manual peer keeps the network of its last session', () => {
+  // The ranking reads the live session first. A manual peer that is currently
+  // down has none, so the label has to come from its most recent closed one -
+  // otherwise a peer's badge disappears exactly while it is offline, which is
+  // when someone is most likely to be looking at it.
+  const address = '10.21.22.10:44011';
+  const peer = db.getOrCreatePeer(address);
+  const endedAt = Date.now() - 3600000;
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, ended_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'inbound', 'inbound', 'i2p', '/Satoshi:28.1.0/', ?, ?, 80, 80)`,
+    )
+    .run(peer.id, 7104, endedAt - 3600000, endedAt);
+  db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, NULL, ?)').run(address, endedAt);
+
+  const row = queries.peerRanking().find((r) => r.address === address);
+
+  assert.equal(row.privateNetwork, 'I2P');
+  assert.equal(row.localUmbrelPeer, false);
+});
+
 test('pruneOldData keeps peers with relay history and trusted peers forever, only ages out feelers and stale stratum history', () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
   // Comfortably outside every retention window, including the 365-day one
@@ -792,4 +876,33 @@ test('the backfill counts peers that were kept before the record existed', () =>
 
   const ips = db.instance.prepare(`SELECT ip FROM promoted_peer ORDER BY ip`).all().map(r => r.ip);
   assert.deepEqual(ips, ['198.51.100.41', '203.0.113.41', '[2001:db8::5]']);
+});
+
+test('the network migration adds the column once and is safe to run again', () => {
+  // The first column this schema adds to an existing table, so the guard
+  // matters twice over: an unconditional ALTER would throw on every install
+  // created after this version (the CREATE TABLE already has the column), and
+  // the migration must survive being re-run without losing what is in it.
+  const hasColumn = () =>
+    db.instance.prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('peer_session') WHERE name = 'network'`).get().n;
+
+  assert.equal(hasColumn(), 1, 'fresh databases get the column from CREATE TABLE');
+
+  const peer = db.getOrCreatePeer('198.51.100.77:8333');
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, direction, connection_type, network, started_at)
+       VALUES (?, 'outbound', 'outbound-full-relay', 'onion', ?)`,
+    )
+    .run(peer.id, Date.now());
+
+  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:peer_session_network_v1_15_13');
+  db.runMigrations();
+
+  assert.equal(hasColumn(), 1);
+  assert.equal(
+    db.instance.prepare(`SELECT network FROM peer_session WHERE peer_id = ?`).get(peer.id).network,
+    'onion',
+    're-running the migration must not disturb the data',
+  );
 });
