@@ -75,12 +75,12 @@ function upsertSessions(peers) {
 
   const insertSession = database.prepare(
     `INSERT INTO peer_session
-       (peer_id, core_peer_id, direction, connection_type, subver, started_at, min_ping_ms, last_ping_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const updateSession = database.prepare(
     `UPDATE peer_session
-     SET core_peer_id = ?, direction = ?, connection_type = ?, subver = ?, min_ping_ms = ?, last_ping_ms = ?
+     SET core_peer_id = ?, direction = ?, connection_type = ?, network = ?, subver = ?, min_ping_ms = ?, last_ping_ms = ?
      WHERE id = ?`,
   );
 
@@ -92,14 +92,19 @@ function upsertSessions(peers) {
       const minPingMs = typeof peer.minping === 'number' ? peer.minping * 1000 : null;
       const lastPingMs = typeof peer.pingtime === 'number' ? peer.pingtime * 1000 : null;
 
+      // Core's own classification of the connection. Kept as it comes, in
+      // Core's spelling, so the mapping to a display name lives in one place
+      // (queries.js) instead of being spread over the writer and the reader.
+      const network = peer.network || null;
+
       const existingSessionId = openByAddress.get(peer.addr);
       if (existingSessionId) {
-        updateSession.run(peer.id, direction, connectionType, peer.subver || null, minPingMs, lastPingMs, existingSessionId);
+        updateSession.run(peer.id, direction, connectionType, network, peer.subver || null, minPingMs, lastPingMs, existingSessionId);
       } else {
         // conntime is Core's own unix-second connection start - more
         // accurate than "now" for a connection we're only just noticing.
         const startedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
-        insertSession.run(peerRow.id, peer.id, direction, connectionType, peer.subver || null, startedAt, minPingMs, lastPingMs);
+        insertSession.run(peerRow.id, peer.id, direction, connectionType, network, peer.subver || null, startedAt, minPingMs, lastPingMs);
       }
     }
   });

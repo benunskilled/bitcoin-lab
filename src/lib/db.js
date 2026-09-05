@@ -19,6 +19,13 @@ CREATE TABLE IF NOT EXISTS peer_session (
   core_peer_id INTEGER,           -- Bitcoin Core's own transient peer "id" for this session
   direction TEXT NOT NULL,        -- inbound | outbound
   connection_type TEXT NOT NULL,  -- manual | outbound-full-relay | block-relay-only | inbound | feeler | addr-fetch
+  -- Core's own name for the network this connection runs over: ipv4 | ipv6 |
+  -- onion | i2p | cjdns | not_publicly_routable. Taken from getpeerinfo rather
+  -- than guessed from the address, because the address does not carry it: an
+  -- inbound Tor peer arrives from the local Tor proxy and shows up under that
+  -- proxy's plain IPv4 address. Guessing from the string classified those as
+  -- ordinary local peers. NULL on rows written before this column existed.
+  network TEXT,
   subver TEXT,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
@@ -358,6 +365,23 @@ function runMigrations() {
                 parked_at
            FROM parked_peer`,
       ).run();
+    });
+
+    // The first column this schema has ever added to an existing table. The
+    // CREATE TABLE above carries it for fresh installs, so this has to check
+    // before it adds - an unconditional ALTER would throw "duplicate column"
+    // on every install created after this version.
+    //
+    // Existing rows keep NULL, and the ranking falls back to reading the
+    // network out of the address for those, exactly as it did before. So old
+    // sessions are no worse off than they were, and every session written from
+    // now on is classified by what Core says rather than by what the address
+    // looks like.
+    migrate('peer_session_network_v1_15_13', 'added the network column to peer_session', () => {
+      const hasColumn = db
+        .prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('peer_session') WHERE name = 'network'`)
+        .get().n > 0;
+      if (!hasColumn) db.prepare(`ALTER TABLE peer_session ADD COLUMN network TEXT`).run();
     });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);

@@ -6,6 +6,16 @@ const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('./addre
 
 // A subver like "/electrs:0.11.1/" -> "electrs" - just enough to name which
 // local app a same-host peer connection belongs to.
+// Core's spelling of the network, turned into the display name this app uses.
+// Only the three it cannot dial get a name; ipv4, ipv6 and
+// not_publicly_routable are the ordinary case and get none, which is what the
+// rest of the code means by "no private network".
+const CORE_NETWORK_NAMES = { onion: 'Tor', i2p: 'I2P', cjdns: 'CJDNS' };
+
+function networkFromCore(network) {
+  return CORE_NETWORK_NAMES[String(network || '').toLowerCase()] || null;
+}
+
 function localAppNameFromSubver(subver) {
   if (!subver) return null;
   const stripped = String(subver).replace(/^\/+|\/+$/g, '');
@@ -52,6 +62,9 @@ function peerRankingSql() {
          COALESCE(prs.first, 0) AS first,
          os.direction AS liveDirection,
          os.connection_type AS liveConnectionType,
+         -- Core's network for the live session, falling back to the most
+         -- recent closed one so an offline manual peer keeps its label.
+         COALESCE(os.network, latest.network) AS coreNetwork,
          os.started_at AS liveStartedAt,
          os.min_ping_ms AS liveMinPingMs,
          os.last_ping_ms AS liveLastPingMs,
@@ -79,7 +92,7 @@ function peerRankingSql() {
          -- session actually still live, in which case there's nothing to
          -- report here - offline duration only ever comes from a peer's
          -- most recent CLOSED session).
-         SELECT ps.peer_id, ps.subver, ps.ended_at AS latestEndedAt
+         SELECT ps.peer_id, ps.subver, ps.network, ps.ended_at AS latestEndedAt
          FROM peer_session ps
          WHERE ps.id = (
            SELECT id FROM peer_session ps2
@@ -144,16 +157,36 @@ function mapRankingRow(now) {
     // sourceObscured above), just not "a peer" in any useful sense - it's
     // already connected via the host's own network, so there's nothing to
     // manually add and nothing worth disconnecting on purpose either.
-    const ipv4Host = ipv4HostFromAddress(r.address);
-    const localUmbrelPeer = !sourceObscured
-      && ipv4Host != null
-      && ipv4InCidr(ipv4Host, config.umbrelInternalNetworkCidr);
     // Tor / I2P / CJDNS: a real peer that ranks normally and really does
     // deliver blocks, but that this app can never dial, so it can never be
     // promoted. Carried on the row so the dashboard can say so instead of
     // offering an action that always fails, and so the rotation loop can skip
     // it rather than spending a probe on it every pass.
-    const privateNetwork = unreachableNetwork(r.address);
+    //
+    // Core's own answer first, the address only as a fallback for sessions
+    // written before that was recorded. The address is not a reliable source:
+    // an INBOUND Tor peer reaches Core through the local Tor proxy and carries
+    // that proxy's plain address, so every one of them read as an ordinary
+    // local peer - see the localUmbrelPeer note below, which is what they were
+    // being mistaken for.
+    const privateNetwork = networkFromCore(r.coreNetwork) ?? unreachableNetwork(r.address);
+    // Everything else inside Umbrel's shared internal Docker network isn't
+    // an external peer at all - it's another app on the same host (electrs,
+    // mempool's indexer, etc.) connecting to Core's P2P port directly, the
+    // same way a real peer would. Its address is perfectly real (unlike
+    // sourceObscured above), just not "a peer" in any useful sense - it's
+    // already connected via the host's own network, so there's nothing to
+    // manually add and nothing worth disconnecting on purpose either.
+    //
+    // A peer on one of the three networks above is excluded even though its
+    // address falls in that range: an inbound Tor or I2P connection arrives
+    // from a sibling container (Umbrel's Tor proxy) and is therefore addressed
+    // like a local app, while being a genuine external peer.
+    const ipv4Host = ipv4HostFromAddress(r.address);
+    const localUmbrelPeer = !sourceObscured
+      && privateNetwork == null
+      && ipv4Host != null
+      && ipv4InCidr(ipv4Host, config.umbrelInternalNetworkCidr);
     return {
       address: r.address,
       sourceObscured,
