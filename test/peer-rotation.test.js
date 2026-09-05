@@ -86,6 +86,7 @@ function seedLivePeer({
   eligible = 0,
   first = 0,
   trusted = false,
+  kept = false,
 } = {}) {
   const peer = db.getOrCreatePeer(address);
   db.instance
@@ -93,7 +94,9 @@ function seedLivePeer({
     .run(peer.id, direction, connectionType, Date.now() - 3600000);
   seedEligibility(peer.id, eligible, first);
   if (trusted) {
-    db.instance.prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)').run(address, null, Date.now());
+    db.instance
+      .prepare('INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)')
+      .run(address, null, kept ? 1 : 0, Date.now());
   }
   return address;
 }
@@ -108,16 +111,21 @@ function seedOfflineTrustedPeer({
   eligible = 0,
   first = 0,
   offlineHours = 1,
+  kept = false,
+  // Whether Core ever actually held a manual connection to it. False models
+  // the address that answered a port probe but never stood up as an outbound
+  // connection - the common fate of a peer that only ever dialled in.
+  everManual = true,
 } = {}) {
   const peer = db.getOrCreatePeer(address);
   const endedAt = Date.now() - offlineHours * HOUR;
   db.instance
     .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
-    .run(peer.id, 'outbound', 'manual', endedAt - HOUR, endedAt);
+    .run(peer.id, everManual ? 'outbound' : 'inbound', everManual ? 'manual' : 'inbound', endedAt - HOUR, endedAt);
   seedEligibility(peer.id, eligible, first);
   db.instance
-    .prepare('INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)')
-    .run(address, null, endedAt - HOUR);
+    .prepare('INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)')
+    .run(address, null, kept ? 1 : 0, endedAt - HOUR);
   return address;
 }
 
@@ -876,4 +884,111 @@ test('the same host promoted twice counts once', () => {
   db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 1);
   db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 2);
   assert.equal(queries.outboundFunnel().promoted, 1);
+});
+
+// ---------------------------------------------------------------------------
+// The keep star
+//
+// Its whole purpose is to hold a slot for a reason the app cannot measure: a
+// friend's node, a second node of your own, a peer kept for how it is reached
+// rather than for what it delivers. So the two ways the rotation can take a
+// slot away - displacing it for a better peer, parking it while it is offline
+// - both have to leave it alone. With one exception, which the last test here
+// pins down.
+// ---------------------------------------------------------------------------
+
+test('a kept peer is not displaced, however much better the challenger is', async () => {
+  peerRotation.setEnabled(true);
+  // Slots full: one kept peer with a poor record, one ordinary one, and a
+  // candidate far better than either. Without the star the kept peer is
+  // exactly what the swap would take.
+  seedLivePeer({ address: '198.51.100.90:8333', trusted: true, kept: true, eligible: 500, first: 5 });
+  seedLivePeer({ address: '198.51.100.91:8333', trusted: true, eligible: 500, first: 50 });
+  const challenger = seedLivePeer({ address: '198.51.100.92:8333', eligible: 500, first: 250 });
+
+  await peerRotation.tick();
+
+  const trusted = ranking().filter((p) => p.trusted).map((p) => p.address);
+  assert.ok(trusted.includes('198.51.100.90:8333'), 'the kept peer keeps its slot, poor record and all');
+  assert.ok(!trusted.includes('198.51.100.91:8333'), 'the unprotected one is what the challenger takes instead');
+  assert.ok(trusted.includes(challenger));
+});
+
+test('an ordinary manual peer with the same record is still displaced', async () => {
+  // The control for the test above: same setup, star off. If this one does not
+  // swap, the test above proves nothing about the star.
+  peerRotation.setEnabled(true);
+  seedLivePeer({ address: '198.51.100.93:8333', trusted: true, eligible: 500, first: 5 });
+  seedLivePeer({ address: '198.51.100.94:8333', trusted: true, eligible: 500, first: 50 });
+  const challenger = seedLivePeer({ address: '198.51.100.95:8333', eligible: 500, first: 250 });
+
+  await peerRotation.tick();
+
+  const trusted = ranking().filter((p) => p.trusted).map((p) => p.address);
+  assert.ok(!trusted.includes('198.51.100.93:8333'), 'the weakest unprotected peer loses its slot');
+  assert.ok(trusted.includes(challenger));
+});
+
+test('a kept peer that has really been connected is not parked when it goes offline', async () => {
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({
+    address: '198.51.100.96:8333',
+    offlineHours: 500,   // far past any grace its record could earn
+    eligible: 500,
+    first: 5,
+    kept: true,
+  });
+
+  await peerRotation.tick();
+
+  assert.ok(ranking().find((p) => p.address === address)?.trusted, 'still manual');
+  assert.equal(peerRotation.parkedPeers().length, 0, 'and not parked');
+});
+
+test('a kept peer Core never managed to connect is parked like any other', async () => {
+  // The address that answered a port probe and then never stood up as an
+  // outbound connection - which is what a peer that only ever dialled in
+  // usually turns out to be. Protecting that would let one bad address hold
+  // one of eight slots forever, which is the opposite of what the star is for.
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({
+    address: '198.51.100.97:8333',
+    offlineHours: 500,
+    eligible: 500,
+    first: 5,
+    kept: true,
+    everManual: false,
+  });
+
+  await peerRotation.tick();
+
+  assert.ok(!ranking().find((p) => p.address === address)?.trusted, 'the slot is freed');
+  assert.equal(peerRotation.parkedPeers().length, 1, 'and its record is parked, not thrown away');
+});
+
+test('adding by hand sets the star; a promotion by the rotation does not', async () => {
+  peerRotation.setEnabled(true);
+  // The two callers of addTrustedPeer, side by side. manual-peer.js passes
+  // kept: true for everything a person types in; the rotation calls it with
+  // no options at all, from promoteBestCandidate.
+  await peerSync.addTrustedPeer('198.51.100.98:8333', null, { kept: true });
+  seedLivePeer({ address: '198.51.100.99:8333', eligible: 500, first: 250 });
+  await peerRotation.tick();
+
+  const byAddress = Object.fromEntries(ranking().map((p) => [p.address, p]));
+  assert.equal(byAddress['198.51.100.98:8333']?.kept, true, 'typing an address in is the decision');
+  assert.equal(byAddress['198.51.100.99:8333']?.kept, false, 'the loop must stay able to undo its own promotions');
+});
+
+test('re-adding a peer never clears a star that is already set', async () => {
+  // addTrustedPeer is called by the rotation too - adopting a peer Core
+  // already knows, reviving a parked one - and those calls pass kept=false.
+  // Taking the star off is the star's own control, not a side effect.
+  const address = seedLivePeer({ address: '198.51.100.100:8333', trusted: true, kept: true });
+  await peerSync.addTrustedPeer(address, null);
+
+  assert.equal(ranking().find((p) => p.address === address)?.kept, true);
+
+  peerSync.setKept(address, false);
+  assert.equal(ranking().find((p) => p.address === address)?.kept, false, 'and the control itself works');
 });

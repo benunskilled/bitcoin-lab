@@ -41,7 +41,13 @@ const MIN_ELIGIBLE_FOR_JUDGEMENT = config.minEligibleForJudgement;
  * would be fair to displace yet.
  */
 function evictableTrusted(trusted) {
-  return trusted.filter((p) => (p.eligible == null ? 0 : p.eligible) >= config.newManualGraceBlocks);
+  // A peer with the star set is never a candidate for displacement, at any
+  // record. That is what the star means: this one stays, whatever the
+  // measurement says, because the reason for keeping it is not something this
+  // app can measure - a friend's node, a second node of your own.
+  return trusted.filter(
+    (p) => !p.kept && (p.eligible == null ? 0 : p.eligible) >= config.newManualGraceBlocks,
+  );
 }
 
 /**
@@ -293,7 +299,19 @@ function offlineForMs(peer, now) {
 async function retireOfflineManualPeers(ranking) {
   const now = Date.now();
   let retired = 0;
-  for (const peer of ranking.filter((p) => p.trusted && !p.live)) {
+  // The star also covers being offline, which is the other way a manual peer
+  // loses its slot. Holding it costs nothing that matters: Core keeps trying
+  // to reach an addnode address by itself, which is exactly what was wanted.
+  // Take the star off and the peer is treated like any other from the next
+  // pass on - no fresh grace period, no exception.
+  //
+  // But only for a peer Core has actually managed to hold as a manual
+  // connection at least once. An address that never stood up is not a peer
+  // you are keeping, it is an address that does not work: a node that dialled
+  // in, answered the port probe, and then could not sustain a connection the
+  // other way round - which is the common case, not a rare one. Without this,
+  // one such address would sit on one of eight slots forever, protected.
+  for (const peer of ranking.filter((p) => p.trusted && !p.live && !(p.kept && p.everManual))) {
     const offlineMs = offlineForMs(peer, now);
     if (offlineMs == null) continue;
     const grace = offlineGraceMs(peer.firstPct);

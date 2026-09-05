@@ -529,3 +529,47 @@ tr.row-first-block td {
   transition: background 1.2s ease;
 }
 tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
+
+/* The keep star in the Manual Peers table. Both the state and the switch: lit
+   means the rotation leaves this peer alone. Unlit is drawn as an outline
+   rather than a dimmed fill, so "off" reads as a choice not yet made rather
+   than as a disabled control. */
+.keep-star {
+  background: none;
+  border: 0;
+  padding: 0 8px 0 0;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  opacity: .45;
+  transition: opacity .15s ease, color .15s ease;
+}
+
+.keep-star:hover,
+.keep-star:focus-visible {
+  opacity: 1;
+}
+
+.keep-star.on {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.keep-star:disabled {
+  cursor: default;
+}
+
+/* Visible to screen readers only - the star needs a real name, and the title
+   attribute alone is not reliably announced. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

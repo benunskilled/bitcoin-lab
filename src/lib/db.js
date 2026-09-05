@@ -49,6 +49,13 @@ CREATE INDEX IF NOT EXISTS idx_peer_session_live
 CREATE TABLE IF NOT EXISTS trusted_peer (
   address TEXT PRIMARY KEY,
   label TEXT,
+  -- Set by hand: this peer stays, whatever the measurement says. The rotation
+  -- neither displaces it for a better candidate nor parks it when it goes
+  -- offline - the two ways a manual peer can otherwise lose its slot. It is
+  -- the default for anything added by hand, because typing an address in is
+  -- already the decision; a promotion by the rotation itself is not, and
+  -- arrives unset, or the loop would freeze itself out of every slot it filled.
+  kept INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 
@@ -377,11 +384,23 @@ function runMigrations() {
     // sessions are no worse off than they were, and every session written from
     // now on is classified by what Core says rather than by what the address
     // looks like.
-    migrate('peer_session_network_v1_15_13', 'added the network column to peer_session', () => {
+    migrate('peer_session_network_v1_16_0', 'added the network column to peer_session', () => {
       const hasColumn = db
         .prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('peer_session') WHERE name = 'network'`)
         .get().n > 0;
       if (!hasColumn) db.prepare(`ALTER TABLE peer_session ADD COLUMN network TEXT`).run();
+    });
+
+    // Manual peers that predate the protection start unprotected, which is the
+    // behaviour their owner already knows: the rotation may swap them out for
+    // something better and park them when they go dark. Turning it on for them
+    // would freeze whatever the loop had assembled so far, silently and all at
+    // once. The star is there to be switched on deliberately.
+    migrate('trusted_peer_kept_v1_16_0', 'added the kept column to trusted_peer', () => {
+      const hasColumn = db
+        .prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('trusted_peer') WHERE name = 'kept'`)
+        .get().n > 0;
+      if (!hasColumn) db.prepare(`ALTER TABLE trusted_peer ADD COLUMN kept INTEGER NOT NULL DEFAULT 0`).run();
     });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);

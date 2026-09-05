@@ -225,6 +225,17 @@ function highlightClassFor(address) {
 // missing its first slot (e.g. a source-obscured peer with no "Add as
 // Manual") would have Disconnect visually collapse into the first slot's
 // position instead of staying put, making the column misalign row to row.
+// The star: lit means the rotation leaves this peer alone - it is not swapped
+// out for a better-scoring candidate, and not parked when it goes offline.
+// Both the state and the control, because they are the same thing to the
+// person looking at it. A star on its own explains nothing, so the title says
+// in words what it does and what clicking will do next.
+function keepStar(p) {
+  const on = Boolean(p.kept);
+  const title = on ? 'Kept - click to release' : 'Click to keep';
+  return `<button class="keep-star${on ? ' on' : ''}" data-action="keep" data-address="${escapeHtml(p.address)}" data-kept="${on ? '1' : '0'}" title="${title}" aria-pressed="${on}"><span aria-hidden="true">★</span><span class="sr-only">Keep this peer</span></button>`;
+}
+
 function actionsCell(p, options = {}) {
   const { allowDisconnect = false } = options;
   const placeholder = `<span class="action-slot" aria-hidden="true"></span>`;
@@ -250,7 +261,7 @@ function actionsCell(p, options = {}) {
     ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
     : (undialable || ((p.sourceObscured || p.localUmbrelPeer)
       ? placeholder
-      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`));
+      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add &amp; Keep</button>`));
 
   // Disconnect still works fine for a source-obscured peer: it's exactly
   // the (masked) address Core itself uses internally for the connection.
@@ -484,17 +495,25 @@ function renderPeerTables(peers, options = {}) {
       ${sessionCell(p)}
       <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
-      <td class="row-actions">${actionsCell(p)}</td>
+      <td class="row-actions">${keepStar(p)}${actionsCell(p)}</td>
     </tr>
   `).join('');
   const noManualPeersHint = manualPeers.length === 0
-    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
+    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add &amp; Keep" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
-    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total)`;
+    // With the star set by default on anything added by hand, every slot
+    // being kept is the likely end state rather than an oddity - and it is
+    // worth saying, because it means the rotation has nothing left to promote
+    // into. Said as one more number, not as a warning: nothing is wrong.
+    const keptCount = manualPeers.filter((p) => p.kept).length;
+    const keptNote = keptCount > 0
+      ? ` · ${keptCount === manualPeers.length ? 'all kept' : `${keptCount} kept`}`
+      : '';
+    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total${keptNote})`;
   }
 }
 
@@ -770,7 +789,7 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
 // than re-fetching /api/status, /api/peers/ranking, /api/pools and
 // /api/blocks/latest on every single click - those already refresh on
 // their own schedule (REFRESH_MS above) or arrive on the event stream.
-const PEER_ACTIONS = new Set(['add-manual', 'untrust', 'disconnect']);
+const PEER_ACTIONS = new Set(['add-manual', 'untrust', 'disconnect', 'keep']);
 const POOL_ACTIONS = new Set(['delete-pool']);
 
 // A successful "Add as Manual" used to give ZERO on-screen feedback: the
@@ -830,7 +849,9 @@ document.body.addEventListener('click', async (e) => {
   const originalLabel = btn.textContent;
   if (isPeerOrPoolAction) {
     btn.disabled = true;
-    btn.textContent = '…';
+    // The star is an icon, not a label - replacing its text with an ellipsis
+    // would leave an empty-looking cell for the moment the request takes.
+    if (action !== 'keep') btn.textContent = '…';
     // Hold off the periodic re-render for the duration. Without this a poll
     // landing mid-action replaced this very button with a fresh, enabled one
     // - so the action could be fired a second time, and the reset in the
@@ -863,6 +884,16 @@ document.body.addEventListener('click', async (e) => {
     if (action === 'disconnect') {
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
       showToast(`Disconnected ${address}.`, 'success');
+    }
+    if (action === 'keep') {
+      const kept = btn.dataset.kept !== '1';
+      await api('/api/peers/keep', { method: 'POST', body: JSON.stringify({ address, kept }) });
+      showToast(
+        kept
+          ? `${address} is kept - the rotation will leave it alone.`
+          : `${address} is back in the rotation and can be replaced by a better peer.`,
+        'success',
+      );
     }
     if (action === 'delete-pool') {
       await api(`/api/pools/${id}`, { method: 'DELETE' });

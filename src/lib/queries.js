@@ -4,8 +4,6 @@ const db = require('./db');
 const config = require('./config');
 const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('./address');
 
-// A subver like "/electrs:0.11.1/" -> "electrs" - just enough to name which
-// local app a same-host peer connection belongs to.
 // Core's spelling of the network, turned into the display name this app uses.
 // Only the three it cannot dial get a name; ipv4, ipv6 and
 // not_publicly_routable are the ordinary case and get none, which is what the
@@ -16,6 +14,8 @@ function networkFromCore(network) {
   return CORE_NETWORK_NAMES[String(network || '').toLowerCase()] || null;
 }
 
+// A subver like "/electrs:0.11.1/" -> "electrs" - just enough to name which
+// local app a same-host peer connection belongs to.
 function localAppNameFromSubver(subver) {
   if (!subver) return null;
   const stripped = String(subver).replace(/^\/+|\/+$/g, '');
@@ -58,6 +58,7 @@ function peerRankingSql() {
          tp.label AS trustedLabel,
          tp.created_at AS trustedSince,
          (tp.address IS NOT NULL) AS trusted,
+         COALESCE(tp.kept, 0) AS kept,
          COALESCE(prs.eligible, 0) AS eligible,
          COALESCE(prs.first, 0) AS first,
          os.direction AS liveDirection,
@@ -72,6 +73,13 @@ function peerRankingSql() {
          -- whole of peer_session it was computed for every peer that table
          -- has ever held, then thrown away by the join.
          (SELECT COUNT(*) FROM peer_session s WHERE s.peer_id = p.id) AS sessionsCount,
+         -- Has Core ever actually held a manual connection to this peer? Not
+         -- the same as being in the manual set: an address can sit there for
+         -- days without Core ever getting a connection to stand up, which is
+         -- what a peer that only ever dialled IN looks like. The star's
+         -- protection against parking hangs on this, so a bad address cannot
+         -- hold one of eight slots forever.
+         EXISTS (SELECT 1 FROM peer_session s WHERE s.peer_id = p.id AND s.connection_type = 'manual') AS everManual,
          (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
             FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
          latest.subver AS client,
@@ -201,6 +209,10 @@ function mapRankingRow(now) {
       // a manual peer that has never once connected has no offlineSinceMs to
       // measure from, so its grace runs from when it was added instead.
       trustedSince: r.trustedSince ?? null,
+      // Protected by hand: the rotation must not displace or park it. Only
+      // meaningful on a manual peer; false everywhere else.
+      kept: Boolean(r.kept),
+      everManual: Boolean(r.everManual),
       eligible: r.eligible,
       first: r.first,
       firstPct: r.eligible > 0 ? (100 * r.first) / r.eligible : null,

@@ -896,7 +896,7 @@ test('the network migration adds the column once and is safe to run again', () =
     )
     .run(peer.id, Date.now());
 
-  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:peer_session_network_v1_15_13');
+  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:peer_session_network_v1_16_0');
   db.runMigrations();
 
   assert.equal(hasColumn(), 1);
