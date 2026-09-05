@@ -3,6 +3,7 @@
 const db = require('./db');
 const config = require('./config');
 const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('./address');
+const { peerScore } = require('./score');
 
 // Core's spelling of the network, turned into the display name this app uses.
 // Only the three it cannot dial get a name; ipv4, ipv6 and
@@ -42,13 +43,65 @@ let peerRankingStmt = null;
  * for the same reason: as derived tables SQLite computed them across the whole
  * of peer_session before the join could discard them again.
  */
+/**
+ * Per-peer totals over the last N races, for the recent half of the peer score.
+ *
+ * Cached against the newest race id, which is the only thing that can change
+ * the answer. Measured on a synthetic four-million-row observation table the
+ * query itself takes about 17ms - fine once per block, wasteful several times
+ * a minute, which is how often the ranking is asked for. Reading MAX(id) to
+ * check is a primary-key lookup and costs nothing.
+ *
+ * Bounded by "the newest N race ids that exist" rather than "MAX(id) minus N",
+ * because deleting the measurement data leaves gaps in the sequence and the
+ * second form would then silently shrink the window.
+ */
+let recentStatsCache = { raceId: null, byPeer: new Map() };
+
+function recentRelayStats() {
+  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
+  if (newest == null) return new Map();
+  if (recentStatsCache.raceId === newest) return recentStatsCache.byPeer;
+
+  const rows = db.instance
+    .prepare(
+      `SELECT peer_id AS peerId, COUNT(*) AS eligible, COALESCE(SUM(first), 0) AS first
+         FROM relay_observation
+        WHERE race_id >= (SELECT MIN(id) FROM (SELECT id FROM relay_race ORDER BY id DESC LIMIT ?))
+        GROUP BY peer_id`,
+    )
+    .all(config.recentScoreWindowBlocks);
+
+  const byPeer = new Map(rows.map((r) => [r.peerId, r]));
+  recentStatsCache = { raceId: newest, byPeer };
+  return byPeer;
+}
+
 function peerRanking() {
   const now = Date.now();
   if (!peerRankingStmt) {
     peerRankingStmt = db.instance.prepare(peerRankingSql());
   }
-  const rows = peerRankingStmt.all({ now });
-  return rows.map(mapRankingRow(now));
+  const recent = recentRelayStats();
+  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent));
+
+  // Ordered here rather than in SQL: the score combines two windows and one of
+  // them is not in that statement. The set is the live peers plus the manual
+  // ones - a couple of hundred rows - so sorting them in JavaScript costs
+  // nothing worth measuring, and the tiebreakers are the same ones the query
+  // used: a peer with any measured record beats one with none, then the lower
+  // ping, then the larger sample, then the address so the order never wobbles
+  // between two identical peers.
+  return rows.sort((a, b) => {
+    const sa = a.score == null ? -1 : a.score;
+    const sb = b.score == null ? -1 : b.score;
+    if (sa !== sb) return sb - sa;
+    const pa = a.minPingMs == null ? Infinity : a.minPingMs;
+    const pb = b.minPingMs == null ? Infinity : b.minPingMs;
+    if (pa !== pb) return pa - pb;
+    if (a.eligible !== b.eligible) return b.eligible - a.eligible;
+    return a.address < b.address ? -1 : a.address > b.address ? 1 : 0;
+  });
 }
 
 function peerRankingSql() {
@@ -139,7 +192,7 @@ function peerRankingSql() {
          p.address ASC`;
 }
 
-function mapRankingRow(now) {
+function mapRankingRow(now, recent = new Map()) {
   return (r) => {
     // "Trusted" isn't only what's in our own trusted_peer table - Core
     // itself reports connection_type 'manual' for ANY addnode'd peer,
@@ -178,6 +231,7 @@ function mapRankingRow(now) {
     // local peer - see the localUmbrelPeer note below, which is what they were
     // being mistaken for.
     const privateNetwork = networkFromCore(r.coreNetwork) ?? unreachableNetwork(r.address);
+    const recentRow = recent.get(r.id);
     // Everything else inside Umbrel's shared internal Docker network isn't
     // an external peer at all - it's another app on the same host (electrs,
     // mempool's indexer, etc.) connecting to Core's P2P port directly, the
@@ -216,6 +270,21 @@ function mapRankingRow(now) {
       eligible: r.eligible,
       first: r.first,
       firstPct: r.eligible > 0 ? (100 * r.first) / r.eligible : null,
+      // The same two counts over the recent window only, and the score that
+      // weighs them against the lifetime pair (see score.js). firstPct stays
+      // exactly what it was - the lifetime rate, shown in the table and used
+      // for everything that asks what a peer has been worth over its life: its
+      // offline grace, how long it is kept parked, how often it is re-probed.
+      // The score answers a different question - who should hold a slot right
+      // now - and only the rotation's ordering uses it.
+      recentEligible: recentRow ? recentRow.eligible : 0,
+      recentFirst: recentRow ? recentRow.first : 0,
+      score: peerScore({
+        first: r.first,
+        eligible: r.eligible,
+        recentFirst: recentRow ? recentRow.first : 0,
+        recentEligible: recentRow ? recentRow.eligible : 0,
+      }),
       live: Boolean(r.liveDirection),
       direction: r.liveDirection,
       connectionType: r.liveConnectionType,
@@ -262,7 +331,10 @@ function mapRankingRow(now) {
  */
 function weakestTrustedPeer(peers) {
   if (!peers || peers.length === 0) return null;
-  const score = (p) => (p.firstPct == null ? -1 : p.firstPct);
+  // The peer score, not the lifetime rate: whose slot to take is a question
+  // about who is worth holding now, and that is what the score is for. A peer
+  // with no record at all still sorts below any measured one.
+  const score = (p) => (p.score == null ? -1 : p.score);
   return peers.reduce((worst, p) => {
     if (score(p) !== score(worst)) return score(p) < score(worst) ? p : worst;
     if (!p.live && worst.live) return p;

@@ -719,20 +719,23 @@ test('liveSummary counts each connection under exactly one heading', () => {
 test('weakestTrustedPeer breaks a tie towards the peer that is not even connected', () => {
   // The documented tiebreak had no coverage: deleting it left the suite green,
   // and eviction then depended on array order in all three callers.
-  const live = { address: 'a:8333', firstPct: 5, live: true };
-  const offline = { address: 'b:8333', firstPct: 5, live: false };
+  //
+  // Ranked on `score` (the blended Wilson figure), not the lifetime rate:
+  // whose slot to take is a question about who is worth holding now.
+  const live = { address: 'a:8333', score: 5, live: true };
+  const offline = { address: 'b:8333', score: 5, live: false };
   assert.equal(queries.weakestTrustedPeer([live, offline]).address, 'b:8333');
   assert.equal(queries.weakestTrustedPeer([offline, live]).address, 'b:8333', 'and not by input order');
 
   // But being offline must never outweigh a genuinely better record - that is
   // what the performance-scaled grace period is for, not this.
-  const strongOffline = { address: 'c:8333', firstPct: 30, live: false };
-  const weakLive = { address: 'd:8333', firstPct: 1, live: true };
+  const strongOffline = { address: 'c:8333', score: 30, live: false };
+  const weakLive = { address: 'd:8333', score: 1, live: true };
   assert.equal(queries.weakestTrustedPeer([strongOffline, weakLive]).address, 'd:8333');
 
   // No record at all sorts below 0%.
   assert.equal(
-    queries.weakestTrustedPeer([{ address: 'e:8333', firstPct: 0, live: true }, { address: 'f:8333', firstPct: null, live: true }]).address,
+    queries.weakestTrustedPeer([{ address: 'e:8333', score: 0, live: true }, { address: 'f:8333', score: null, live: true }]).address,
     'f:8333',
   );
   assert.equal(queries.weakestTrustedPeer([]), null);

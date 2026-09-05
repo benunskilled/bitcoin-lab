@@ -56,6 +56,7 @@ test.afterEach(() => {
     DELETE FROM promoted_peer;
     DELETE FROM peer;
   `);
+  racePool.length = 0;
 });
 
 let addrCounter = 0;
@@ -65,13 +66,26 @@ function nextAddress() {
 }
 
 let raceCounter = 0;
+// Every peer's observations land on the SAME races, growing the pool only when
+// a peer needs more than it already holds.
+//
+// This used to give each peer a private run of races, which cannot happen: a
+// race is one block, and every peer connected at that moment is eligible for
+// it. The difference stayed invisible while nothing looked at *when* an
+// observation happened - and became visible the moment the score gained a
+// recent window, because with private races the newest window belonged
+// entirely to whichever peer was seeded last, and everyone else read as having
+// delivered nothing lately.
+const racePool = [];
 function seedEligibility(peerId, eligible, first) {
   const insertRace = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)');
   const insertObs = db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)');
-  for (let i = 0; i < eligible; i++) {
+  while (racePool.length < eligible) {
     raceCounter += 1;
-    const raceId = insertRace.run(`rotation-race-${raceCounter}`, Date.now()).lastInsertRowid;
-    insertObs.run(raceId, peerId, i < first ? 1 : 0);
+    racePool.push(insertRace.run(`rotation-race-${raceCounter}`, Date.now()).lastInsertRowid);
+  }
+  for (let i = 0; i < eligible; i++) {
+    insertObs.run(racePool[i], peerId, i < first ? 1 : 0);
   }
 }
 

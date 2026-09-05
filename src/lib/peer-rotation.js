@@ -7,6 +7,7 @@ const peerSync = require('./peer-sync');
 const queries = require('./queries');
 const manualPeer = require('./manual-peer');
 const { hostFromAddress } = require('./address');
+const { wilsonLowerBound } = require('./score');
 const logger = require('./logger').make('peer-rotation');
 
 const META_KEY = 'peer_rotation_enabled';
@@ -461,7 +462,28 @@ async function reviveParkedPeers(ranking) {
     let replaced = null;
     if (trusted.length >= config.maxManualPeers) {
       const weakest = weakestTrusted(evictableTrusted(trusted));
-      if (!weakest || !beatsHolder(parked.firstPct, weakest.firstPct)) {
+      // Lifetime against lifetime here, on both sides, rather than the peer
+      // score either side would otherwise be judged by.
+      //
+      // A parked peer has been offline by definition, so it has no recent
+      // window at all - and a peer with an empty window scores exactly its
+      // lifetime figure (see score.js). The parked side is therefore already a
+      // lifetime figure whatever we choose to call it. The holder is the side
+      // that has to be converted: it is live, its window is full, so its score
+      // is what it has done in the last few days and nothing else. Comparing
+      // those two as they stand would not be one peer against another, it
+      // would be one peer's whole life against another's last three days -
+      // and which of the two that flattered would depend on nothing but which
+      // one happened to be parked.
+      //
+      // The counts are reconstructed from what parking stored (a percentage
+      // and a sample size). That loses a fraction of a block to rounding and
+      // decides nothing at this margin.
+      const parkedLifetime = wilsonLowerBound(
+        Math.round(((parked.firstPct || 0) / 100) * (parked.eligible || 0)),
+        parked.eligible || 0,
+      );
+      if (!weakest || !beatsHolder(parkedLifetime, wilsonLowerBound(weakest.first, weakest.eligible))) {
         // Reachable but not worth a slot right now - reset the failure count
         // (it is alive, after all) and leave it parked for a better moment.
         // Also lands here when every slot is still inside its new-peer grace.
@@ -605,7 +627,9 @@ async function promoteBestCandidate(ranking) {
     // Nothing to swap against: maxManualPeers is 0, or every current slot is
     // still inside its new-peer grace and none of them may be displaced yet.
     if (!weakest) continue;
-    if (!beatsHolder(candidate.firstPct, weakest.firstPct)) continue;
+    // The peer score on both sides: who deserves the slot now, weighing what
+    // each has done lately above what it did over its life.
+    if (!beatsHolder(candidate.score, weakest.score)) continue;
 
     await peerSync.removeTrustedPeer(weakest.address);
     // Losing a slot to someone better is not the same as being worthless -
