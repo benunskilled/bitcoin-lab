@@ -323,7 +323,7 @@ test('tick is a complete no-op when the toggle is off', async () => {
 
   const result = await peerRotation.tick();
 
-  assert.deepEqual(result, { enabled: false, kicked: 0, retired: 0, revived: 0, promoted: 0 });
+  assert.deepEqual(result, { enabled: false, kicked: 0, retired: 0, revived: 0, promoted: 0, deduped: 0 });
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n, 0);
 });
@@ -991,4 +991,26 @@ test('re-adding a peer never clears a star that is already set', async () => {
 
   peerSync.setKept(address, false);
   assert.equal(ranking().find((p) => p.address === address)?.kept, false, 'and the control itself works');
+});
+
+test('the rotation drops an inbound session to a host it already holds as manual', async () => {
+  // Doing this once when the peer is added does not hold: the other node
+  // dialled in, and it will dial in again. Every reconnect recreates the pair,
+  // and the pair splits that peer's record over two rows - only the connection
+  // that carried a block is credited with it, so the manual slot reads as
+  // worthless while its twin does the work.
+  peerRotation.setEnabled(true);
+  const disconnects = [];
+  mock.method(rpc, 'disconnectNode', async (target) => { disconnects.push(target); });
+  mock.method(rpc, 'getPeerInfo', async () => [
+    { id: 10, addr: '198.51.100.60:8333', connection_type: 'manual', network: 'ipv4' },
+    { id: 11, addr: '198.51.100.60:49812', connection_type: 'inbound', network: 'ipv4' },
+    { id: 12, addr: '198.51.100.61:41000', connection_type: 'inbound', network: 'ipv4' },
+    { id: 13, addr: '10.21.22.10:52690', connection_type: 'inbound', network: 'onion' },
+  ]);
+
+  const result = await peerRotation.tick();
+
+  assert.equal(result.deduped, 1);
+  assert.deepEqual(disconnects, [11], 'only the twin of a manual peer - not other inbound peers, not Tor');
 });

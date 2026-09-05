@@ -4,6 +4,7 @@ const db = require('./db');
 const rpc = require('./rpc');
 const config = require('./config');
 const queries = require('./queries');
+const { hostFromAddress } = require('./address');
 const logger = require('./logger').make('peer-sync');
 
 /**
@@ -148,6 +149,47 @@ async function adoptExternalManualPeers() {
 // but also the automated peer-rotation loop, which calls addTrustedPeer
 // directly and would otherwise silently reintroduce the exact
 // stuck-connection-type bug this was written to fix.
+// The networks whose peers all arrive under one shared proxy address. Matching
+// by host is what makes this function work at all (see below), and on these it
+// would match every peer on that network at once - disconnecting the lot.
+const SHARED_PROXY_NETWORKS = new Set(['onion', 'i2p', 'cjdns']);
+
+// Every non-manual connection Core currently holds to the same host, with the
+// proxy networks left alone.
+//
+// By host, not by address, and that is the whole fix. An inbound peer is added
+// under the LISTENING address the port probe found (ip:8333), while its live
+// session is reported under the ephemeral port it dialled from
+// (ip:51234) - the two strings never matched, so the disconnect below silently
+// did nothing and the node ended up connected twice: once inbound, once
+// manual. Core credits a delivered block to whichever connection carried it,
+// so the manual slot then measured as worthless while its twin did the work.
+function liveNonManualSessionsForHost(peers, address) {
+  const host = hostFromAddress(address);
+  return peers.filter(
+    (p) => p.connection_type !== 'manual'
+      && !SHARED_PROXY_NETWORKS.has(String(p.network || '').toLowerCase())
+      && hostFromAddress(p.addr) === host,
+  );
+}
+
+async function disconnectSession(peer) {
+  try {
+    // By Core's own peer id where it has one: the address of an inbound
+    // session carries an ephemeral port, and passing that back is one more
+    // place for the two spellings of the same peer to disagree.
+    await rpc.disconnectNode(typeof peer.id === 'number' ? peer.id : peer.addr);
+    logger.info('disconnected a non-manual session to the same host', {
+      address: peer.addr,
+      previousType: peer.connection_type,
+    });
+    return true;
+  } catch (err) {
+    logger.warn('failed to disconnect a session', { address: peer.addr, error: err.message });
+    return false;
+  }
+}
+
 async function disconnectIfLiveNonManual(address) {
   let peers = [];
   try {
@@ -157,19 +199,35 @@ async function disconnectIfLiveNonManual(address) {
     logger.debug('getpeerinfo failed while checking for a live non-manual session', { address, error: err.message });
     return;
   }
-  const existing = peers.find((p) => p.addr === address);
-  if (!existing || existing.connection_type === 'manual') return;
-  try {
-    await rpc.disconnectNode(address);
-    logger.info('disconnected existing non-manual session to free its slot before adding as manual', {
-      address,
-      previousType: existing.connection_type,
-    });
-  } catch (err) {
-    // Not fatal - addnode below still queues it, Core just won't get a free
-    // slot as quickly as it could have.
-    logger.warn('failed to disconnect existing session before manual-add', { address, error: err.message });
+  for (const peer of liveNonManualSessionsForHost(peers, address)) {
+    // eslint-disable-next-line no-await-in-loop
+    await disconnectSession(peer);
   }
+}
+
+/**
+ * Drops inbound sessions to hosts this node already holds as manual peers.
+ *
+ * Doing it once when the peer is added is not enough: the other node dialled
+ * in, and it will dial in again. Every reconnect recreates the pair, and the
+ * pair is not harmless - the two connections split that peer's record between
+ * two rows, and only whichever one carried a block is credited with it.
+ *
+ * Runs from the rotation pass, on the peer info it already has.
+ */
+async function dropDuplicateInboundSessions(peers) {
+  const manualHosts = new Set(
+    peers.filter((p) => p.connection_type === 'manual').map((p) => hostFromAddress(p.addr)),
+  );
+  let dropped = 0;
+  for (const peer of peers) {
+    if (peer.connection_type === 'manual') continue;
+    if (SHARED_PROXY_NETWORKS.has(String(peer.network || '').toLowerCase())) continue;
+    if (!manualHosts.has(hostFromAddress(peer.addr))) continue;
+    // eslint-disable-next-line no-await-in-loop
+    if (await disconnectSession(peer)) dropped += 1;
+  }
+  return dropped;
 }
 
 /**
@@ -228,7 +286,21 @@ async function addTrustedPeer(address, label, options = {}) {
     }
   }
 
-  // The one step that can be refused, done before anything is at stake.
+  // Before the addnode, not after it, and this is a deliberate trade. Core
+  // will not open an outbound connection to a host it is already connected to,
+  // so with the inbound session still up the addnode entry is accepted and
+  // then simply never dials - the slot is spent on a connection that does not
+  // exist. Clearing the way first is the only order that actually produces a
+  // manual connection to a peer that dialled in.
+  //
+  // What it costs: if the addnode below is then refused, a live connection was
+  // dropped for nothing. That is a real regression against the old order, and
+  // it is accepted because the old order did not work for this case at all.
+  // The exposure is small - this runs only when there IS such a session, and
+  // the handshake that found the listening address ran moments earlier.
+  await disconnectIfLiveNonManual(address);
+
+  // The one step that can be refused.
   try {
     await rpc.addNode(address, 'add');
   } catch (err) {
@@ -283,8 +355,6 @@ async function addTrustedPeer(address, label, options = {}) {
       max: config.maxManualPeers,
     });
   }
-
-  await disconnectIfLiveNonManual(address);
 
   return {
     ok: true,
@@ -385,5 +455,6 @@ module.exports = {
   addTrustedPeer,
   removeTrustedPeer,
   disconnectIfLiveNonManual,
+  dropDuplicateInboundSessions,
   parkPeer,
 };
