@@ -156,7 +156,6 @@ function setBlockHeight(height) {
   heightEl.textContent = height.toLocaleString();
   if (lastKnownHeight != null && height > lastKnownHeight) {
     heightEl.classList.remove('bump');
-    // eslint-disable-next-line no-void
     void heightEl.offsetWidth; // restart the CSS transition
     heightEl.classList.add('bump');
   }
@@ -166,7 +165,6 @@ function setBlockHeight(height) {
 function triggerBlockWave() {
   const wave = document.getElementById('block-wave');
   wave.classList.remove('roll');
-  // eslint-disable-next-line no-void
   void wave.offsetWidth; // restart the CSS animation
   wave.classList.add('roll');
 }

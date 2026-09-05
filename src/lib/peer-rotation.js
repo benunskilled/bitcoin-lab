@@ -170,7 +170,6 @@ async function kickDeadWeight(ranking) {
   let kicked = 0;
   for (const peer of candidates) {
     try {
-      // eslint-disable-next-line no-await-in-loop
       await rpc.disconnectNode(peer.address);
       kicked += 1;
       logAction({
@@ -317,7 +316,6 @@ async function retireOfflineManualPeers(ranking) {
     const grace = offlineGraceMs(peer.firstPct);
     if (offlineMs < grace) continue;
 
-    // eslint-disable-next-line no-await-in-loop
     await peerSync.removeTrustedPeer(peer.address);
     const parked = peerSync.parkPeer(peer);
     retired += 1;
@@ -444,7 +442,6 @@ async function reviveParkedPeers(ranking) {
     if (parked.lastProbeAt != null && now - parked.lastProbeAt < wait) continue;
 
     const { addr, port } = manualPeer.resolveHostPort(parked.address);
-    // eslint-disable-next-line no-await-in-loop
     const reachable = port != null ? await manualPeer.probePort(addr, port) : false;
 
     if (!reachable) {
@@ -471,7 +468,6 @@ async function reviveParkedPeers(ranking) {
         db.instance.prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`).run(now, parked.address);
         continue;
       }
-      // eslint-disable-next-line no-await-in-loop
       await peerSync.removeTrustedPeer(weakest.address);
       peerSync.parkPeer(weakest);
       trusted.splice(trusted.indexOf(weakest), 1);
@@ -479,7 +475,6 @@ async function reviveParkedPeers(ranking) {
     }
 
     const label = parked.label || `back from parking (${fmtPct(parked.firstPct)} first)`;
-    // eslint-disable-next-line no-await-in-loop
     const result = await peerSync.addTrustedPeer(parked.address, label);
     if (!result.ok) {
       // The peer answered - this is not a probe failure, so the backoff must
@@ -574,7 +569,6 @@ async function promoteBestCandidate(ranking) {
   );
 
   for (const candidate of candidates) {
-    // eslint-disable-next-line no-await-in-loop
     const resolved = await resolveDialableAddress(candidate);
     if (!resolved) continue; // e.g. an inbound peer that isn't actually listening - try the next-best candidate
 
@@ -591,7 +585,6 @@ async function promoteBestCandidate(ranking) {
     const label = `auto-promoted (${candidate.firstPct.toFixed(1)}% first)`;
 
     if (trusted.length < config.maxManualPeers) {
-      // eslint-disable-next-line no-await-in-loop
       const result = await peerSync.addTrustedPeer(resolved, label);
       if (!result.ok) {
         logger.warn('rotation: promotion refused', { address: resolved, error: result.error });
@@ -614,13 +607,11 @@ async function promoteBestCandidate(ranking) {
     if (!weakest) continue;
     if (!beatsHolder(candidate.firstPct, weakest.firstPct)) continue;
 
-    // eslint-disable-next-line no-await-in-loop
     await peerSync.removeTrustedPeer(weakest.address);
     // Losing a slot to someone better is not the same as being worthless -
     // park it, so if a slot frees up later this peer's real track record
     // counts for more than a randomly discovered stranger's.
     peerSync.parkPeer(weakest);
-    // eslint-disable-next-line no-await-in-loop
     const swapped = await peerSync.addTrustedPeer(resolved, label);
     if (!swapped.ok) {
       logger.warn('rotation: swap refused after freeing the slot', { address: resolved, error: swapped.error });

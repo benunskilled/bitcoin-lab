@@ -148,7 +148,6 @@ class StratumPoolConnection extends EventEmitter {
   _handleChunk(chunk, receivedAtHr) {
     this.buffer += chunk.toString('utf8');
     let idx;
-    // eslint-disable-next-line no-cond-assign
     while ((idx = this.buffer.indexOf('\n')) >= 0) {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);

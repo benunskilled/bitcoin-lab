@@ -129,7 +129,6 @@ async function probePeer(rawInput) {
  */
 async function findListeningAddress(host) {
   for (const port of config.manualPeerPorts) {
-    // eslint-disable-next-line no-await-in-loop
     const reachable = await probePort(host, port);
     if (reachable) return formatAddress(host, port);
   }

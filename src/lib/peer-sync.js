@@ -200,7 +200,6 @@ async function disconnectIfLiveNonManual(address) {
     return;
   }
   for (const peer of liveNonManualSessionsForHost(peers, address)) {
-    // eslint-disable-next-line no-await-in-loop
     await disconnectSession(peer);
   }
 }
@@ -224,7 +223,6 @@ async function dropDuplicateInboundSessions(peers) {
     if (peer.connection_type === 'manual') continue;
     if (SHARED_PROXY_NETWORKS.has(String(peer.network || '').toLowerCase())) continue;
     if (!manualHosts.has(hostFromAddress(peer.addr))) continue;
-    // eslint-disable-next-line no-await-in-loop
     if (await disconnectSession(peer)) dropped += 1;
   }
   return dropped;
