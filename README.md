@@ -78,36 +78,59 @@ A new block is detected **only** over Core's ZMQ `pubhashblock` topic and
 timestamped before anything else happens, so no RPC call sits on the timing path.
 One `getpeerinfo` snapshot follows. Every peer connected at that moment counts as
 **Eligible**; the one that actually delivered the block counts as **First**.
-Lifetime `First / Eligible` is the ranking key.
+
+The rank comes from the last 500 blocks — about three and a half days. Within
+that window it is `First / Eligible`, taken as a Wilson lower bound, so four
+blocks out of fifty cannot outrank sixty out of nine hundred. A peer that has
+not been connected for all 500 yet is judged on its whole record for the part
+of the window it missed. Nothing is discarded: the lifetime figures stay in the
+table and on the page, they just no longer decide the order.
 
 ### What it looks like after a while
 
-My eight manual slots after four days of this. My node listens, so these
-eight compete with everything that dials in:
+My eight manual slots after a week of this. My node listens, so these eight
+compete with everything that dials in:
 
 ```
                 First %      blocks     ping
-peer 1           39.0 %     188/482    16 ms
-peer 2           23.4 %     132/563    18 ms
-peer 3           12.7 %      72/569    21 ms
-peer 4           10.0 %      57/569    99 ms
-peer 5            5.3 %      30/568    20 ms
-peer 6            1.1 %       3/273    22 ms
-peer 7            1.0 %       4/419    16 ms
-peer 8            0.6 %       3/500   123 ms
+peer 1           37.6 %     355/945    16 ms
+peer 2           21.2 %    217/1023    14 ms
+peer 3           17.6 %      15/85     33 ms
+peer 4           17.3 %    177/1026    17 ms
+peer 5            6.0 %     62/1031    99 ms
+peer 6            5.0 %      12/240    19 ms
+peer 7            4.5 %     46/1031    17 ms
+peer 8            0.5 %       3/573    21 ms
 ```
 
-489 of the 569 blocks recorded — six in seven — reached me through one of these
-eight, with around 200 inbound peers connected the whole time. Core connected me
-to all of them. Four days of measuring decided which eight stayed.
+886 of the 1,032 blocks recorded — six in seven — reached me through one of
+these eight, with 208 peers connected. Core connected me to all of them. A week
+of measuring decided which eight stayed.
+
+Peers 3 and 4 look tied at 17.6% and 17.3%. They are not: one has 85 blocks
+behind it, the other 1,026. As a Wilson lower bound they separate cleanly, 11.0
+against 15.1, and the ranking sorts them that way round. The table shows what
+each peer has done; the ranking shows how much of it can be relied on.
 
 The ping is not what counts. Where a peer sits relative to where blocks are made
 is — and a peer that sits close today will probably still sit close tomorrow.
+
+Every number here comes from one node: a first-gen Lenovo ThinkCentre with an
+i7, running Umbrel, listening on IPv4 and IPv6 with Tor and I2P enabled and
+`maxconnections=200`. Worth knowing, and it cuts the other way than you might
+expect: with two hundred connections competing to deliver each block, the eight
+manual ones still delivered six in seven. A node with ten outbound peers has
+less to choose from, not more.
 
 ## What you can do about it
 
 Two moves. You can make them yourself on the dashboard, or switch the rotation on
 and let it make them for you.
+
+The eight is Core's own limit, not this app's. And on almost every node all
+eight sit empty, because Core never uses `addnode` by itself — these are not
+places to take from someone, they are connections you already have and are not
+using.
 
 - **Keep a good peer.** It is registered via `addnode`, so Core holds on to it
   instead of letting it rotate away — up to 8 such connections
@@ -115,6 +138,12 @@ and let it make them for you.
   connections and you chose eight of them.
 - **Drop a peer that never delivers.** Core replaces a dropped *outbound*
   connection with a fresh random one, which then gets ranked the same way.
+- **Protect a peer from the rotation.** Anything you add by hand comes in
+  protected — that is the star in the peer list — and the rotation leaves it
+  alone: it is neither displaced by a better peer nor parked when it goes
+  offline. Click the star to release it. It is still measured and still ranked,
+  it is only exempt from being swapped. With all eight starred the rotation has
+  nothing left to promote.
 
 Inbound peers are ranked too, and can be promoted — by you, or by the rotation,
 which tests them the same way it tests anyone else. Their `getpeerinfo` address
@@ -130,13 +159,17 @@ from zero.
 Bitcoin Node → Settings → **Outgoing Peer Connections**. Three toggles —
 Clearnet, Tor, I2P — and all three are on by default. **Leave only Clearnet on.**
 
-A Tor peer is in practice never first — clearnet is simply faster. So every
-outbound slot Core fills over Tor is a slot that will not win and cannot be
-promoted either: this app dials out over plain TCP, with no Tor proxy, no I2P
-bridge and no CJDNS interface, so there is no address to call back on.
+An I2P peer is in practice never first. Measured here: 335 I2P peers were
+connected for 2,659 blocks and delivered none of them. Tor is the same argument
+with none of the evidence — slower than clearnet for the same reasons, but this
+node has not measured it, so treat that as an expectation rather than a number.
 
-Inbound connections over Tor or I2P are fine either way — those peers connected
-to you, and they rank normally.
+Either way, an outbound slot Core fills over Tor or I2P is one this app cannot
+promote: it dials out over plain TCP, with no Tor proxy, no I2P bridge and no
+CJDNS interface, so there is no address to call back on.
+
+Inbound connections over Tor or I2P are fine — those peers connected to you,
+and they rank normally.
 
 ## Listening, or not
 
@@ -311,6 +344,7 @@ example).
 | `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `50` |
 | `NEW_MANUAL_PEER_GRACE_BLOCKS` | Blocks a newly added manual peer cannot be displaced for | `50` |
 | `MIN_SWAP_MARGIN_PCT` | How much better a challenger must be, in points of First %, to take a slot | `0.2` |
+| `RECENT_SCORE_WINDOW_BLOCKS` | Blocks the ranking judges a peer on, once it has been around for all of them | `500` |
 | `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" | `30` |
 | `OFFLINE_GRACE_MIN_HOURS` | Shortest an offline manual peer keeps its slot, whatever its record | `1` |
 | `OFFLINE_GRACE_MAX_HOURS` | Longest, however good its record | `24` |
