@@ -99,6 +99,22 @@ module.exports = {
   // to do.
   minSwapMarginPct: Number(pick(process.env.MIN_SWAP_MARGIN_PCT, '0.2')),
 
+  // How many of the most recent blocks count as "lately" for the peer score
+  // (see score.js). Once a peer has been eligible for this many, its score is
+  // that window alone; below it, the lifetime figure fills in the rest.
+  //
+  // 500 blocks is roughly three and a half days - long enough that a peer
+  // delivering nothing across it means something, short enough to notice a
+  // routing change while it still matters. Below a couple of hundred the
+  // window stops distinguishing a bad week from a dead peer; far above a
+  // thousand it stops being "lately" at all.
+  //
+  // This is also the only number left to get wrong here. There used to be a
+  // second one, a weight deciding how far the recent window outranked the
+  // lifetime record, and it was a knob with no defensible setting - see the
+  // comment in score.js for how it failed the exact case it was added for.
+  recentScoreWindowBlocks: Number(pick(process.env.RECENT_SCORE_WINDOW_BLOCKS, '500')),
+
   // How long a manual peer may stay offline before the rotation loop gives its
   // slot to someone else.
   //
