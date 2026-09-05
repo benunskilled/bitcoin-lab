@@ -361,6 +361,18 @@ async function router(req, res, pathname, url) {
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
+  // The star. Sets or clears the protection on a manual peer and nothing
+  // else - no disconnect, no addnode, no change to its record. Deliberately
+  // its own route rather than a flag on add-manual: taking the star off is a
+  // decision of its own, and it happens long after the peer was added.
+  if (req.method === 'POST' && pathname === '/api/peers/keep') {
+    const { address, kept } = await readBody(req);
+    if (!address) return sendJson(res, 400, { error: 'address required' });
+    const changed = peerSync.setKept(address, Boolean(kept));
+    if (!changed) return sendJson(res, 404, { error: 'not a manual peer' });
+    return sendJson(res, 200, { ok: true, address, kept: Boolean(kept) });
+  }
+
   if (req.method === 'GET' && pathname === '/api/rotation') {
     return sendJson(res, 200, {
       enabled: peerRotation.isEnabled(),

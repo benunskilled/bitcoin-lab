@@ -64,7 +64,10 @@ async function manualAddPeer(rawInput, label) {
   // capacity, free a slot rather than writing a ninth row Core will never be
   // told about. The response names what was dropped - a silent eviction of a
   // peer the user spent days earning would be far worse than a refusal.
-  const result = await peerSync.addTrustedPeer(probed.address, label, { evictToFit: true });
+  // Every path into this function is a person typing an address in, so the
+  // star goes on. The rotation never comes through here - it calls
+  // addTrustedPeer directly and leaves the star off.
+  const result = await peerSync.addTrustedPeer(probed.address, label, { evictToFit: true, kept: true });
   if (!result.ok) {
     return { ok: false, address: probed.address, error: result.error };
   }

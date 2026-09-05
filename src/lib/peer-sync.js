@@ -199,7 +199,11 @@ async function disconnectIfLiveNonManual(address) {
  * it must not silently get a second, laxer eviction path underneath it.
  */
 async function addTrustedPeer(address, label, options = {}) {
-  const { evictToFit = false } = options;
+  // `kept` is the star: set for anything a person typed in, unset for anything
+  // the rotation promoted. Typing an address in is already the decision - the
+  // loop's own promotions are not, and must stay swappable or it would freeze
+  // itself out of every slot it ever filled.
+  const { evictToFit = false, kept = false } = options;
   const alreadyTrusted = Boolean(
     db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address),
   );
@@ -241,8 +245,17 @@ async function addTrustedPeer(address, label, options = {}) {
   }
 
   db.instance
-    .prepare(`INSERT INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?) ON CONFLICT(address) DO UPDATE SET label = excluded.label`)
-    .run(address, label || null, Date.now());
+    .prepare(
+      `INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(address) DO UPDATE SET label = excluded.label,
+       -- Re-adding by hand can set the star, but re-adding must never CLEAR
+       -- one: the rotation calls this too (adopting a peer Core already knows,
+       -- reviving a parked one), and those calls pass kept=false. Taking the
+       -- star off is the star's own control, not a side effect of something
+       -- else touching the row.
+       kept = CASE WHEN excluded.kept = 1 THEN 1 ELSE trusted_peer.kept END`,
+    )
+    .run(address, label || null, kept ? 1 : 0, Date.now());
 
   // A manual peer must exist in `peer` too, even if Core has never reported a
   // session for it. peerRanking() is driven FROM peer, so without this row the
@@ -346,8 +359,28 @@ async function removeTrustedPeer(address) {
   }
 }
 
+/**
+ * Turns the star on or off for a manual peer. Nothing else changes: the peer
+ * keeps its slot, its record and its connection either way. Off simply means
+ * the rotation may consider it again from the next pass on - no fresh grace
+ * period, no exception, exactly as if the star had never been set.
+ *
+ * Returns false for an address that is not a manual peer, so the caller can
+ * say so rather than silently doing nothing.
+ */
+function setKept(address, kept) {
+  const result = db.instance
+    .prepare(`UPDATE trusted_peer SET kept = ? WHERE address = ?`)
+    .run(kept ? 1 : 0, address);
+  if (result.changes > 0) {
+    logger.info(kept ? 'peer protected from rotation' : 'protection removed, peer is rotatable again', { address });
+  }
+  return result.changes > 0;
+}
+
 module.exports = {
   syncTrustedToAddnode,
+  setKept,
   adoptExternalManualPeers,
   addTrustedPeer,
   removeTrustedPeer,
