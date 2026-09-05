@@ -73,7 +73,6 @@ function start({ url, logger, onBlock, reconnectDelayMs = 5000 }) {
         try { sock.close(); } catch { /* already closed */ }
       }
       if (stopped) break;
-      // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => setTimeout(resolve, reconnectDelayMs));
     }
   })();
