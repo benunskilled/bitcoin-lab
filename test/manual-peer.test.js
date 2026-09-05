@@ -44,7 +44,7 @@ function withListeningPort() {
   });
 }
 
-test('Add as Manual disconnects an already-connected non-manual session, but only once the peer is really manual', async () => {
+test('Add as Manual clears an existing non-manual session before the addnode, not after', async () => {
   const { server, port } = await withListeningPort();
   const address = `127.0.0.1:${port}`;
   try {
@@ -56,10 +56,18 @@ test('Add as Manual disconnects an already-connected non-manual session, but onl
     const result = await manualAddPeer(address, 'test peer');
 
     assert.equal(result.ok, true);
-    // The order is the point. Disconnecting drops a working connection and
-    // relies on Core dialling back, so it must never happen speculatively -
-    // only after the addnode that makes the peer manual has been accepted.
-    assert.deepEqual(calls, [`addnode add ${address}`, `disconnect ${address}`]);
+    // The order is the point, and it is the opposite of what it used to be.
+    // Core will not open an outbound connection to a host it is already
+    // connected to, so an addnode issued while the old session is still up is
+    // accepted and then never dials: the slot is spent on a connection that
+    // does not exist. Clearing the way first is the only order that actually
+    // produces a manual connection to a peer that dialled in - which is the
+    // case this whole path exists for.
+    //
+    // The cost is real and accepted: a refused addnode now leaves the old
+    // connection dropped (see the refusal test below). The old order avoided
+    // that and did not work.
+    assert.deepEqual(calls, [`disconnect ${address}`, `addnode add ${address}`]);
     const row = db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(address);
     assert.ok(row, 'the peer must still end up persisted as trusted after the disconnect');
   } finally {
@@ -293,7 +301,7 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
   }
 });
 
-test('a refused addnode leaves no trusted row behind and never disconnects the peer', async () => {
+test('a refused addnode leaves no trusted row behind, and the dropped session is the price', async () => {
   const { server, port } = await withListeningPort();
   const address = `127.0.0.1:${port}`;
   try {
@@ -306,7 +314,15 @@ test('a refused addnode leaves no trusted row behind and never disconnects the p
 
     assert.equal(result.ok, false);
     assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 0);
-    assert.deepEqual(disconnects, [], 'the peer never became manual, so its connection is not ours to drop');
+    // Nothing of ours moved - no row, no eviction. But the old session is
+    // gone, and that is a genuine regression against the previous order,
+    // written down here rather than left to be rediscovered: clearing the way
+    // has to happen before the addnode or the addnode does not produce a
+    // connection at all, so a refusal after it costs the connection. It is
+    // bounded - this only runs when such a session exists, moments after a
+    // successful handshake to the same host - and the peer dialled in once,
+    // so it will dial in again.
+    assert.deepEqual(disconnects, [address], 'the way was cleared before the addnode was refused');
   } finally {
     server.close();
   }
@@ -324,6 +340,55 @@ test('"Node already added" is the state we wanted, not a failure', async () => {
 
     assert.equal(result.ok, true);
     assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test('an inbound session is found by host, not by its ephemeral address', async () => {
+  // The bug this replaced. An inbound peer is added under the LISTENING
+  // address the probe found, while its live session is reported under the
+  // port it dialled from. Comparing the two strings never matched, so nothing
+  // was disconnected and the node ended up connected twice to the same peer:
+  // once inbound, once manual - with Core crediting delivered blocks to
+  // whichever connection carried them, so the manual slot measured as
+  // worthless while its twin did the work.
+  const { server, port } = await withListeningPort();
+  const address = `127.0.0.1:${port}`;
+  try {
+    mock.method(rpc, 'getPeerInfo', async () => [
+      { id: 41, addr: '127.0.0.1:51234', connection_type: 'inbound', network: 'ipv4' },
+    ]);
+    const disconnects = [];
+    mock.method(rpc, 'disconnectNode', async (target) => { disconnects.push(target); });
+    mock.method(rpc, 'addNode', async () => {});
+
+    await manualAddPeer(address);
+
+    assert.deepEqual(disconnects, [41], 'by Core\'s own peer id, so the two spellings cannot disagree again');
+  } finally {
+    server.close();
+  }
+});
+
+test('peers on a shared proxy network are never matched by host', async () => {
+  // Every inbound Tor peer arrives from the same address - Umbrel's Tor
+  // container. Matching by host there would disconnect the entire network's
+  // worth of peers in one go, which is the accident this guard exists for.
+  const { server, port } = await withListeningPort();
+  const address = `127.0.0.1:${port}`;
+  try {
+    mock.method(rpc, 'getPeerInfo', async () => [
+      { id: 1, addr: '127.0.0.1:52690', connection_type: 'inbound', network: 'onion' },
+      { id: 2, addr: '127.0.0.1:52691', connection_type: 'inbound', network: 'i2p' },
+    ]);
+    const disconnects = [];
+    mock.method(rpc, 'disconnectNode', async (target) => { disconnects.push(target); });
+    mock.method(rpc, 'addNode', async () => {});
+
+    await manualAddPeer(address);
+
+    assert.deepEqual(disconnects, [], 'they share one address and are not the peer being added');
   } finally {
     server.close();
   }

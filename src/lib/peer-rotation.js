@@ -671,7 +671,20 @@ async function promoteBestCandidate(ranking) {
  * anything - so a stale snapshot can cost a tick, never a broken invariant.
  */
 async function tick() {
-  if (!isEnabled()) return { enabled: false, kicked: 0, retired: 0, revived: 0, promoted: 0 };
+  if (!isEnabled()) return { enabled: false, kicked: 0, retired: 0, revived: 0, promoted: 0, deduped: 0 };
+  // Before anything else: a host held as a manual peer that is ALSO connected
+  // inbound. The other node dialled in and will dial in again, so clearing
+  // this once when the peer was added does not hold. Left alone, the pair
+  // splits that peer's record over two rows and only the connection that
+  // carried a block is credited with it - so the manual slot reads as
+  // worthless while its twin does the work, and the loop would eventually
+  // draw exactly the wrong conclusion from that.
+  let deduped = 0;
+  try {
+    deduped = await peerSync.dropDuplicateInboundSessions(await rpc.getPeerInfo());
+  } catch (err) {
+    logger.debug('could not check for duplicate inbound sessions', { error: err.message });
+  }
   const ranking = queries.peerRanking();
   const kicked = await kickDeadWeight(ranking);
   const retired = await retireOfflineManualPeers(ranking);
@@ -679,7 +692,7 @@ async function tick() {
   const revived = await reviveParkedPeers(stillTrusted);
   // One peer joins the manual set per tick, at most. A revival already used it.
   const promoted = revived > 0 ? 0 : await promoteBestCandidate(stillTrusted);
-  return { enabled: true, kicked, retired, revived, promoted };
+  return { enabled: true, kicked, retired, revived, promoted, deduped };
 }
 
 function parkedPeers() {
