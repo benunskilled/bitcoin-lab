@@ -12,6 +12,29 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      # Keep going when one version fails: which versions pass and which do not
+      # is the whole point of testing more than one.
+      fail-fast: false
+      matrix:
+        # package.json allows >=22, so testing 22 alone tested the floor and
+        # nothing else. Both runtime dependencies are native modules
+        # (better-sqlite3, zeromq), which are the most likely thing to break on
+        # a new major - and that break would otherwise surface on a user's
+        # node, on an architecture nobody here builds on, weeks later.
+        node-version: ['22', '24']
+    name: Node ${{ matrix.node-version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  audit:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,4 +42,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm test
+      # Reported, not enforced, and in its own job: an advisory in a transitive
+      # dependency should show as its own mark rather than hide a real test
+      # failure, and a project with two dependencies should look at one and
+      # decide - not have every build blocked by something it cannot act on.
+      - run: npm audit --audit-level=moderate || true
