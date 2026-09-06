@@ -249,11 +249,27 @@ function mapRankingRow(now, recent = new Map()) {
       && privateNetwork == null
       && ipv4Host != null
       && ipv4InCidr(ipv4Host, config.umbrelInternalNetworkCidr);
+    // The same range, but for a peer Core has already named as Tor, I2P or
+    // CJDNS: it dialled IN through this Umbrel's own proxy container, so the
+    // address Core reports is that container's. Real, and useless - it names
+    // a neighbour of ours, not the peer. An OUTBOUND connection on one of
+    // those networks carries the address Core dialled (a .onion, say), which
+    // IS the peer's own and worth showing, so the range test separates them.
+    //
+    // Without this the row fell through to its raw address. That is not the
+    // old mislabelling - the network comes from Core now, so it is no longer
+    // filed as a local app - but a bare 10.21.22.10:57844 tells a reader
+    // nothing, and the only place the word Tor appeared was a note over in
+    // the actions column.
+    const proxiedPrivatePeer = privateNetwork != null
+      && ipv4Host != null
+      && ipv4InCidr(ipv4Host, config.umbrelInternalNetworkCidr);
     return {
       address: r.address,
       sourceObscured,
       localUmbrelPeer,
       privateNetwork,
+      proxiedPrivatePeer,
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       trusted,
       trustedLabel: r.trustedLabel,
