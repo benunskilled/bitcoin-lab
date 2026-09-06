@@ -25,6 +25,11 @@ const highlightUntil = new Map();
 let lastRaceId = null; // null = "haven't loaded the latest race yet", not "no races"
 let lastKnownHeight = null;
 let MAX_MANUAL_PEERS = 8; // overwritten from /api/status once loaded (config.maxManualPeers)
+// The window the ranking judges a peer on, in blocks. Overwritten from
+// /api/status (config.recentScoreWindowBlocks) rather than hardcoded, because
+// it names a number in a column heading and a heading that lies about the
+// window is worse than one that omits it.
+let RECENT_WINDOW_BLOCKS = null;
 
 async function api(path, options) {
   const res = await fetch(path, {
@@ -92,6 +97,12 @@ function truncatedCell(text) {
 async function refreshStatus() {
   const s = await api('/api/status');
   if (s.maxManualPeers) MAX_MANUAL_PEERS = s.maxManualPeers;
+  if (s.recentScoreWindowBlocks && s.recentScoreWindowBlocks !== RECENT_WINDOW_BLOCKS) {
+    RECENT_WINDOW_BLOCKS = s.recentScoreWindowBlocks;
+    for (const th of document.querySelectorAll('.js-first-pct-head')) {
+      th.textContent = `First % (last ${RECENT_WINDOW_BLOCKS})`;
+    }
+  }
   // The peer count comes from SQLite and the block height from a Bitcoin
   // Core RPC call. Tying them together meant a single RPC hiccup (Core
   // restarting, still in IBD, a timeout) replaced a perfectly good peer
@@ -296,9 +307,32 @@ function sessionCell(p) {
 // Single combined "how good is this peer" column: percentage first, with
 // the raw first/eligible counts as a tooltip - replaces the previous
 // separate First/Elig + First % columns (redundant, and wasted width).
+/**
+ * The rate over the window the ranking actually sorts by - not the lifetime
+ * rate it used to show.
+ *
+ * Showing one number in a table ordered by a different one made the order look
+ * broken, and there was no way to check it from the page: two manual peers sat
+ * at 21.2% and 37.5%, in that order, because over the last five hundred blocks
+ * they were 33.8% and 33.4% - level, and in exactly the order shown. The
+ * deciding number appeared nowhere.
+ *
+ * The lifetime pair is not dropped, it moves into the tooltip. It is still the
+ * right number for what a peer has been worth over its life, and it is still
+ * what the offline grace, the parking retention and the re-probe interval are
+ * scaled by - so the parked table and the rotation log keep showing it.
+ */
 function firstPctCell(p) {
-  const pctText = fmtPct(p.firstPct);
-  return `<td title="${p.first} of ${p.eligible} eligible blocks">${pctText}<span class="hint"> (${p.first}/${p.eligible})</span></td>`;
+  const windowed = p.recentEligible > 0;
+  const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
+  const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
+  const lifetime = p.eligible > 0
+    ? `Over its whole record: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible}).`
+    : 'No lifetime record yet.';
+  const title = windowed
+    ? `${p.recentFirst} of the ${p.recentEligible} blocks this peer was connected for inside the ranking window. ${lifetime}`
+    : `${p.first} of ${p.eligible} eligible blocks`;
+  return `<td title="${escapeHtml(title)}">${fmtPct(pct)}<span class="hint"> (${counts})</span></td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -346,6 +380,14 @@ function addressCell(p) {
   if (p.localUmbrelPeer) {
     const label = p.localAppName ? `Local Umbrel app: ${p.localAppName}` : 'Local Umbrel app';
     return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - another app container on this Umbrel connecting to Bitcoin Core's P2P port directly, not an external peer.">${escapeHtml(label)}</td>`;
+  }
+  // A Tor / I2P / CJDNS peer that dialled in reaches Core through this
+  // Umbrel's own proxy container, so the address Core reports belongs to that
+  // container, not to the peer. It used to be shown raw, which named a
+  // neighbour of ours and said nothing about the peer - the word Tor appeared
+  // only as a note in the actions column, at the far end of the row.
+  if (p.proxiedPrivatePeer) {
+    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - this peer reached your node over ${escapeHtml(p.privateNetwork)}, so the address Bitcoin Core sees is your own ${escapeHtml(p.privateNetwork)} proxy's, not the peer's. Its real address is never visible to Core.">${escapeHtml(p.privateNetwork)} peer</td>`;
   }
   return truncatedCell(p.address);
 }

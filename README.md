@@ -92,25 +92,34 @@ My eight manual slots after a week of this. My node listens, so these eight
 compete with everything that dials in:
 
 ```
-                First %      blocks     ping
-peer 1           37.6 %     355/945    16 ms
-peer 2           21.2 %    217/1023    14 ms
-peer 3           17.6 %      15/85     33 ms
-peer 4           17.3 %    177/1026    17 ms
-peer 5            6.0 %     62/1031    99 ms
-peer 6            5.0 %      12/240    19 ms
-peer 7            4.5 %     46/1031    17 ms
-peer 8            0.5 %       3/573    21 ms
+             First % (last 500)     ping
+peer 1          33.8 %   166/491    14 ms
+peer 2          33.4 %   167/500    17 ms
+peer 3          17.2 %     15/87    35 ms
+peer 4          10.8 %    54/500    17 ms
+peer 5           5.0 %    12/242    19 ms
+peer 6           3.2 %    16/500    18 ms
+peer 7           1.0 %     5/499   100 ms
+peer 8           0.6 %     2/337    24 ms
 ```
 
 886 of the 1,032 blocks recorded — six in seven — reached me through one of
 these eight, with 208 peers connected. Core connected me to all of them. A week
 of measuring decided which eight stayed.
 
-Peers 3 and 4 look tied at 17.6% and 17.3%. They are not: one has 85 blocks
-behind it, the other 1,026. As a Wilson lower bound they separate cleanly, 11.0
-against 15.1, and the ranking sorts them that way round. The table shows what
-each peer has done; the ranking shows how much of it can be relied on.
+The top two are the reason the window exists. Over their whole records they
+read 21.2% and 37.5%, which looks like a rout; over the last 500 blocks they
+are level. Whatever the first one was doing a week ago, it is delivering a
+third of my blocks today, and that is the question worth answering.
+
+It demotes as readily. Peer 7 has delivered 6.0% across its whole record and
+1.0% across the last 500 blocks — a month it can no longer repeat. A lifetime
+ranking would still have it in the upper half.
+
+Peer 3 is the other half of the rule. 17.2% off 87 blocks is thin evidence, and
+the Wilson bound charges it for that: it enters the ranking at 10.7 rather than
+17.2, which is still enough to sit above peer 4's 8.4. Thin does not mean
+ignored, it means discounted until the sample says otherwise.
 
 The ping is not what counts. Where a peer sits relative to where blocks are made
 is — and a peer that sits close today will probably still sit close tomorrow.

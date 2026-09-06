@@ -454,6 +454,48 @@ test('an inbound Tor peer is read from Core\'s network, not from its proxy addre
   assert.equal(row.privateNetwork, 'Tor');
   assert.equal(row.localUmbrelPeer, false, 'a Tor peer is an external peer, whatever address it arrives under');
   assert.equal(row.localAppName, null);
+  assert.equal(
+    row.proxiedPrivatePeer,
+    true,
+    'the address is our own Tor container, so it names a neighbour of ours rather than the peer',
+  );
+});
+
+test('an outbound Tor peer keeps its own address on show', () => {
+  // The other side of proxiedPrivatePeer. Core dialled this one, so the
+  // address it reports is the peer's own .onion - the one thing about it that
+  // identifies anything. Replacing that with the word "Tor" would throw the
+  // only real address away, which is the opposite of the inbound case.
+  const onion = 'vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion:8333';
+  const peer = db.getOrCreatePeer(onion);
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'outbound', 'outbound-full-relay', 'onion', '/Satoshi:28.1.0/', ?, 220, 220)`,
+    )
+    .run(peer.id, 7104, Date.now());
+
+  const row = queries.peerRanking().find((r) => r.address === onion);
+
+  assert.equal(row.privateNetwork, 'Tor');
+  assert.equal(row.proxiedPrivatePeer, false);
+});
+
+test('a local sibling app is not flagged as a proxied private peer', () => {
+  // Both flags read the same address range, so the one that fires has to be
+  // decided by the network Core reported, not by the range.
+  const electrs = db.getOrCreatePeer('10.21.21.19:53999');
+  db.instance
+    .prepare(
+      `INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
+       VALUES (?, ?, 'inbound', 'inbound', 'not_publicly_routable', '/electrs:0.11.1/', ?, 5, 5)`,
+    )
+    .run(electrs.id, 7105, Date.now());
+
+  const row = queries.peerRanking().find((r) => r.address === '10.21.21.19:53999');
+
+  assert.equal(row.proxiedPrivatePeer, false);
+  assert.equal(row.localUmbrelPeer, true);
 });
 
 test('a sibling app in the same address range is still a local app', () => {

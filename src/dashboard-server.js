@@ -281,6 +281,10 @@ async function router(req, res, pathname, url) {
       network: config.bitcoin.network,
       live: queries.liveSummary(),
       maxManualPeers: config.maxManualPeers,
+      // Named in a column heading, so it is read from the config rather than
+      // written into the page: a heading that states the wrong window is worse
+      // than one that states none.
+      recentScoreWindowBlocks: config.recentScoreWindowBlocks,
       // The measurement data only ever grows - roughly four megabytes a day at
       // a couple of hundred peers, measured. Shown so that is visible from the
       // start rather than discovered when the disk fills.
