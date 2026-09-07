@@ -65,6 +65,8 @@ function nextAddress() {
   return `203.0.113.${addrCounter}:8333`;
 }
 
+const HOUR = 60 * 60 * 1000;
+
 let raceCounter = 0;
 // Every peer's observations land on the SAME races, growing the pool only when
 // a peer needs more than it already holds.
@@ -101,6 +103,12 @@ function seedLivePeer({
   first = 0,
   trusted = false,
   kept = false,
+  // When this peer entered the manual set. The default is deliberately old:
+  // the new-slot-holder grace is measured from this, so a peer created "now"
+  // is inside its grace and cannot be displaced - which is the point of the
+  // grace, and would otherwise silently neuter every displacement test below.
+  // Tests about the grace itself pass justPromoted: true.
+  justPromoted = false,
 } = {}) {
   const peer = db.getOrCreatePeer(address);
   db.instance
@@ -110,7 +118,7 @@ function seedLivePeer({
   if (trusted) {
     db.instance
       .prepare('INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)')
-      .run(address, null, kept ? 1 : 0, Date.now());
+      .run(address, null, kept ? 1 : 0, justPromoted ? Date.now() + 1000 : Date.now() - 30 * 24 * HOUR);
   }
   return address;
 }
@@ -118,8 +126,6 @@ function seedLivePeer({
 // A trusted peer that is NOT currently connected: a trusted_peer row plus a
 // closed session, which is exactly what Core retrying a manual peer that went
 // dark looks like from here.
-const HOUR = 60 * 60 * 1000;
-
 function seedOfflineTrustedPeer({
   address = nextAddress(),
   eligible = 0,
@@ -772,7 +778,7 @@ test('a peer that has only just taken a slot cannot be evicted for having no rec
   // The newcomer reads as 0% because it has seen three blocks, not because it
   // is bad. Before the grace it was therefore the weakest of the set and any
   // candidate with a history displaced it immediately.
-  const newcomer = seedLivePeer({ eligible: 3, first: 0, trusted: true });
+  const newcomer = seedLivePeer({ eligible: 3, first: 0, trusted: true, justPromoted: true });
   seedLivePeer({ eligible: 500, first: 100, trusted: true }); // 20%, the real weakest-eligible
   seedLivePeer({ eligible: 500, first: 50 }); // 10% - would have beaten the newcomer
 
@@ -792,7 +798,7 @@ test('REGRESSION: a parked peer cannot evict a freshly added one, which is what 
   // held by a peer added moments ago whose record is still empty. Without the
   // grace it evicted the newcomer, the newcomer's full history then won the
   // slot straight back through promoteBestCandidate, and round it went.
-  const newcomer = seedLivePeer({ eligible: 3, first: 0, trusted: true });
+  const newcomer = seedLivePeer({ eligible: 3, first: 0, trusted: true, justPromoted: true });
   seedLivePeer({ eligible: 500, first: 100, trusted: true }); // 20%
   const parked = seedParked({ firstPct: 0.4, eligible: 565 });
   mock.method(manualPeer, 'probePort', async () => true);
@@ -1027,4 +1033,57 @@ test('the rotation drops an inbound session to a host it already holds as manual
 
   assert.equal(result.deduped, 1);
   assert.deepEqual(disconnects, [11], 'only the twin of a manual peer - not other inbound peers, not Tor');
+});
+
+test('a displaced peer keeps its connection and is not parked', async () => {
+  // The loop this closes, seen on a real node: a peer displaced at 5h43m was
+  // back in its slot ten minutes later. Displacing used to disconnect the
+  // peer and park it, and the parked table revives on the LIFETIME record -
+  // which is precisely the number the peer had just been displaced despite,
+  // because displacement goes by the recent window. Out on one measure, back
+  // in on the other, every ten minutes.
+  //
+  // A displaced peer has done nothing wrong. It drops back to being an
+  // ordinary outbound peer, stays connected, keeps being measured, and has to
+  // win a slot again the same way as everyone else.
+  const weak = seedLivePeer({ eligible: 500, first: 5, trusted: true });   // 1%
+  seedLivePeer({ eligible: 500, first: 150, trusted: true });              // 30%, safe
+  const challenger = seedLivePeer({ eligible: 500, first: 100 });          // 20%
+
+  const disconnects = [];
+  mock.method(rpc, 'disconnectNode', async (addr) => { disconnects.push(addr); });
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 1, 'the challenger takes the slot');
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(weak).n,
+    0,
+    'the displaced peer loses its manual slot',
+  );
+  assert.ok(!disconnects.includes(weak), `the displaced peer must not be disconnected (got ${JSON.stringify(disconnects)})`);
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n,
+    0,
+    'and it must not be parked: parking is for a peer that is gone',
+  );
+});
+
+test('the new-slot grace runs from the promotion, not from the peer\'s lifetime block count', async () => {
+  // The grace used to be "has this peer been eligible for 50 blocks", which is
+  // a question about its whole life. A peer with any history at all therefore
+  // walked into its slot already past the grace and could be displaced the
+  // same minute - while the dashboard promised it fifty blocks of safety.
+  const justPromoted = seedLivePeer({ eligible: 900, first: 9, trusted: true, justPromoted: true }); // 1%
+  seedLivePeer({ eligible: 500, first: 150, trusted: true });   // 30%, safe on merit
+  seedLivePeer({ eligible: 500, first: 100 });                  // 20%, would beat 1% easily
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0, 'nothing may be displaced while the only weak slot is inside its grace');
+  assert.equal(
+    db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(justPromoted).n,
+    1,
+    'a peer with 900 blocks of history still gets its fifty blocks of safety after being promoted',
+  );
 });

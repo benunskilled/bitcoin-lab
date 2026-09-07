@@ -46,9 +46,7 @@ function evictableTrusted(trusted) {
   // record. That is what the star means: this one stays, whatever the
   // measurement says, because the reason for keeping it is not something this
   // app can measure - a friend's node, a second node of your own.
-  return trusted.filter(
-    (p) => !p.kept && (p.eligible == null ? 0 : p.eligible) >= config.newManualGraceBlocks,
-  );
+  return trusted.filter((p) => !p.kept && !p.withinNewManualGrace);
 }
 
 /**
@@ -631,11 +629,15 @@ async function promoteBestCandidate(ranking) {
     // each has done lately above what it did over its life.
     if (!beatsHolder(candidate.score, weakest.score)) continue;
 
-    await peerSync.removeTrustedPeer(weakest.address);
-    // Losing a slot to someone better is not the same as being worthless -
-    // park it, so if a slot frees up later this peer's real track record
-    // counts for more than a randomly discovered stranger's.
-    peerSync.parkPeer(weakest);
+    // Displacement leaves the connection up (see removeTrustedPeer): the peer
+    // drops back to being an ordinary outbound one, still measured, still
+    // ranked, and free to earn a slot back through the normal promotion path.
+    await peerSync.removeTrustedPeer(weakest.address, { disconnect: false });
+    // Parking is for a peer that is GONE. One that is still connected does not
+    // need it and must not have it: parked peers are revived on their lifetime
+    // record, so parking a peer that was just displaced on its recent one
+    // handed it the slot straight back on the number it had lost on.
+    if (!weakest.live) peerSync.parkPeer(weakest);
     const swapped = await peerSync.addTrustedPeer(resolved, label);
     if (!swapped.ok) {
       logger.warn('rotation: swap refused after freeing the slot', { address: resolved, error: swapped.error });

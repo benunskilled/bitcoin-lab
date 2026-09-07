@@ -74,14 +74,19 @@ module.exports = {
   // learned.
   minEligibleForJudgement: Number(pick(process.env.MIN_ELIGIBLE_FOR_JUDGEMENT, '50')),
 
-  // Blocks a peer must have been eligible for before it can be pushed OUT of
-  // the manual set by a better one. Without it the rotation eats itself: a peer
-  // that has just taken a slot has almost no record yet, so it reads as the
-  // weakest of the eight and is evicted by anyone with any record at all -
-  // which puts it back in the candidate pool, where its full history counts
-  // again and wins the slot straight back. Seen in the wild as two peers
-  // swapping every ten minutes for hours, each swap a real disconnect and a
-  // real addnode.
+  // How many blocks a peer keeps its new manual slot for before anyone may
+  // take it away. Counted from the moment it entered the manual set, not over
+  // its lifetime: the two are the same thing only for a peer that has never
+  // been seen before, and the difference is what let a promoted peer lose its
+  // slot ten minutes later on a real node. It had 900 blocks of history, so by
+  // the lifetime reading its grace had elapsed before it ever held the slot.
+  //
+  // Without any grace the rotation eats itself: a peer that has just taken a
+  // slot has almost no recent record yet, so it reads as the weakest of the
+  // eight and is evicted by anyone with a longer history - which puts it back
+  // in the candidate pool, where that history counts again and wins the slot
+  // straight back. Seen in the wild as two peers swapping every ten minutes
+  // for hours, each swap a real disconnect and a real addnode.
   //
   // This protects only against eviction by a better peer. It deliberately does
   // NOT hold a slot for a peer that never connects - retireOfflineManualPeers
