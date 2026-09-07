@@ -401,7 +401,24 @@ function parkPeer(peer) {
   return true;
 }
 
-async function removeTrustedPeer(address) {
+/**
+ * Take an address out of the manual set.
+ *
+ * `disconnect` is false for one caller only: the rotation displacing a peer
+ * for a better one. Everywhere else - the Remove button, a peer retiring
+ * offline - dropping the connection is the point.
+ *
+ * A displaced peer has done nothing wrong; it was simply beaten. Forcing it
+ * off the node meant it stopped being measured at the exact moment the
+ * measurement was going against it, and the only way back was the parked
+ * table - which revives on the lifetime record, the very number the peer had
+ * just been displaced despite. That is a loop, and it ran on a real node:
+ * a peer swapped out at 5h43m was back in ten minutes later, two disconnects
+ * and two addnodes for no change. Leaving the connection up instead, it goes
+ * back to being an ordinary outbound peer, keeps accumulating a record, and
+ * has to earn a slot again the same way everyone else does.
+ */
+async function removeTrustedPeer(address, { disconnect = true } = {}) {
   db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(address);
   try {
     // Also tell Core to drop it as a manual/addnode entry - otherwise Core
@@ -412,6 +429,7 @@ async function removeTrustedPeer(address) {
     // "Node has not been added" etc. - not worth failing the remove over.
     logger.debug('addnode remove while untrusting peer', { address, error: err.message });
   }
+  if (!disconnect) return;
   try {
     // `addnode remove` only stops FUTURE reconnect attempts - Core does not
     // drop an already-open manual connection just because it left the

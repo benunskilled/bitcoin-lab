@@ -77,13 +77,35 @@ function recentRelayStats() {
   return byPeer;
 }
 
+/**
+ * When the new-slot-holder grace period starts: the moment the block
+ * `newManualGraceBlocks` back was detected. A manual peer added after that has
+ * not yet been through its grace.
+ *
+ * Counted in blocks rather than measured in hours because the thing being
+ * granted is a fair sample, and a sample is blocks. Read as one row - the Nth
+ * newest race - rather than counted per peer, which would be a scan of the
+ * whole race table for every row of the ranking.
+ *
+ * Zero when the node has not seen that many blocks at all: nobody can have
+ * been through a grace that has not elapsed, so everything with a start date
+ * is still inside it.
+ */
+function newManualGraceStartedAt() {
+  const row = db.instance
+    .prepare(`SELECT detected_at AS at FROM relay_race ORDER BY id DESC LIMIT 1 OFFSET ?`)
+    .get(Math.max(0, config.newManualGraceBlocks - 1));
+  return row ? row.at : 0;
+}
+
 function peerRanking() {
   const now = Date.now();
   if (!peerRankingStmt) {
     peerRankingStmt = db.instance.prepare(peerRankingSql());
   }
   const recent = recentRelayStats();
-  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent));
+  const graceFrom = newManualGraceStartedAt();
+  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent, graceFrom));
 
   // Ordered here rather than in SQL: the score combines two windows and one of
   // them is not in that statement. The set is the live peers plus the manual
@@ -192,7 +214,7 @@ function peerRankingSql() {
          p.address ASC`;
 }
 
-function mapRankingRow(now, recent = new Map()) {
+function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
   return (r) => {
     // "Trusted" isn't only what's in our own trusted_peer table - Core
     // itself reports connection_type 'manual' for ANY addnode'd peer,
@@ -282,6 +304,14 @@ function mapRankingRow(now, recent = new Map()) {
       // Protected by hand: the rotation must not displace or park it. Only
       // meaningful on a manual peer; false everywhere else.
       kept: Boolean(r.kept),
+      // Still inside the grace a new slot holder gets before it can be
+      // displaced. Measured from when this peer entered the manual set, which
+      // is what the dashboard has always claimed ("safe for its first 50
+      // blocks") - the rule used to read the peer's LIFETIME block count
+      // instead, so a peer with any history at all was displaceable the
+      // second it was promoted. That is how a peer promoted at 5h43m lost its
+      // slot again ten minutes later on a real node.
+      withinNewManualGrace: r.trustedSince != null && r.trustedSince > graceFrom,
       everManual: Boolean(r.everManual),
       eligible: r.eligible,
       first: r.first,
