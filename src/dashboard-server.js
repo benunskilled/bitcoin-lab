@@ -337,8 +337,11 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'POST' && pathname === '/api/peers/manual-add') {
+    // The typed-in box, and the only path that stars what it adds: an address
+    // entered by hand names a peer this node may have no record of, so the
+    // rotation must not take it away before its owner has seen it work.
     const { host } = await readBody(req);
-    const result = await manualAddPeer(host);
+    const result = await manualAddPeer(host, undefined, { kept: true });
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
@@ -358,6 +361,11 @@ async function router(req, res, pathname, url) {
     // input - we always re-derive the bare host and re-probe 8333/9333
     // ourselves rather than trust whatever port that peer happened to be
     // observed on (see manual-peer.js for why that matters for inbound peers).
+    //
+    // Unstarred, unlike the typed-in box above. This peer is in the ranking
+    // because the app measured it, so promoting it by hand is the same call
+    // the rotation makes on merit - and the peers this button sits next to
+    // are the pool the rotation promotes FROM.
     const { address, label } = await readBody(req);
     if (!address) return sendJson(res, 400, { error: 'address required' });
     const host = hostFromAddress(address);

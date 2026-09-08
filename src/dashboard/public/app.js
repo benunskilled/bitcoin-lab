@@ -271,7 +271,7 @@ function actionsCell(p, options = {}) {
     ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
     : ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
       ? placeholder
-      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add &amp; Keep</button>`);
+      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
   // Disconnect still works fine for a source-obscured peer: it's exactly
   // the (masked) address Core itself uses internally for the connection.
@@ -540,7 +540,7 @@ function renderPeerTables(peers, options = {}) {
     </tr>
   `).join('');
   const noManualPeersHint = manualPeers.length === 0
-    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add &amp; Keep" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
+    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
 

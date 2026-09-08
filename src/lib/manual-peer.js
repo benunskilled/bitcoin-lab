@@ -56,7 +56,7 @@ function looksLikeHost(input) {
  * peer-sync.syncTrustedToAddnode() the same way peers trusted from the
  * dashboard do.
  */
-async function manualAddPeer(rawInput, label) {
+async function manualAddPeer(rawInput, label, { kept = false } = {}) {
   const probed = await probePeer(rawInput);
   if (!probed.ok) return probed;
 
@@ -64,10 +64,21 @@ async function manualAddPeer(rawInput, label) {
   // capacity, free a slot rather than writing a ninth row Core will never be
   // told about. The response names what was dropped - a silent eviction of a
   // peer the user spent days earning would be far worse than a refusal.
-  // Every path into this function is a person typing an address in, so the
-  // star goes on. The rotation never comes through here - it calls
-  // addTrustedPeer directly and leaves the star off.
-  const result = await peerSync.addTrustedPeer(probed.address, label, { evictToFit: true, kept: true });
+  //
+  // The star is NOT part of that, and is off unless the caller asks. Typing an
+  // address into the box is a choice about a peer this node may never have
+  // seen, so it is protected until you look at it. Clicking the button beside
+  // a peer already in the ranking is a different act: that peer is there
+  // because the app measured it, and picking one out of the list is the same
+  // judgement the rotation makes, only by hand. Starring it would take that
+  // peer out of the pool the rotation draws from - which matters most for the
+  // ordinary outbound peers, since they ARE the pool. Eight stars and the loop
+  // has nothing left to promote.
+  //
+  // This used to be hardcoded true with a comment claiming every path here was
+  // someone typing an address. It was not: the button on each row comes
+  // through the same function.
+  const result = await peerSync.addTrustedPeer(probed.address, label, { evictToFit: true, kept });
   if (!result.ok) {
     return { ok: false, address: probed.address, error: result.error };
   }

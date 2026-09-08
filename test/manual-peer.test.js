@@ -393,3 +393,53 @@ test('peers on a shared proxy network are never matched by host', async () => {
     server.close();
   }
 });
+
+test('the button beside a peer adds it unstarred - the rotation keeps its pool', async () => {
+  // The star was hardcoded on, under a comment claiming every caller here was
+  // someone typing an address into the box. It was not: the button on each
+  // row comes through the same function, so clicking it on one of the ten
+  // ordinary outbound peers took that peer out of the set the rotation
+  // promotes from. Eight of those and the loop has nothing left to work with.
+  const { server, port } = await withListeningPort();
+  const address = `127.0.0.1:${port}`;
+  try {
+    mock.method(rpc, 'getPeerInfo', async () => []);
+    mock.method(rpc, 'addNode', async () => {});
+    mock.method(rpc, 'disconnectNode', async () => {});
+
+    const result = await manualAddPeer(address, 'from the list');
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(address).kept,
+      0,
+      'a peer picked out of the ranking is promoted on merit and stays displaceable',
+    );
+  } finally {
+    server.close();
+  }
+});
+
+test('an address typed into the box arrives starred', async () => {
+  // The other half of the same rule. A hand-typed address may name a peer this
+  // node has never seen, so there is no record for the rotation to judge it on
+  // - and it would be displaced by the first candidate with any history at all
+  // before its owner ever saw it work.
+  const { server, port } = await withListeningPort();
+  const address = `127.0.0.1:${port}`;
+  try {
+    mock.method(rpc, 'getPeerInfo', async () => []);
+    mock.method(rpc, 'addNode', async () => {});
+    mock.method(rpc, 'disconnectNode', async () => {});
+
+    const result = await manualAddPeer(address, undefined, { kept: true });
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(address).kept,
+      1,
+    );
+  } finally {
+    server.close();
+  }
+});
