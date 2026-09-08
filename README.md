@@ -47,10 +47,10 @@ promoted into the eight and stop being ordinary.
 
 You can see it in how long they have been connected. Of the ten peers Core
 picked here, three have ever delivered a block, and those three have been
-around for days: 5d 10h, 1d 14h, 1d 1h. The seven that never delivered all
-arrived in the last few hours, and none of them has reached 50 blocks yet, so
-none has been dropped. The eight I picked deliver 3.5% to 30% of blocks. The
-three that survived on their own deliver 0.4% to 0.7%.
+connected for 6.3, 2.5 and 2.0 days. The other seven arrived within the last
+five hours, and none of them has reached 50 blocks yet, so none has been
+dropped. All three that lasted sit at 0.3% over their whole record. The eight
+I picked run from 3.4% to 28.5%.
 
 A node that takes no inbound connections has less to compete with — those
 eighteen peers are everything it has — so its ten should fill up further than
