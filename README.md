@@ -103,38 +103,39 @@ table and on the page, they just no longer decide the order.
 
 ### What it looks like after a while
 
-My eight manual slots after a week of this. My node listens, so these eight
+My eight manual slots after ten days of this. My node listens, so these eight
 compete with everything that dials in:
 
 ```
              First % (last 500)     ping
-peer 1          33.8 %   166/491    14 ms
-peer 2          33.4 %   167/500    17 ms
-peer 3          17.2 %     15/87    35 ms
-peer 4          10.8 %    54/500    17 ms
-peer 5           5.0 %    12/242    19 ms
-peer 6           3.2 %    16/500    18 ms
-peer 7           1.0 %     5/499   100 ms
-peer 8           0.6 %     2/337    24 ms
+peer 1          32.8 %   164/500    14 ms
+peer 2          25.6 %   128/500    17 ms
+peer 3          17.5 %    74/424   106 ms
+peer 4           9.8 %    49/500    17 ms
+peer 5           6.2 %    31/500    19 ms
+peer 6           5.2 %    26/500   100 ms
+peer 7           3.6 %    18/500    34 ms
+peer 8           0.8 %     4/499    19 ms
 ```
 
-886 of the 1,032 blocks recorded — six in seven — reached me through one of
-these eight, with 208 peers connected. Core connected me to all of them. A week
-of measuring decided which eight stayed.
+1,321 of the 1,476 blocks recorded — almost nine in ten — reached me through
+one of these eight, with around 200 peers connected. Core connected me to all
+of them. Ten days of measuring decided which eight stayed.
 
-The top two are the reason the window exists. Over their whole records they
-read 21.2% and 37.5%, which looks like a rout; over the last 500 blocks they
-are level. Whatever the first one was doing a week ago, it is delivering a
-third of my blocks today, and that is the question worth answering.
+Peer 4 is why the ranking stopped counting whole lifetimes. Over its whole
+record it has delivered 28.5% of the blocks it saw, the best of all eight. Over
+the last 500 it has delivered 9.8%. A lifetime ranking would put it top of this
+table on the strength of a month it is no longer having. The window puts it
+fourth, which is where it belongs now.
 
-It demotes as readily. Peer 7 has delivered 6.0% across its whole record and
-1.0% across the last 500 blocks — a month it can no longer repeat. A lifetime
-ranking would still have it in the upper half.
+Peer 1 went the other way: 24.6% over its whole record, 32.8% over the window.
+Peer 8 is on its way out at 0.8%, having averaged 3.4%. None of that shows up
+in a lifetime number.
 
-Peer 3 is the other half of the rule. 17.2% off 87 blocks is thin evidence, and
-the Wilson bound charges it for that: it enters the ranking at 10.7 rather than
-17.2, which is still enough to sit above peer 4's 8.4. Thin does not mean
-ignored, it means discounted until the sample says otherwise.
+Peer 3 shows the other half of the rule. It has only been here for 424 blocks,
+so its 17.5% rests on less than the others, and the Wilson bound charges it for
+that: it enters the ranking at 14.1 instead of 17.5. Thin does not mean
+ignored, it means discounted until the sample grows.
 
 The ping is not what counts. Where a peer sits relative to where blocks are made
 is — and a peer that sits close today will probably still sit close tomorrow.
@@ -143,8 +144,8 @@ Every number here comes from one node: a first-gen Lenovo ThinkCentre with an
 i7, running Umbrel, listening on IPv4 and IPv6 with Tor and I2P enabled and
 `maxconnections=200`. Worth knowing, and it cuts the other way than you might
 expect: with two hundred connections competing to deliver each block, the eight
-manual ones still delivered six in seven. A node with ten outbound peers has
-less to choose from, not more.
+manual ones still delivered almost nine in ten. A node with ten outbound peers
+has less to choose from, not more.
 
 ## What you can do about it
 
