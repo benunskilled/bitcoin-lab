@@ -122,6 +122,11 @@ peer 8           0.8 %     4/499    19 ms
 one of these eight, with around 200 peers connected. Core connected me to all
 of them. Ten days of measuring decided which eight stayed.
 
+Over the last 500 blocks it is 476, and the trend is the point. In those same
+500 blocks, 189 peers were dialling in to my node, and between all of them they
+delivered three. Every block has exactly one first, so what the eight gained,
+the inbound crowd lost.
+
 Peer 4 is why the ranking stopped counting whole lifetimes. Over its whole
 record it has delivered 28.5% of the blocks it saw, the best of all eight. Over
 the last 500 it has delivered 9.8%. A lifetime ranking would put it top of this

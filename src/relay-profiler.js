@@ -53,10 +53,15 @@ const FIRST_WINDOW_MS = 2500;
  * blocks, which a wrong attribution is not.
  *
  * It also barely happens. Measured on a listening node with ~200 peers, over
- * 1029 recorded races: 1028 had exactly one peer inside the window, one had
- * two, and none had zero. That last number is the one worth keeping in mind -
- * the window is not merely tolerable, it identifies exactly one peer in
- * 99.9% of blocks, which is the evidence that the whole method works.
+ * 1,487 recorded races: 1,486 had exactly one peer inside the window, one had
+ * two, and none had zero. Re-measured 458 blocks after the first count, the
+ * number of multi-first races had not moved at all - still that one - so the
+ * rate is falling as the sample grows rather than holding at some fraction.
+ *
+ * The zero is the number worth keeping in mind: the window does not merely
+ * tolerate the one-second resolution of last_block, it identifies exactly one
+ * peer in 99.93% of blocks and misses in none, which is the evidence that the
+ * whole method works.
  */
 function isFirstPeer(peer, detectedAtMs) {
   if (typeof peer.last_block !== 'number') return false;
