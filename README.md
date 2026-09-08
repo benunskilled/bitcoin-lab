@@ -39,8 +39,23 @@ After a few days the difference is noticeable. Then it flattens: the eight slots
 fill with the best peers seen so far, and every further gain has to beat one of
 them — which gets rarer the better they are.
 
-A non-listening node typically has one to three peers that ever deliver.
-Curated, all eight manual slots do.
+The other ten keep changing. An outbound peer that goes 50 blocks without ever
+delivering gets dropped, and Core gives you a new random one. A peer that has
+delivered is never dropped by this app. So the ten fill up with peers that
+deliver too — slower, and never with the best ones, because the best ones get
+promoted into the eight and stop being ordinary.
+
+You can see it in how long they have been connected. Of the ten peers Core
+picked here, three have ever delivered a block, and those three have been
+around for days: 5d 10h, 1d 14h, 1d 1h. The seven that never delivered all
+arrived in the last few hours, and none of them has reached 50 blocks yet, so
+none has been dropped. The eight I picked deliver 3.5% to 30% of blocks. The
+three that survived on their own deliver 0.4% to 0.7%.
+
+A node that takes no inbound connections has less to compete with — those
+eighteen peers are everything it has — so its ten should fill up further than
+mine. I cannot measure that here, so take it as what the rule implies, not as
+a number.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/1.png?v=1.15.10)
 
