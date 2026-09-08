@@ -249,28 +249,29 @@ function actionsCell(p, options = {}) {
   const { allowDisconnect = false } = options;
   const placeholder = `<span class="action-slot" aria-hidden="true"></span>`;
 
-  // A source-obscured peer's "address" is Docker's own relay gateway, not
-  // the peer's real one (see queries.js) - there's nothing real to probe or
-  // addnode, so "Add as Manual" would just try to add Docker's internal
-  // gateway as a manual peer.
-  // A Tor, I2P or CJDNS peer gets a reason rather than a button. The button
-  // used to be offered and always failed, with "no node answering on 8333 or
-  // 9333" - which reads as though the peer had the wrong port open, when in
-  // fact this container has no way to reach that network at all and never
-  // will. Saying so is more useful than letting someone try.
-  // Deliberately NOT class="action-slot": that selector carries
-  // `visibility: hidden` for the empty placeholders, which swallowed this
-  // label whole - present in the DOM, invisible on screen. .action-note keeps
-  // the same slot geometry and actually shows.
-  const undialable = p.privateNetwork
-    ? `<span class="action-note" title="A ${escapeHtml(p.privateNetwork)} peer reaches you over its own network, and this app dials out over plain TCP only - there is no address it can call back on, so it can never be made a manual peer. It still ranks normally and can still deliver a block first.">${escapeHtml(p.privateNetwork)} only</span>`
-    : null;
-
+  // Three kinds of peer have nothing this app can do to them, and all three
+  // now look the same here: an empty slot.
+  //
+  // A source-obscured peer's "address" is Docker's own relay gateway, not the
+  // peer's real one (see queries.js). A local Umbrel app is not a peer worth
+  // acting on. And a Tor, I2P or CJDNS peer reaches us over a network this
+  // container cannot dial out on, so there is no address to call back.
+  //
+  // The third used to print "Tor only" where the button goes, which was a
+  // word about the peer standing in a place that is otherwise a reason, and
+  // said Tor twice in a row that already begins "Tor peer". The explanation
+  // moved to that cell's own tooltip, which is where someone wondering about
+  // the row will already be pointing.
+  //
+  // What must NOT come back is the button: it used to be offered here and
+  // always failed with "no node answering on 8333 or 9333", which reads as
+  // though the peer had the wrong port open rather than the truth, which is
+  // that this container has no way to reach that network at all.
   const primary = p.trusted
     ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
-    : (undialable || ((p.sourceObscured || p.localUmbrelPeer)
+    : ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
       ? placeholder
-      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add &amp; Keep</button>`));
+      : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add &amp; Keep</button>`);
 
   // Disconnect still works fine for a source-obscured peer: it's exactly
   // the (masked) address Core itself uses internally for the connection.
@@ -337,9 +338,9 @@ function firstPctCell(p) {
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
 // peers appended to it. Removed: the note is advice about a setting, and the
-// peers it talks about already carry an "I2P only" badge in their own row,
-// with the reason in its tooltip. A sentence repeating that above the table
-// said the same thing twice.
+// peers it talks about are already named as Tor or I2P in their own address
+// cell, with the reason in that cell's tooltip. A sentence repeating that
+// above the table said the same thing twice.
 
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
@@ -387,7 +388,7 @@ function addressCell(p) {
   // neighbour of ours and said nothing about the peer - the word Tor appeared
   // only as a note in the actions column, at the far end of the row.
   if (p.proxiedPrivatePeer) {
-    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - this peer reached your node over ${escapeHtml(p.privateNetwork)}, so the address Bitcoin Core sees is your own ${escapeHtml(p.privateNetwork)} proxy's, not the peer's. Its real address is never visible to Core.">${escapeHtml(p.privateNetwork)} peer</td>`;
+    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - this peer reached your node over ${escapeHtml(p.privateNetwork)}, so the address Bitcoin Core sees is your own ${escapeHtml(p.privateNetwork)} proxy's, not the peer's. Its real address is never visible to Core, and this app dials out over plain TCP only - so it can never be made a manual peer. It still ranks normally and can still deliver a block first.">${escapeHtml(p.privateNetwork)} peer</td>`;
   }
   return truncatedCell(p.address);
 }
