@@ -437,6 +437,38 @@ document.addEventListener('focusout', () => {
   setTimeout(flushDeferredRenders, 0);
 });
 
+/**
+ * One row of a peer table - the same nine cells for all three of them.
+ *
+ * The three tables share the exact same column set, order, and widths (see the
+ * shared .col-* classes in the markup / style.css) so Address/Type/.../Actions
+ * line up vertically across panels instead of each table sizing its columns
+ * independently from its own content. That used to be three copies of the same
+ * template, kept in step by hand and by a comment asking the next person to
+ * remember; here it is a fact instead.
+ *
+ * They differ in exactly two things, which is what the two options are:
+ *   status   the Outbound panel shows the connection type alone, because
+ *            "MANUAL LIVE" in a table of live outbound peers is noise.
+ *   actions  what may be done to this peer here - the live table alone offers
+ *            Disconnect, and only the manual table carries the star.
+ */
+function peerRow(p, { status = p.status, actions }) {
+  return `
+    <tr class="${highlightClassFor(p.address)}">
+      ${addressCell(p)}
+      ${clientCell(p)}
+      <td class="col-status"><span class="pill ${statusPillClass(status)}">${status}</span></td>
+      ${firstPctCell(p)}
+      <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
+      ${sessionCell(p)}
+      <td>${fmtDuration(p.totalConnectionMs)}</td>
+      <td>${p.sessionsCount}</td>
+      <td class="row-actions">${actions}</td>
+    </tr>
+  `;
+}
+
 // `force` skips the defer gate. That gate exists to stop a background poll
 // destroying an interaction in progress - but the show-all toggle IS the
 // interaction, and it was being blocked by it: "Add as Manual" holds
@@ -475,37 +507,13 @@ function renderPeerTables(peers, options = {}) {
     }
   }
 
-  // All three tables below share the exact same column set, order, and
-  // widths (see the shared .col-* classes in the markup / style.css) so
-  // Address/Type/.../Actions line up vertically across panels instead of
-  // each table sizing its columns independently from its own content.
-  document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers.map((p) => `
-    <tr class="${highlightClassFor(p.address)}">
-      ${addressCell(p)}
-      ${clientCell(p)}
-      <td class="col-status"><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
-      ${firstPctCell(p)}
-      <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
-      ${sessionCell(p)}
-      <td>${fmtDuration(p.totalConnectionMs)}</td>
-      <td>${p.sessionsCount}</td>
-      <td class="row-actions">${actionsCell(p, { allowDisconnect: true })}</td>
-    </tr>
-  `).join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
+  document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers
+    .map((p) => peerRow(p, { actions: actionsCell(p, { allowDisconnect: true }) }))
+    .join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
 
-  document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers.map((p) => `
-    <tr class="${highlightClassFor(p.address)}">
-      ${addressCell(p)}
-      ${clientCell(p)}
-      <td class="col-status"><span class="pill ${statusPillClass(p.connectionStatus)}">${p.connectionStatus}</span></td>
-      ${firstPctCell(p)}
-      <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
-      ${sessionCell(p)}
-      <td>${fmtDuration(p.totalConnectionMs)}</td>
-      <td>${p.sessionsCount}</td>
-      <td class="row-actions">${actionsCell(p)}</td>
-    </tr>
-  `).join('') || `<tr><td colspan="9" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
+  document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers
+    .map((p) => peerRow(p, { status: p.connectionStatus, actions: actionsCell(p) }))
+    .join('') || `<tr><td colspan="9" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
   // A slot is taken by a manual peer whether or not it happens to be
   // connected right now: Core keeps retrying an offline one and it still
@@ -526,19 +534,9 @@ function renderPeerTables(peers, options = {}) {
     </tr>
   `).join('');
 
-  const manualRows = manualPeers.map((p) => `
-    <tr class="${highlightClassFor(p.address)}">
-      ${addressCell(p)}
-      ${clientCell(p)}
-      <td class="col-status"><span class="pill ${statusPillClass(p.status)}">${p.status}</span></td>
-      ${firstPctCell(p)}
-      <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
-      ${sessionCell(p)}
-      <td>${fmtDuration(p.totalConnectionMs)}</td>
-      <td>${p.sessionsCount}</td>
-      <td class="row-actions">${keepStar(p)}${actionsCell(p)}</td>
-    </tr>
-  `).join('');
+  const manualRows = manualPeers
+    .map((p) => peerRow(p, { actions: keepStar(p) + actionsCell(p) }))
+    .join('');
   const noManualPeersHint = manualPeers.length === 0
     ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
