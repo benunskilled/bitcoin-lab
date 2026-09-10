@@ -22,7 +22,7 @@ test.before(() => {
 // A peer can only ever be eligible for a block while it is connected, so a
 // fixture that gives a peer relay history needs the session that goes with
 // it. peerRanking() reports the peers that are connected now or are manual,
-// not every address the node has ever seen (see queries.js) - a peer with
+// not every address the node has ever seen (see queries/peer-ranking.js) - a peer with
 // observations but no session at all is a state production cannot produce.
 function openSession(peerId, { direction = 'outbound', connectionType = 'outbound-full-relay' } = {}) {
   db.instance

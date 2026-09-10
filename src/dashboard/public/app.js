@@ -253,7 +253,7 @@ function actionsCell(p, options = {}) {
   // now look the same here: an empty slot.
   //
   // A source-obscured peer's "address" is Docker's own relay gateway, not the
-  // peer's real one (see queries.js). A local Umbrel app is not a peer worth
+  // peer's real one (see queries/ranking-row.js). A local Umbrel app is not a peer worth
   // acting on. And a Tor, I2P or CJDNS peer reaches us over a network this
   // container cannot dial out on, so there is no address to call back.
   //
