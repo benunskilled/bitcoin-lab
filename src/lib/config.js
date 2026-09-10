@@ -35,7 +35,6 @@ module.exports = {
     network: pick(process.env.BITCOIN_NETWORK, process.env.APP_BITCOIN_NETWORK, 'mainnet'),
     zmqHashBlockUrl: zmqExplicit || `tcp://${zmqHost}:${zmqPort}`,
   },
-  dataDir,
   sqlitePath: pick(process.env.SQLITE_PATH, `${dataDir}/sqlite/bitcoinlab.db`),
   dashboardPort: Number(pick(process.env.DASHBOARD_PORT, '8788')),
 

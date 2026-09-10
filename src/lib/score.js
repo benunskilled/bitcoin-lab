@@ -99,4 +99,4 @@ function peerScore({ first, eligible, recentFirst, recentEligible }) {
   return filled * recent + (1 - filled) * lifetime;
 }
 
-module.exports = { wilsonLowerBound, peerScore, Z };
+module.exports = { wilsonLowerBound, peerScore };

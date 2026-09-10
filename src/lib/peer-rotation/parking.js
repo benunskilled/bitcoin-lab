@@ -102,6 +102,29 @@ async function retireOfflineManualPeers(ranking) {
 }
 
 /**
+ * The two ways a knock on a parked peer's door can end, as the row records it.
+ *
+ * They differ in the failure count and in nothing else, and that one field is
+ * why they are named rather than written out at each of the four places below.
+ * A peer that ANSWERED must never have its count raised, however the tick ends
+ * for it - it may have arrived while another peer was already being let in, or
+ * with no slot worth taking. Raising it there would make an address that is
+ * alive and merely unlucky decay towards being knocked on twice a day, exactly
+ * like one that has been dead for a week.
+ */
+function probeFailed(address, now) {
+  db.instance
+    .prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = probe_failures + 1 WHERE address = ?`)
+    .run(now, address);
+}
+
+function stillParked(address, now) {
+  db.instance
+    .prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`)
+    .run(now, address);
+}
+
+/**
  * Pass 3: knock on the door of the peers that were parked, and let the first
  * one that answers back in.
  *
@@ -162,16 +185,14 @@ async function reviveParkedPeers(ranking) {
     const reachable = port != null ? await manualPeer.probePort(addr, port) : false;
 
     if (!reachable) {
-      db.instance
-        .prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = probe_failures + 1 WHERE address = ?`)
-        .run(now, parked.address);
+      probeFailed(parked.address, now);
       continue;
     }
 
     // It is back. Only one peer is let back in per tick, for the same reason
     // only one is promoted: the manual set should drift, not churn.
     if (revived > 0) {
-      db.instance.prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`).run(now, parked.address);
+      stillParked(parked.address, now);
       continue;
     }
 
@@ -200,10 +221,10 @@ async function reviveParkedPeers(ranking) {
         parked.eligible || 0,
       );
       if (!weakest || !beatsHolder(parkedLifetime, wilsonLowerBound(weakest.first, weakest.eligible))) {
-        // Reachable but not worth a slot right now - reset the failure count
-        // (it is alive, after all) and leave it parked for a better moment.
-        // Also lands here when every slot is still inside its new-peer grace.
-        db.instance.prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`).run(now, parked.address);
+        // Reachable but not worth a slot right now - leave it parked for a
+        // better moment. Also lands here when every slot is still inside its
+        // new-peer grace.
+        stillParked(parked.address, now);
         continue;
       }
       await peerSync.removeTrustedPeer(weakest.address);
@@ -215,13 +236,10 @@ async function reviveParkedPeers(ranking) {
     const label = parked.label || `back from parking (${fmtPct(parked.firstPct)} first)`;
     const result = await peerSync.addTrustedPeer(parked.address, label);
     if (!result.ok) {
-      // The peer answered - this is not a probe failure, so the backoff must
-      // not grow. Something else refused the add (the cap, seen from a
-      // snapshot a moment out of date, or Core rejecting the address); note
-      // the attempt and try again on the next tick.
-      db.instance
-        .prepare(`UPDATE parked_peer SET last_probe_at = ?, probe_failures = 0 WHERE address = ?`)
-        .run(now, parked.address);
+      // Something else refused the add (the cap, seen from a snapshot a
+      // moment out of date, or Core rejecting the address); note the attempt
+      // and try again on the next tick.
+      stillParked(parked.address, now);
       logger.warn('rotation: a parked peer answered but could not be re-added', {
         address: parked.address,
         error: result.error,
