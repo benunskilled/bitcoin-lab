@@ -94,7 +94,7 @@ function upsertSessions(peers) {
 
       // Core's own classification of the connection. Kept as it comes, in
       // Core's spelling, so the mapping to a display name lives in one place
-      // (queries.js) instead of being spread over the writer and the reader.
+      // (queries/ranking-row.js) instead of being spread over the writer and the reader.
       const network = peer.network || null;
 
       const existingSessionId = openByAddress.get(peer.addr);

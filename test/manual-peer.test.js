@@ -164,7 +164,7 @@ test('Add as Manual accepts bracketed IPv6 input end-to-end (previously rejected
 
     assert.equal(result.ok, true, result.error);
     // Bracketed, matching Core's own CService::ToStringAddrPort format -
-    // this is what makes the trusted_peer <-> peer join in queries.js and
+    // this is what makes the trusted_peer <-> peer join in queries/peer-ranking.js and
     // the disconnectIfLiveNonManual getpeerinfo comparison actually match.
     assert.equal(result.address, `[::1]:${port}`);
     const row = db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(`[::1]:${port}`);

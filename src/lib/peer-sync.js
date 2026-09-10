@@ -434,7 +434,7 @@ async function removeTrustedPeer(address, { disconnect = true } = {}) {
     // `addnode remove` only stops FUTURE reconnect attempts - Core does not
     // drop an already-open manual connection just because it left the
     // addnode list, so getpeerinfo would keep reporting connection_type
-    // 'manual' for it (and our own "effective trust" logic in queries.js
+    // 'manual' for it (and our own "effective trust" logic in ranking-row.js
     // would keep treating it as trusted) until it disconnects on its own.
     // Force that now so Remove has an immediate, visible effect instead of
     // silently doing nothing until the peer happens to drop by itself.
