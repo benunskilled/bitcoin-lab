@@ -364,7 +364,7 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
  *
  * Being offline is deliberately not what makes a peer weakest: a strong peer
  * that dropped a minute ago must not lose its slot to a mediocre live one
- * (that is what the performance-scaled grace period in peer-rotation.js is
+ * (that is what the performance-scaled grace period in peer-rotation/rules.js is
  * for). It only breaks ties, where it is the obvious tiebreak - between two
  * peers with the same record, the one that is not even here should go first.
  * A peer with no record at all (firstPct null) sorts below 0%.

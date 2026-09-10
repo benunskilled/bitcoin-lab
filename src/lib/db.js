@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT
 );
 
--- Audit trail for the automatic peer-rotation loop (src/lib/peer-rotation.js).
+-- Audit trail for the automatic peer-rotation loop (src/lib/peer-rotation/).
 -- One row per action it actually takes (kick or promote/swap), so the
 -- dashboard can show what the toggle has been doing without the user having
 -- to dig through container logs. Deliberately NOT time-pruned by
