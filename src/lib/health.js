@@ -65,6 +65,14 @@ function start(db, service, logger, details) {
  * own short-lived read-only connection so it never competes for a write
  * lock with the service it is checking. Exits non-zero (rather than
  * throwing) so it can be driven straight from `node -e` in a HEALTHCHECK.
+ *
+ * Nothing in this repository calls it, and that is correct rather than a
+ * leftover: the three worker services have no HTTP port, so their healthcheck
+ * in the store repo's docker-compose.yml is literally
+ *   node -e "require('/app/src/lib/health').assertFresh('peer-profiler', 120000)"
+ * and two more like it. Searching the code for callers therefore finds none.
+ * Delete it and all three workers quietly lose the only thing that can tell a
+ * crash-loop from a service that simply has nothing to do right now.
  */
 function assertFresh(service, maxAgeMs) {
   const Database = require('better-sqlite3');
