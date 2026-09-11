@@ -40,8 +40,8 @@ fill with the best peers seen so far, and every further gain has to beat one of
 them — which gets rarer the better they are.
 
 The other ten keep changing. An outbound peer that goes 50 blocks without ever
-delivering gets dropped, and Core gives you a new random one. A peer that has
-delivered is never dropped by this app. So the ten fill up with peers that
+delivering gets dropped, and Core immediately gives you a new random one. A peer
+that has delivered is never dropped by this app. So the ten fill up with peers that
 deliver too — slower, and never with the best ones, because the best ones get
 promoted into the eight and stop being ordinary.
 
@@ -191,7 +191,8 @@ using.
   (`MAX_ADDNODE_CONNECTIONS`). With all eight filled you have 18 outbound
   connections and you chose eight of them.
 - **Drop a peer that never delivers.** Core replaces a dropped *outbound*
-  connection with a fresh random one, which then gets ranked the same way.
+  connection immediately with a fresh random one, which then gets ranked the
+  same way.
 - **Protect a peer from the rotation.** Anything you add by hand comes in
   protected — that is the star in the peer list — and the rotation leaves it
   alone: it is neither displaced by a better peer nor parked when it goes
