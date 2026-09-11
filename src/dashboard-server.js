@@ -29,6 +29,7 @@ const hashblock = require('./lib/hashblock-subscriber');
 const { validatePool } = require('./lib/validate');
 const { manualAddPeer, probePeer, hostFromAddress } = require('./lib/manual-peer');
 const peerRotation = require('./lib/peer-rotation');
+const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
 
 const PUBLIC_DIR = path.join(__dirname, 'dashboard', 'public');
@@ -295,6 +296,11 @@ async function router(req, res, pathname, url) {
       // aggregate over a table that already exists, plus a COUNT of a table
       // with one row per promoted IP.
       outboundFunnel: queries.outboundFunnel(),
+      // Whether the pool race is running at all. The page needs it before it
+      // renders anything of that card: switched off there is nothing to show
+      // and, more to the point, nothing being measured, so a table of
+      // yesterday's numbers would be a lie told by a stale row.
+      stratumRaceEnabled: stratumRace.isEnabled(),
     });
   }
 
@@ -411,6 +417,14 @@ async function router(req, res, pathname, url) {
     } catch (err) {
       return sendJson(res, 422, { ok: false, error: err.message });
     }
+  }
+
+  if (req.method === 'POST' && pathname === '/api/stratum/toggle') {
+    const { enabled } = await readBody(req);
+    stratumRace.setEnabled(Boolean(enabled));
+    // The worker closes or opens its sockets on its own 30-second check - this
+    // process has no way to reach into it, and should not have one.
+    return sendJson(res, 200, { ok: true, enabled: stratumRace.isEnabled() });
   }
 
   if (req.method === 'GET' && pathname === '/api/pools') {

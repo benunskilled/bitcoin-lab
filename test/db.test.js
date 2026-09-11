@@ -951,3 +951,52 @@ test('the network migration adds the column once and is safe to run again', () =
     're-running the migration must not disturb the data',
   );
 });
+
+/**
+ * The one migration whose failure mode is silent and universal: getting this
+ * wrong switches Stratum Race off on every machine that already had it, on
+ * update, with nothing in the log that reads like a fault.
+ *
+ * Both branches need a database of their own and migrations run once per
+ * database, so each runs in its own child process against its own temp
+ * directory rather than against the shared one this file uses.
+ */
+const { execFileSync } = require('child_process');
+
+function flagAfterOpen(dir, prepare = '') {
+  const script = `
+    const db = require(${JSON.stringify(path.resolve(__dirname, '../src/lib/db'))});
+    const toggle = require(${JSON.stringify(path.resolve(__dirname, '../src/lib/stratum-race-toggle'))});
+    db.open();
+    ${prepare}
+    process.stdout.write(String(toggle.isEnabled()));
+  `;
+  return execFileSync(process.execPath, ['-e', script], {
+    env: { ...process.env, SQLITE_PATH: path.join(dir, 'test.db'), DATA_DIR: dir, LOG_LEVEL: 'error' },
+    encoding: 'utf8',
+  });
+}
+
+test('a fresh install starts with Stratum Race switched off', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bitcoinlab-fresh-'));
+  assert.equal(flagAfterOpen(dir), 'false', 'nothing has run here, so nothing is switched on');
+});
+
+test('an install that has already run keeps Stratum Race switched on across the update', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bitcoinlab-existing-'));
+
+  // First open: the database as it was before the switch existed. The two
+  // deletes put it back into that state - schema present, a session recorded,
+  // and no trace of this migration having run.
+  const before = flagAfterOpen(dir, `
+    db.instance.prepare('DELETE FROM meta WHERE key = ?').run('migration:stratum_race_toggle_v1_16_3');
+    db.instance.prepare('DELETE FROM meta WHERE key = ?').run('stratum_race_enabled');
+    const id = db.instance.prepare('INSERT INTO peer (address, first_seen_at) VALUES (?, ?)').run('203.0.113.1:8333', Date.now()).lastInsertRowid;
+    db.instance.prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?,?,?,?)')
+      .run(id, 'outbound', 'outbound-full-relay', Date.now());
+  `);
+  assert.equal(before, 'false', 'the flag really is absent before the migration runs');
+
+  // Second open: the update.
+  assert.equal(flagAfterOpen(dir), 'true', 'an existing install is switched on rather than going quiet');
+});

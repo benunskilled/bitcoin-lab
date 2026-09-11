@@ -402,6 +402,26 @@ function runMigrations() {
         .get().n > 0;
       if (!hasColumn) db.prepare(`ALTER TABLE trusted_peer ADD COLUMN kept INTEGER NOT NULL DEFAULT 0`).run();
     });
+
+    // Stratum Race is a switch now, and an absent flag means off - the same
+    // rule the rotation uses, so a fresh install starts quiet rather than
+    // opening eight connections to public pools before anyone has looked at
+    // it.
+    //
+    // That rule must not be applied retroactively. On an install that has been
+    // running, the race has been measuring since the day it was installed, and
+    // an update that silently stopped it would look like a fault rather than a
+    // default. So an existing database is switched on explicitly, once.
+    //
+    // "Existing" is asked of peer_session rather than of the stratum tables:
+    // sessions appear within seconds of the peer profiler starting, whereas a
+    // node that has not seen a block yet has no races of either kind - and
+    // would then be mistaken for a fresh install and quietly switched off.
+    migrate('stratum_race_toggle_v1_16_3', 'kept stratum race switched on for this existing install', () => {
+      const hasRun = db.prepare(`SELECT EXISTS (SELECT 1 FROM peer_session) AS n`).get().n > 0;
+      if (!hasRun) return;
+      db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)`).run('stratum_race_enabled', '1');
+    });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
   }

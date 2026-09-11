@@ -8,6 +8,7 @@
 const db = require('../db');
 const config = require('../config');
 const { liveSummary } = require('./peers');
+const stratumRace = require('../stratum-race-toggle');
 
 /**
  * The four numbers behind Umbrel's home-screen widget, as four small queries.
@@ -62,7 +63,11 @@ function widgetStats() {
   return {
     live: liveSummary(),
     bestPeer: bestPeer || null,
-    bestPool: bestPool || null,
+    // Nothing rather than the last thing measured, when the race is switched
+    // off. Umbrel polls this around the clock, so a pool left in here would sit
+    // on the home screen for as long as the app is installed, looking like a
+    // live measurement of something that stopped weeks ago.
+    bestPool: stratumRace.isEnabled() ? bestPool || null : null,
     trustedTotal: trusted.total,
     trustedOnline: trusted.online || 0,
   };
