@@ -54,10 +54,11 @@ record. The eight I picked run from 2.2% to 46.8%.
 
 A node without a forwarded port has less to compete with. It still takes
 inbound connections — on Umbrel they arrive over Tor and I2P — but none of
-those can be kept: there is no address this app can dial back on. So its
-eighteen outbound are everything it gets to choose from, and its ten should fill
-up further than mine. I cannot measure that here. A friend runs this on a node
-without a forwarded port and is happy with it.
+those can be kept: there is no address this app can dial back on. So the ten
+outbound Core gives it are everything it has, until the eight manual slots make
+that eighteen — and those ten should fill up further than mine. I cannot measure
+that here. A friend runs this on a node without a forwarded port and is happy
+with it.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/5.png?v=1.16.1)
 
@@ -228,10 +229,10 @@ everyone else.
 
 ## Listening, or not
 
-**The effect is biggest on a node with no forwarded port.** Its eighteen outbound
-connections are everything it has to work with, and eight of them are yours to
-pick. Whatever dials in over Tor or I2P does not change that, for the reasons
-above.
+**The effect is biggest on a node with no forwarded port.** Ten outbound
+connections are everything it has to work with — fill the eight manual slots and
+that becomes eighteen, eight of them picked by you. Whatever dials in over Tor
+or I2P does not change that, for the reasons above.
 
 A listening node is usually the better connected of the two, though: more peers
 means a better chance that several of them sit somewhere useful. That advantage
