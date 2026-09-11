@@ -214,17 +214,17 @@ from zero.
 Bitcoin Node → Settings → **Outgoing Peer Connections**. Three toggles —
 Clearnet, Tor, I2P — and all three are on by default. **Leave only Clearnet on.**
 
-Neither an I2P peer nor a Tor peer has ever been first here.
+Not one of the 1,136 blocks this node has been handed first came over Tor or
+I2P. Every one arrived over clearnet — every case the app has been able to
+label, without exception.
 
-Since this app started recording which network each peer is on, every block that
-reached this node first came over clearnet: 1,136 of them, without exception.
+An outbound slot on one of those networks is wasted twice: the peer will not
+deliver, and this app could not keep it if it did. It dials out over plain TCP —
+no Tor proxy, no I2P bridge, no CJDNS interface — so there is no address to call
+back on.
 
-Either way, an outbound slot Core fills over Tor or I2P is one this app cannot
-promote: it dials out over plain TCP, with no Tor proxy, no I2P bridge and no
-CJDNS interface, so there is no address to call back on.
-
-Inbound connections over Tor or I2P are fine — those peers connected to you,
-and they rank normally.
+Inbound over Tor or I2P is fine. Those peers dialled you, and they rank like
+everyone else.
 
 ## Listening, or not
 
