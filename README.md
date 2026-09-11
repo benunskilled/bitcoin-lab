@@ -228,12 +228,10 @@ everyone else.
 
 ## Listening, or not
 
-**The effect is biggest on a node with no forwarded port.** Such a node is not
-without inbound connections — on Umbrel they arrive over Tor and I2P — but none
-of them can be kept, because there is no address this app can dial back on. Nor
-would they be worth keeping: across 9,806 chances to be first, the I2P and Tor
-peers here have taken none. Its 18 outbound are the whole of what it can choose
-from, and you chose eight of them.
+**The effect is biggest on a node with no forwarded port.** Its eighteen outbound
+connections are everything it has to work with, and eight of them are yours to
+pick. Whatever dials in over Tor or I2P does not change that, for the reasons
+above.
 
 A listening node is usually the better connected of the two, though: more peers
 means a better chance that several of them sit somewhere useful. That advantage
