@@ -296,11 +296,6 @@ point: by then, finding them has taken months.
 The other half of the app: it times how quickly each mining pool turns a new
 block into fresh work, your own local pool included.
 
-It is switched off until you turn it on, with a switch on the dashboard. Off
-means off: no connection to any pool, public or your own, and nothing measured.
-Switch it off again later and everything measured so far is kept — the pool
-history is only deleted if you delete it, under Storage.
-
 Each pool gets its own TCP connection and is timed on when its `mining.notify`
 carrying a new `prevhash` arrives — `hrtime` on the socket's `data` event, before
 any parsing. The first pool to report a given prevhash sets 0 ms and every other
