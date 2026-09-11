@@ -52,10 +52,12 @@ seven hours, and none of them has reached 50 blocks yet, so none has been
 dropped. The three that lasted sit between 0.1% and 0.2% over their whole
 record. The eight I picked run from 2.2% to 46.8%.
 
-A node that takes no inbound connections has less to compete with — those
-eighteen peers are everything it has — so its ten should fill up further than
-mine. I cannot measure that here, so take it as what the rule implies, not as
-a number.
+A node without a forwarded port has less to compete with. It still takes
+inbound connections — on Umbrel they arrive over Tor and I2P — but none of
+those can be kept: there is no address this app can dial back on. So its
+eighteen outbound are everything it gets to choose from, and its ten should fill
+up further than mine. I cannot measure that here, so take it as what the rule
+implies, not as a number.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/5.png?v=1.16.1)
 
@@ -225,8 +227,11 @@ and they rank normally.
 
 ## Listening, or not
 
-**The effect is biggest on a node that does not accept inbound connections at
-all.** Its 18 outbound are the entire peer set, and you chose eight of them.
+**The effect is biggest on a node with no forwarded port.** Such a node is not
+without inbound connections — on Umbrel they arrive over Tor and I2P — but none
+of them can be kept, because there is no address this app can dial back on. Its
+18 outbound are the whole of what it can choose from, and you chose eight of
+them.
 
 A listening node is usually the better connected of the two, though: more peers
 means a better chance that several of them sit somewhere useful. That advantage
