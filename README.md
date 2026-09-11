@@ -56,9 +56,9 @@ A node without a forwarded port has less to compete with. It still takes
 inbound connections — on Umbrel they arrive over Tor and I2P — but none of
 those can be kept: there is no address this app can dial back on. So its
 eighteen outbound are everything it gets to choose from, and its ten should fill
-up further than mine. I cannot measure that here. Someone I know runs this on a
-node without a forwarded port and is happy with it, which is worth exactly as
-much as it sounds: take the above as what the rule implies, not as a number.
+up further than mine. I cannot measure that here. A friend runs this on a node
+without a forwarded port and is happy with it, which is worth exactly as much as
+it sounds: take the above as what the rule implies, not as a number.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/5.png?v=1.16.1)
 
