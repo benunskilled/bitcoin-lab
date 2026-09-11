@@ -218,6 +218,23 @@
     <section class="card">
       <h2>Stratum Race</h2>
       <div class="inline-form">
+        <label class="switch-label" for="stratum-toggle">
+          <input type="checkbox" id="stratum-toggle" />
+          Time how fast mining pools hand out work on a new block
+        </label>
+      </div>
+      <!--
+        One sentence, under the switch, for the same reason as the rotation's:
+        this is read before flipping it. What matters to somebody switching it
+        off is that it really does stop talking to other people's servers, and
+        that they are not throwing away what they already measured.
+      -->
+      <p class="hint" id="stratum-off-hint" hidden>
+        Off. No connection is made to any pool and nothing is measured. What was
+        measured so far is kept.
+      </p>
+      <div id="stratum-body">
+      <div class="inline-form">
         <label class="hint" for="stratum-range">Range:</label>
         <select id="stratum-range">
           <option value="10">Last 10 blocks</option>
@@ -273,6 +290,7 @@
           </thead>
           <tbody></tbody>
         </table>
+      </div>
       </div>
     </section>
 

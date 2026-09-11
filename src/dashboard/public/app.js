@@ -103,6 +103,7 @@ async function refreshStatus() {
       th.textContent = `First % (last ${RECENT_WINDOW_BLOCKS})`;
     }
   }
+  applyStratumEnabled(Boolean(s.stratumRaceEnabled));
   // The peer count comes from SQLite and the block height from a Bitcoin
   // Core RPC call. Tying them together meant a single RPC hiccup (Core
   // restarting, still in IBD, a timeout) replaced a perfectly good peer
@@ -657,7 +658,31 @@ function renderRotationLog(log) {
   `).join('') || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
 }
 
+/**
+ * Show the Stratum Race card as running or as off.
+ *
+ * Everything below the switch is hidden rather than greyed out, because
+ * switched off there is nothing behind it that is still true: no pool is
+ * connected and no race is being timed, so a table of numbers would be a
+ * reading from an instrument that is not plugged in.
+ *
+ * Skipped while the switch has focus, so a poll landing between the click and
+ * the server's answer cannot flip it back under the user's finger - the same
+ * problem the peer tables solve with deferRender.
+ */
+function applyStratumEnabled(enabled) {
+  const toggle = document.getElementById('stratum-toggle');
+  if (!toggle) return;
+  if (document.activeElement !== toggle) toggle.checked = enabled;
+  const body = document.getElementById('stratum-body');
+  const offHint = document.getElementById('stratum-off-hint');
+  if (body) body.hidden = !enabled;
+  if (offHint) offHint.hidden = enabled;
+}
+
 async function refreshPools() {
+  // Nothing to ask for while it is off, and nowhere to put the answer.
+  if (document.getElementById('stratum-body')?.hidden) return;
   const range = document.getElementById('stratum-range').value;
   const pools = await api(`/api/pools?range=${encodeURIComponent(range)}`);
   renderPools(pools);
@@ -975,6 +1000,25 @@ document.body.addEventListener('change', async (e) => {
     } finally {
       actionsInFlight -= 1;
       flushDeferredRenders();
+    }
+    return;
+  }
+
+  if (e.target.id === 'stratum-toggle') {
+    const enabled = e.target.checked;
+    try {
+      const result = await api('/api/stratum/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
+      applyStratumEnabled(Boolean(result.enabled));
+      showToast(
+        result.enabled
+          ? 'Stratum Race turned on. Pool connections open within half a minute.'
+          : 'Stratum Race turned off. Pool connections close within half a minute.',
+        'success',
+      );
+      if (result.enabled) refreshPools();
+    } catch (err) {
+      if (e.target.isConnected) e.target.checked = !enabled;
+      showToast(`Could not change Stratum Race: ${err.message}`, 'error');
     }
     return;
   }

@@ -266,10 +266,15 @@ Each can be cleared on its own. Your manual peers are never part of either —
 they survive a reset with their record starting again from zero, which is the
 point: by then, finding them has taken months.
 
-## Stratum Race
+## Stratum Race (optional, off by default)
 
 The other half of the app: it times how quickly each mining pool turns a new
 block into fresh work, your own local pool included.
+
+It is switched off until you turn it on, with a switch on the dashboard. Off
+means off: no connection to any pool, public or your own, and nothing measured.
+Switch it off again later and everything measured so far is kept — the pool
+history is only deleted if you delete it, under Storage.
 
 Each pool gets its own TCP connection and is timed on when its `mining.notify`
 carrying a new `prevhash` arrives — `hrtime` on the socket's `data` event, before
@@ -347,12 +352,12 @@ npm test
 All configuration is environment variables (see `src/lib/config.js`) — no config
 files to hand-edit.
 
-Worth knowing before you install: Stratum Race opens one persistent TCP
-connection to each enabled pool, and eight public pools are enabled by default,
-so a fresh install starts talking to eight external mining pools straight away.
-It subscribes and authorizes but never submits a share; the address it
+Worth knowing: Stratum Race opens one persistent TCP connection to each enabled
+pool, and eight public pools come pre-configured. It is switched off until you
+turn it on, so a fresh install talks to nothing but your own node. Once it is
+on, it subscribes and authorizes but never submits a share; the address it
 authorizes with is a well-known burn address, configurable below. Disable or
-delete any of them on the dashboard. On Umbrel these are supplied automatically
+delete any of the pools on the dashboard, or switch the whole thing off again. On Umbrel these are supplied automatically
 via the `bitcoin` app dependency contract (`APP_BITCOIN_*`); for local use set
 the plain `BITCOIN_*` equivalents (`docker-compose.dev.yml` is a working
 example).

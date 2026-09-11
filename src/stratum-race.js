@@ -15,6 +15,7 @@ const processGuard = require('./lib/process-guard');
 const { isValidHost, isValidPort } = require('./lib/validate');
 const logger = require('./lib/logger').make('stratum-race');
 const { StratumPoolConnection } = require('./lib/stratum-client');
+const toggle = require('./lib/stratum-race-toggle');
 
 // Pools only ever change through the dashboard, and a few minutes' delay in
 // noticing that is imperceptible - this used to run every 30 seconds, which
@@ -22,6 +23,14 @@ const { StratumPoolConnection } = require('./lib/stratum-client');
 // twice a month. Enabling or disabling a pool from the UI takes effect on
 // the next pass.
 const POOL_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+// The master switch is checked far more often than the pool list, and for a
+// different reason. The pool list changes maybe twice a month, so noticing it
+// five minutes late is imperceptible. The switch is a button somebody just
+// pressed: "off" that takes five minutes to close the sockets reads as broken.
+// It costs one single-row read of `meta` every 30 seconds, and only does
+// anything at all when the answer changed.
+const TOGGLE_CHECK_INTERVAL_MS = 30 * 1000;
 
 /** @type {Map<number, {conn: StratumPoolConnection, pool: object}>} */
 const active = new Map();
@@ -66,6 +75,14 @@ function loadEnabledPools() {
 }
 
 function syncConnections() {
+  // Switched off: hold nothing open, and do not start anything for a pool that
+  // was added in the meantime. Cheap and idempotent, so the periodic pass can
+  // run unchanged whichever way the switch is set.
+  if (!toggle.isEnabled()) {
+    shutDownRace();
+    return;
+  }
+
   const pools = loadEnabledPools();
   const wanted = new Map(pools.map((p) => [p.id, p]));
 
@@ -277,6 +294,51 @@ function stopAllConnections() {
   for (const { conn } of active.values()) conn.stop();
 }
 
+/**
+ * Drop every open race WITHOUT recording a miss for anyone.
+ *
+ * The difference from finalizeRace() is the whole point. A miss means "this
+ * pool had its chance and said nothing" - a fact about the pool. A race that
+ * is cut short because somebody switched the feature off is a fact about the
+ * user, and charging every pool a miss for it would bias Win % and Miss in
+ * exactly the way the comments above spend so long guarding against. The race
+ * row stays with whatever really did report; nobody is charged for the rest.
+ */
+function abandonOpenRaces() {
+  for (const race of openRaces.values()) clearTimeout(race.timer);
+  openRaces.clear();
+}
+
+// Everything the worker holds, released. Idempotent: with nothing open and
+// nothing connected this does nothing at all.
+function shutDownRace() {
+  abandonOpenRaces();
+  stopAllConnections();
+  active.clear();
+}
+
+/**
+ * Act on the master switch, and only when it has actually moved.
+ *
+ * `null` on the first pass, so the first check always logs and always acts -
+ * which is what makes the state after a restart correct without a special
+ * case for it.
+ */
+let lastToggleState = null;
+
+function applyToggle() {
+  const enabled = toggle.isEnabled();
+  if (enabled === lastToggleState) return;
+  lastToggleState = enabled;
+  if (enabled) {
+    logger.info('stratum race switched on');
+    syncConnections();
+  } else {
+    logger.info('stratum race switched off - closing every pool connection');
+    shutDownRace();
+  }
+}
+
 function main() {
   processGuard.install(logger, {
     onShutdown: () => {
@@ -285,10 +347,22 @@ function main() {
     },
   });
   db.open();
-  health.start(db, 'stratum-race', logger, () => ({ pools: active.size, openRaces: openRaces.size }));
-  syncConnections();
+  // The heartbeat runs whether or not the race does. A worker that is switched
+  // off is healthy, not wedged, and its healthcheck has to be able to tell the
+  // two apart.
+  health.start(db, 'stratum-race', logger, () => ({
+    enabled: toggle.isEnabled(),
+    pools: active.size,
+    openRaces: openRaces.size,
+  }));
+  applyToggle();
+  setInterval(applyToggle, TOGGLE_CHECK_INTERVAL_MS);
   setInterval(syncConnections, POOL_REFRESH_INTERVAL_MS);
-  logger.info('started', { timeoutMs: config.stratumRaceTimeoutMs, pools: active.size });
+  logger.info('started', {
+    enabled: toggle.isEnabled(),
+    timeoutMs: config.stratumRaceTimeoutMs,
+    pools: active.size,
+  });
 }
 
 // Only run as a service when executed directly, so the race logic above can
@@ -297,4 +371,15 @@ function main() {
 // only ever reproducible end to end; now it has a test.
 if (require.main === module) main();
 
-module.exports = { handleNotify, finalizeRace, finalizeAllRaces, syncConnections, active, openRaces, main };
+module.exports = {
+  handleNotify,
+  finalizeRace,
+  finalizeAllRaces,
+  abandonOpenRaces,
+  shutDownRace,
+  applyToggle,
+  syncConnections,
+  active,
+  openRaces,
+  main,
+};

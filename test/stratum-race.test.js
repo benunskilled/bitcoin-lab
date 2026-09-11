@@ -13,6 +13,7 @@ process.env.LOG_LEVEL = 'error';
 
 const db = require('../src/lib/db');
 const race = require('../src/stratum-race');
+const toggle = require('../src/lib/stratum-race-toggle');
 
 const hr = () => process.hrtime.bigint();
 const prevhash = (n) => String(n).padStart(64, '0');
@@ -41,6 +42,10 @@ test.before(() => {
 });
 
 test.beforeEach(() => {
+  // The race is a switch now and an absent flag means off, so every test that
+  // exercises the worker has to turn it on first - exactly like a real install
+  // does once, from the dashboard.
+  toggle.setEnabled(true);
   race.finalizeAllRaces();
   race.openRaces.clear();
   db.instance.prepare('DELETE FROM stratum_observation').run();
@@ -192,4 +197,58 @@ test('REGRESSION: an invalid pool port disables that pool instead of crashing th
   assert.equal(row.enabled, 0, 'the bad pool is disabled so it cannot be retried on every tick');
 
   db.instance.prepare(`DELETE FROM stratum_pool WHERE label = 'Typo Pool'`).run();
+});
+
+test('switched off, the worker drops every connection and starts none', () => {
+  // Fake connection objects, never real sockets: syncConnections() with the
+  // switch ON would dial, and a unit test must not open a TCP connection to
+  // anything.
+  watchPools(fakePool(1, 'A'), fakePool(2, 'B'));
+  toggle.setEnabled(false);
+
+  race.syncConnections();
+  assert.equal(race.active.size, 0, 'switched off it drops every connection');
+
+  db.instance
+    .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES (?, ?, ?, 1, 0, ?)`)
+    .run('Late Pool', 'pool.example', 3333, Date.now());
+  race.syncConnections();
+  assert.equal(race.active.size, 0, 'a pool added while it is off is not connected either');
+
+  db.instance.prepare(`DELETE FROM stratum_pool WHERE label = 'Late Pool'`).run();
+});
+
+test('switching off abandons an open race instead of charging everyone a miss', () => {
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  const t0 = hr();
+  race.handleNotify(a, prevhash(70), t0);
+  assert.equal(race.openRaces.size, 1);
+
+  race.shutDownRace();
+
+  assert.equal(race.openRaces.size, 0, 'the open race is gone');
+  const rows = observationsFor(prevhash(70));
+  assert.equal(rows.length, 1, 'only the pool that really reported has a row');
+  assert.ok(rows[0].latencyMs != null, 'and it is a real result, not a miss charged to the other pool');
+});
+
+test('applyToggle acts only when the switch has actually moved', () => {
+  // Every pool disabled, so switching on has nothing to dial.
+  db.instance.prepare('UPDATE stratum_pool SET enabled = 0').run();
+
+  toggle.setEnabled(false);
+  race.applyToggle();
+  assert.equal(race.active.size, 0);
+
+  toggle.setEnabled(true);
+  race.applyToggle();
+
+  // Stand in for connections the worker is holding. If an unchanged switch
+  // re-ran the sync, these would be dropped - which in production means every
+  // pool's socket torn down and rebuilt every thirty seconds.
+  watchPools(fakePool(1, 'A'));
+  race.applyToggle();
+  assert.equal(race.active.size, 1, 'an unchanged switch is left alone');
 });
