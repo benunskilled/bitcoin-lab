@@ -250,8 +250,7 @@ A toggle on the dashboard automates the loop. Every ~10 minutes it:
 
 1. **Drops a peer that is never first** — disconnects any live outbound peer
    that has been eligible for at least 50 blocks (about eight hours) and has
-   never once delivered a block before the others. Never a manual or inbound
-   peer.
+   never once delivered a block before the others.
 2. **Parks a manual peer that has been offline too long** — the slot is freed,
    its record kept.
 3. **Puts a parked peer back** when it answers again.
