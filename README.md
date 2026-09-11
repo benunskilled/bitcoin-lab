@@ -170,8 +170,9 @@ less to choose from, not more.
 ## What you can do about it
 
 Two moves. You can make them yourself on the dashboard, or switch the rotation on
-and let it make them for you. Switch it on — it has promoted 17 peers on this
-node and dropped the ones that were never first, and doing that by hand means
+and let it make them for you. Switch it on. Over the 1,882 blocks this node has
+recorded, Core handed it 752 outbound peers; 232 of them stayed long enough to be
+judged, and 17 have been promoted into the eight. Sifting that by hand means
 reading a table several times a day and remembering what it said last time.
 
 It is off until you ask for it because it disconnects peers. An app that starts
