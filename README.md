@@ -170,7 +170,13 @@ less to choose from, not more.
 ## What you can do about it
 
 Two moves. You can make them yourself on the dashboard, or switch the rotation on
-and let it make them for you.
+and let it make them for you. Switch it on — it has promoted 17 peers on this
+node and dropped the ones that were never first, and doing that by hand means
+reading a table several times a day and remembering what it said last time.
+
+It is off until you ask for it because it disconnects peers. An app that starts
+rearranging your node's connections before anyone has looked at it would deserve
+the suspicion.
 
 The eight is Core's own limit, not this app's. And on almost every node all
 eight sit empty, because Core never uses `addnode` by itself — these are not
@@ -231,7 +237,7 @@ can be tried: if it answers on its listening port, it becomes one of your eight.
 If it does not, the advantage lasts exactly as long as that peer feels like
 staying.
 
-## Peer rotation (optional, off by default)
+## Peer rotation (recommended, off by default)
 
 A toggle on the dashboard automates the loop. Every ~10 minutes it:
 
