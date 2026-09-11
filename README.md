@@ -122,10 +122,12 @@ peer 8           0.8 %     4/499    19 ms
 one of these eight, with around 200 peers connected. Core connected me to all
 of them. Ten days of measuring decided which eight stayed.
 
-Over the last 500 blocks it is 476, and the trend is the point. In those same
-500 blocks, 189 peers were dialling in to my node, and between all of them they
-delivered three. Every block has exactly one first, so what the eight gained,
-the inbound crowd lost.
+Over the last 500 blocks the eight slots delivered 469 of them. The rest splits
+two ways: the ten connections Core picked for itself delivered 8, and everything
+that dialled in — the large majority of my two hundred connections — delivered
+23 between them. Taken one at a time none of those is worth a slot: by this
+ranking's own rule all but one of them sits below 1%. Every block has exactly
+one first, so what the eight gained is what the other two hundred lost.
 
 Peer 4 is why the ranking stopped counting whole lifetimes. Over its whole
 record it has delivered 28.5% of the blocks it saw, the best of all eight. Over
