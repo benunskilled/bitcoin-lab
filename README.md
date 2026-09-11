@@ -181,10 +181,10 @@ It is off until you ask for it because it disconnects peers. An app that starts
 rearranging your node's connections before anyone has looked at it would deserve
 the suspicion.
 
-The eight is Core's own limit, not this app's. And on almost every node all
-eight sit empty, because Core never uses `addnode` by itself — these are not
-places to take from someone, they are connections you already could have and are
-not using.
+The eight is Core's own limit, not this app's. These are not places to take from
+someone; they are connections you already could have and are not using — on
+almost every node all eight sit empty, because Core never uses `addnode` by
+itself.
 
 - **Keep a good peer.** It is registered via `addnode`, so Core holds on to it
   instead of letting it rotate away — up to 8 such connections
