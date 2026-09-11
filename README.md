@@ -183,8 +183,8 @@ the suspicion.
 
 The eight is Core's own limit, not this app's. And on almost every node all
 eight sit empty, because Core never uses `addnode` by itself — these are not
-places to take from someone, they are connections you already have and are not
-using.
+places to take from someone, they are connections you already could have and are
+not using.
 
 - **Keep a good peer.** It is registered via `addnode`, so Core holds on to it
   instead of letting it rotate away — up to 8 such connections
