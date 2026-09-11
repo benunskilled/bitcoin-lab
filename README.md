@@ -214,9 +214,7 @@ from zero.
 Bitcoin Node → Settings → **Outgoing Peer Connections**. Three toggles —
 Clearnet, Tor, I2P — and all three are on by default. **Leave only Clearnet on.**
 
-Neither an I2P peer nor a Tor peer has ever been first here. Counting every
-chance one of them had — connected at the moment a block landed — that is 3,465
-chances for 355 I2P peers and 6,341 for 196 Tor peers, and not one taken.
+Neither an I2P peer nor a Tor peer has ever been first here.
 
 Since this app started recording which network each peer is on, every block that
 reached this node first came over clearnet: 1,136 of them, without exception.
