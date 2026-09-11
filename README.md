@@ -232,7 +232,7 @@ everyone else.
 **The effect is biggest on a node with no forwarded port.** Ten outbound
 connections are everything it has to work with — fill the eight manual slots and
 that becomes eighteen, eight of them picked by you. Whatever dials in over Tor
-or I2P does not change that, for the reasons above.
+or I2P does not help much.
 
 A listening node is usually the better connected of the two, though: more peers
 means a better chance that several of them sit somewhere useful. That advantage
