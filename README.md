@@ -279,9 +279,7 @@ long enough to be judged, how many ever delivered a block first, and how many
 were kept.
 
 On my node the middle pair is the whole argument: of 232 random outbound peers
-that stayed connected through 50 blocks, 18 ever delivered one. More than eleven
-in twelve are along for the ride — measured rather than asserted, out of 752
-outbound peers Core has handed this node altogether.
+that stayed connected through 50 blocks, 18 ever delivered one.
 
 ## Storage
 
