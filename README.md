@@ -213,10 +213,11 @@ from zero.
 Bitcoin Node → Settings → **Outgoing Peer Connections**. Three toggles —
 Clearnet, Tor, I2P — and all three are on by default. **Leave only Clearnet on.**
 
-An I2P peer is in practice never first. Measured here: 339 I2P peers were
-connected across 3,284 blocks and delivered none of them. Tor is the same argument
-with none of the evidence — slower than clearnet for the same reasons, but this
-node has not measured it, so treat that as an expectation rather than a number.
+Neither an I2P peer nor a Tor peer has ever been first here. Counting every
+chance one of them had — connected at the moment a block landed — that is 3,465
+chances for 355 I2P peers and 6,341 for 196 Tor peers, and not one taken.
+Clearnet peers on the same node had 190,116 such chances and took 1,136 of them,
+0.60%.
 
 Either way, an outbound slot Core fills over Tor or I2P is one this app cannot
 promote: it dials out over plain TCP, with no Tor proxy, no I2P bridge and no
@@ -229,9 +230,10 @@ and they rank normally.
 
 **The effect is biggest on a node with no forwarded port.** Such a node is not
 without inbound connections — on Umbrel they arrive over Tor and I2P — but none
-of them can be kept, because there is no address this app can dial back on. Its
-18 outbound are the whole of what it can choose from, and you chose eight of
-them.
+of them can be kept, because there is no address this app can dial back on. Nor
+would they be worth keeping: across 9,806 chances to be first, the I2P and Tor
+peers here have taken none. Its 18 outbound are the whole of what it can choose
+from, and you chose eight of them.
 
 A listening node is usually the better connected of the two, though: more peers
 means a better chance that several of them sit somewhere useful. That advantage
@@ -386,7 +388,9 @@ pool, and eight public pools come pre-configured. It is switched off until you
 turn it on, so a fresh install talks to nothing but your own node. Once it is
 on, it subscribes and authorizes but never submits a share; the address it
 authorizes with is a well-known burn address, configurable below. Disable or
-delete any of the pools on the dashboard, or switch the whole thing off again. On Umbrel these are supplied automatically
+delete any of the pools on the dashboard, or switch the whole thing off again.
+
+On Umbrel these are supplied automatically
 via the `bitcoin` app dependency contract (`APP_BITCOIN_*`); for local use set
 the plain `BITCOIN_*` equivalents (`docker-compose.dev.yml` is a working
 example).
