@@ -309,8 +309,8 @@ inside that container — often not the port your miner connects to.
 Per pool: wins, win %, average / median / P90 latency, races seen, misses. The
 public pools are the baseline your own is measured against.
 
-What it answers: whether your own pool keeps up with the public ones, and by how
-much. Curating your peers is what closes that gap.
+What it answers: whether your own pool keeps up with the public ones, and whether
+it gets closer as your peer set improves.
 
 ## Architecture
 
