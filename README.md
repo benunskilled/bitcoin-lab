@@ -164,11 +164,10 @@ is — and a peer that sits close today will probably still sit close tomorrow.
 
 Every number here comes from one node: a first-gen Lenovo ThinkCentre with an
 i7, running Umbrel, listening on IPv4 and IPv6 with Tor and I2P enabled and
-`maxconnections=200`. Worth knowing, and it cuts the other way than you might
-expect: with two hundred connections competing to deliver each block, the eight
-manual slots still took almost nine in ten. A node without a forwarded port has
-ten outbound connections and few inbound ones. Eight strong peers on top of that
-count even more there.
+`maxconnections=200`. Worth knowing: with two hundred connections competing to
+deliver each block, the eight manual slots still took almost nine in ten. A node
+without a forwarded port has ten outbound connections and few inbound ones.
+Eight strong peers on top of that count even more there.
 
 ## What you can do about it
 
