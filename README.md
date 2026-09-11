@@ -256,9 +256,7 @@ A toggle on the dashboard automates the loop. Every ~10 minutes it:
 3. **Puts a parked peer back** when it answers again.
 4. **Promotes the best candidate** — the highest-ranked peer with a real track
    record that is not already manual, into a free slot, or in place of the
-   weakest manual peer if it beats it by more than 0.2 points. Most of the time
-   that will be an outbound peer: an inbound peer has to answer on its own
-   listening port, and few do.
+   weakest manual peer if it clearly beats it.
 
 A peer that has just taken a slot cannot be displaced for its first 50 blocks.
 
