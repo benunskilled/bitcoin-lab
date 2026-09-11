@@ -127,8 +127,14 @@ Over the last 500 blocks the eight slots delivered 469 of them. The rest splits
 two ways: the ten connections Core picked for itself delivered 8, and everything
 that dialled in — the large majority of my two hundred connections — delivered
 23 between them. Taken one at a time none of those is worth a slot: by this
-ranking's own rule all but one of them sits below 1%. Every block has exactly
-one first, so what the eight gained is what the other two hundred lost.
+ranking's own rule all but one of them sits below 1%.
+
+Be careful about what that 23 means. It does not show the crowd is incapable, it
+shows the crowd is being beaten — every block has exactly one first, so take the
+eight away and somebody in that crowd is first instead. This node has been in
+both states, and the difference is measurable: over the first 500 blocks it ever
+recorded, when the manual set was still a rough draft, the same crowd delivered
+76. Over the last 500 it delivers 23. What changed is not them.
 
 The eight rows above add up to 463 rather than 469 because the rotation swapped
 a slot during that window: the peer that has since been replaced delivered the
