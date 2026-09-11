@@ -8,6 +8,8 @@
 const db = require('../db');
 const config = require('../config');
 const { liveSummary } = require('./peers');
+const { recentRelayStats } = require('./peer-ranking');
+const { peerScore } = require('../score');
 const stratumRace = require('../stratum-race-toggle');
 
 /**
@@ -25,17 +27,66 @@ const stratumRace = require('../stratum-race-toggle');
  * first 5 blocks could sit on the home screen as the node's "best peer" at
  * 60% while rotation, correctly, still considered it unproven.
  */
-function widgetStats() {
-  const bestPeer = db.instance
+/**
+ * The peer the home screen calls "best", by the same rule the dashboard ranks
+ * by - the recent window, as a Wilson lower bound (see score.js).
+ *
+ * It used to be the raw lifetime rate straight out of peer_relay_stats, and
+ * when 1.16.0 moved the ranking to the window that was simply left behind. The
+ * widget then quietly disagreed with the app's own table: a peer delivering
+ * 46.8% of the last 500 blocks showed up on the home screen as 29.5%, its
+ * average over a much longer and much worse past. The same mistake had already
+ * been made once here with the eligibility bar, one level down.
+ *
+ * Still deliberately not peerRanking(). This runs around the clock on every
+ * install whether or not anyone has the dashboard open, and the ranking is the
+ * expensive query in this app. What it costs instead is one small read over
+ * the currently-open sessions, plus the window snapshot - which the ranking
+ * has usually already cached against the newest race id.
+ *
+ * Restricted to peers that are connected right now, which the ranking is too.
+ * Without that the home screen could name a peer that did well last week and
+ * left on Tuesday.
+ */
+function bestPeerNow() {
+  const recent = recentRelayStats();
+  const rows = db.instance
     .prepare(
-      `SELECT p.address, prs.first, prs.eligible, (100.0 * prs.first / prs.eligible) AS firstPct
-       FROM peer_relay_stats prs
-       JOIN peer p ON p.id = prs.peer_id
-       WHERE prs.eligible >= ?
-       ORDER BY firstPct DESC, prs.eligible DESC, p.address ASC
-       LIMIT 1`,
+      `SELECT p.id, p.address, prs.first, prs.eligible
+         FROM peer_relay_stats prs
+         JOIN peer p ON p.id = prs.peer_id
+        WHERE prs.eligible >= ?
+          AND EXISTS (SELECT 1 FROM peer_session ps WHERE ps.peer_id = p.id AND ps.ended_at IS NULL)`,
     )
-    .get(config.minEligibleForJudgement);
+    .all(config.minEligibleForJudgement);
+
+  let best = null;
+  for (const r of rows) {
+    const window = recent.get(r.id);
+    const recentFirst = window ? window.first : 0;
+    const recentEligible = window ? window.eligible : 0;
+    const score = peerScore({
+      first: r.first,
+      eligible: r.eligible,
+      recentFirst,
+      recentEligible,
+    });
+    if (score == null) continue;
+    // Shown as the window rate, because that is the number beside this peer in
+    // the dashboard's table. The score decides the order; the percentage is
+    // what a person reads.
+    const firstPct = recentEligible > 0
+      ? (100 * recentFirst) / recentEligible
+      : (100 * r.first) / r.eligible;
+    if (!best || score > best.score) {
+      best = { address: r.address, first: recentFirst, eligible: recentEligible, firstPct, score };
+    }
+  }
+  return best;
+}
+
+function widgetStats() {
+  const bestPeer = bestPeerNow();
 
   const bestPool = db.instance
     .prepare(

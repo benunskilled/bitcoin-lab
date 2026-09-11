@@ -203,4 +203,7 @@ function peerRankingSql() {
          p.address ASC`;
 }
 
-module.exports = { peerRanking };
+// recentRelayStats is exported for the widget, which needs the same window
+// this ranking is built on but must not pay for the ranking itself - see
+// stats.js. The cache makes the second caller free.
+module.exports = { peerRanking, recentRelayStats };
