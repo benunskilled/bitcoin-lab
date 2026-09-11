@@ -217,6 +217,9 @@ Neither an I2P peer nor a Tor peer has ever been first here. Counting every
 chance one of them had — connected at the moment a block landed — that is 3,465
 chances for 355 I2P peers and 6,341 for 196 Tor peers, and not one taken.
 
+Since this app started recording which network each peer is on, every block that
+reached this node first came over clearnet: 1,136 of them, without exception.
+
 Either way, an outbound slot Core fills over Tor or I2P is one this app cannot
 promote: it dials out over plain TCP, with no Tor proxy, no I2P bridge and no
 CJDNS interface, so there is no address to call back on.
