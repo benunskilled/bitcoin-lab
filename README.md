@@ -47,10 +47,10 @@ promoted into the eight and stop being ordinary.
 
 You can see it in how long they have been connected. Of the ten peers Core
 picked here, three have ever delivered a block, and those three have been
-connected for 6.3, 2.5 and 2.0 days. The other seven arrived within the last
-five hours, and none of them has reached 50 blocks yet, so none has been
-dropped. All three that lasted sit at 0.3% over their whole record. The eight
-I picked run from 3.4% to 28.5%.
+connected for 4.8, 4.8 and 4.0 days. The other seven arrived within the last
+seven hours, and none of them has reached 50 blocks yet, so none has been
+dropped. The three that lasted sit between 0.1% and 0.2% over their whole
+record. The eight I picked run from 2.2% to 46.8%.
 
 A node that takes no inbound connections has less to compete with — those
 eighteen peers are everything it has — so its ten should fill up further than
@@ -108,19 +108,20 @@ compete with everything that dials in:
 
 ```
              First % (last 500)     ping
-peer 1          32.8 %   164/500    14 ms
-peer 2          25.6 %   128/500    17 ms
-peer 3          17.5 %    74/424   106 ms
-peer 4           9.8 %    49/500    17 ms
-peer 5           6.2 %    31/500    19 ms
-peer 6           5.2 %    26/500   100 ms
-peer 7           3.6 %    18/500    34 ms
-peer 8           0.8 %     4/499    19 ms
+peer 1          46.8 %   234/500    15 ms
+peer 2          11.2 %    56/500    34 ms
+peer 3          14.3 %    14/98     20 ms
+peer 4           8.4 %    42/500   100 ms
+peer 5           7.2 %    36/500    17 ms
+peer 6           7.2 %    36/500    17 ms
+peer 7           6.8 %    34/500    19 ms
+peer 8           2.2 %    11/500   106 ms
 ```
 
-1,321 of the 1,476 blocks recorded — almost nine in ten — reached me through
-one of these eight, with around 200 peers connected. Core connected me to all
-of them. Ten days of measuring decided which eight stayed.
+1,688 of the 1,882 blocks recorded — almost nine in ten — reached me through a
+manual peer, with 207 peers connected: 189 of them dialling in, 18 outbound,
+and eight of those chosen by me. Core connected me to every one of the eight at
+some point. Weeks of measuring decided which eight stayed.
 
 Over the last 500 blocks the eight slots delivered 469 of them. The rest splits
 two ways: the ten connections Core picked for itself delivered 8, and everything
@@ -129,20 +130,26 @@ that dialled in — the large majority of my two hundred connections — deliver
 ranking's own rule all but one of them sits below 1%. Every block has exactly
 one first, so what the eight gained is what the other two hundred lost.
 
-Peer 4 is why the ranking stopped counting whole lifetimes. Over its whole
-record it has delivered 28.5% of the blocks it saw, the best of all eight. Over
-the last 500 it has delivered 9.8%. A lifetime ranking would put it top of this
-table on the strength of a month it is no longer having. The window puts it
-fourth, which is where it belongs now.
+The eight rows above add up to 463 rather than 469 because the rotation swapped
+a slot during that window: the peer that has since been replaced delivered the
+other six.
 
-Peer 1 went the other way: 24.6% over its whole record, 32.8% over the window.
-Peer 8 is on its way out at 0.8%, having averaged 3.4%. None of that shows up
+Peer 5 is why the ranking stopped counting whole lifetimes. Over its whole
+record it has delivered 23.4% of the blocks it saw, second best of all eight.
+Over the last 500 it has delivered 7.2%. A lifetime ranking would put it near
+the top of this table on the strength of weeks it is no longer having. The
+window puts it fifth, which is where it belongs now.
+
+Peer 1 went the other way: 29.5% over its whole record, 46.8% over the window.
+Peer 8 is on its way out at 2.2%, having averaged 8.9%. None of that shows up
 in a lifetime number.
 
-Peer 3 shows the other half of the rule. It has only been here for 424 blocks,
-so its 17.5% rests on less than the others, and the Wilson bound charges it for
-that: it enters the ranking at 14.1 instead of 17.5. Thin does not mean
-ignored, it means discounted until the sample grows.
+Peers 2 and 3 are why the table is not sorted by the percentage you can see.
+Peer 2 has delivered 56 of 500 blocks, peer 3 has delivered 14 of 98. Raw, that
+is 11.2% against 14.3%, and the thinner record looks like the better peer. The
+Wilson bound charges each of them for what it does not know yet, and they come
+out at exactly the same 8.7%. Thin does not mean ignored, it means discounted
+until the sample grows.
 
 The ping is not what counts. Where a peer sits relative to where blocks are made
 is — and a peer that sits close today will probably still sit close tomorrow.
@@ -151,8 +158,8 @@ Every number here comes from one node: a first-gen Lenovo ThinkCentre with an
 i7, running Umbrel, listening on IPv4 and IPv6 with Tor and I2P enabled and
 `maxconnections=200`. Worth knowing, and it cuts the other way than you might
 expect: with two hundred connections competing to deliver each block, the eight
-manual ones still delivered almost nine in ten. A node with ten outbound peers
-has less to choose from, not more.
+manual slots still took almost nine in ten. A node with ten outbound peers has
+less to choose from, not more.
 
 ## What you can do about it
 
@@ -191,8 +198,8 @@ from zero.
 Bitcoin Node → Settings → **Outgoing Peer Connections**. Three toggles —
 Clearnet, Tor, I2P — and all three are on by default. **Leave only Clearnet on.**
 
-An I2P peer is in practice never first. Measured here: 335 I2P peers were
-connected for 2,659 blocks and delivered none of them. Tor is the same argument
+An I2P peer is in practice never first. Measured here: 339 I2P peers were
+connected across 3,284 blocks and delivered none of them. Tor is the same argument
 with none of the evidence — slower than clearnet for the same reasons, but this
 node has not measured it, so treat that as an expectation rather than a number.
 
@@ -254,9 +261,10 @@ how many outbound peers Core has handed this node, how many stayed connected
 long enough to be judged, how many ever delivered a block first, and how many
 were kept.
 
-On my node the middle pair is the whole argument: of 74 random outbound peers
-that lasted 50 blocks, 12 ever delivered one. Five in six are along for the
-ride, measured rather than asserted.
+On my node the middle pair is the whole argument: of 232 random outbound peers
+that stayed connected through 50 blocks, 18 ever delivered one. More than eleven
+in twelve are along for the ride — measured rather than asserted, out of 752
+outbound peers Core has handed this node altogether.
 
 ## Storage
 
