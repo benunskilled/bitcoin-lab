@@ -103,7 +103,7 @@ table and on the page, they just no longer decide the order.
 
 ### What it looks like after a while
 
-My eight manual slots after ten days of this. My node listens, so these eight
+My eight manual slots after 1,882 blocks of this. My node listens, so these eight
 compete with everything that dials in:
 
 ```
@@ -121,7 +121,7 @@ peer 8           2.2 %    11/500   106 ms
 1,688 of the 1,882 blocks recorded — almost nine in ten — reached me through a
 manual peer, with 207 peers connected: 189 of them dialling in, 18 outbound,
 and eight of those chosen by me. Core connected me to every one of the eight at
-some point. Weeks of measuring decided which eight stayed.
+some point; the measurement decided which of them stayed.
 
 Over the last 500 blocks the eight slots delivered 469 of them. The rest splits
 two ways: the ten connections Core picked for itself delivered 8, and everything
@@ -143,7 +143,7 @@ other six.
 Peer 5 is why the ranking stopped counting whole lifetimes. Over its whole
 record it has delivered 23.4% of the blocks it saw, second best of all eight.
 Over the last 500 it has delivered 7.2%. A lifetime ranking would put it near
-the top of this table on the strength of weeks it is no longer having. The
+the top of this table on the strength of a past it is no longer having. The
 window puts it fifth, which is where it belongs now.
 
 Peer 1 went the other way: 29.5% over its whole record, 46.8% over the window.
