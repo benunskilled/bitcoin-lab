@@ -31,20 +31,28 @@ function latestBlock() {
 
 // How many blocks in a row with nobody credited before this says anything.
 //
-// Five, and that is not a cautious number - it is already far past what the
-// evidence needs. Across 2,206 blocks recorded on a live node, the number of
-// blocks where no peer was credited is zero. Not rare: none. The matching
-// window identifies exactly one peer essentially every time, so a single miss
-// is already odd and five in a row cannot happen by chance on a node whose
-// clocks agree.
+// Across 2,206 blocks recorded on a live node, the number where no peer was
+// credited is zero. Not rare: none, and the longest run is zero. With nothing
+// observed in that many tries the true rate sits under about 0.14% (the rule
+// of three), which puts a run of three at odds of one in several thousand
+// years per node.
 //
-// The cost of a larger number is the only thing it buys, and it buys nothing:
-// twenty blocks would be three and a half hours of a broken install looking
-// perfectly fine before it admits anything. Five is fifty minutes.
+// Two would also survive that arithmetic - one false alarm per ten years - and
+// is still the wrong number, because the arithmetic assumes misses are
+// independent and they are probably not. A slow getpeerinfo, an NTP step, a
+// hiccup in Core: those hit adjacent blocks, which is exactly the case two
+// cannot absorb and three can. A warning that cries wolf once gets dismissed
+// forever after, and this one has to be believed the day it matters.
 //
-// It doubles as the minimum sample. Fewer than five recorded blocks is a
-// fresh install, and a fresh install has nothing to diagnose.
-const ATTRIBUTION_SAMPLE = 5;
+// Going the other way buys nothing either. This is not a condition that
+// repairs itself, so learning about a wrong clock half an hour sooner changes
+// nothing - it just has to arrive the same afternoon rather than the next
+// week. Three blocks is about half an hour; twenty, where this started, was
+// three and a half hours of a broken install looking perfectly fine.
+//
+// It doubles as the minimum sample: fewer than three recorded blocks is a
+// fresh install, which has nothing to diagnose.
+const ATTRIBUTION_SAMPLE = 3;
 
 // The same window the relay profiler matches last_block against. Repeated here
 // rather than imported, because requiring the profiler from a query module
