@@ -77,7 +77,7 @@ test('a five-second clock difference credits nobody, and is named as the cause',
   const health = blocks.attributionHealth();
   assert.equal(health.ok, false);
   assert.equal(health.reason, 'clock');
-  assert.equal(health.blocks, 5, 'the diagnosis reads the last five, not everything');
+  assert.equal(health.blocks, 3, 'the diagnosis reads the last three, not everything');
   assert.ok(health.skewMs < -4000 && health.skewMs > -6000, `skew reported as ${health.skewMs}`);
 });
 
@@ -112,20 +112,21 @@ test('a run of misses with the clocks fine is reported without blaming them', ()
 
 test('too few blocks is not a verdict', () => {
   // A fresh install. Nothing here is evidence of anything yet.
-  recordBlocks(4, -5000);
+  recordBlocks(2, -5000);
   const health = blocks.attributionHealth();
-  assert.equal(health.ok, true, 'four blocks cannot condemn anything');
-  assert.equal(health.blocks, 4);
+  assert.equal(health.ok, true, 'two blocks cannot condemn anything');
+  assert.equal(health.blocks, 2);
 });
 
-test('five is enough, and it is the fifth that decides', () => {
-  // The threshold is five because across 2,206 blocks on a live node the
-  // number with nobody credited was zero - so five in a row is not a run of
-  // bad luck, and waiting longer only delays telling the user.
-  recordBlocks(4, -5000);
-  assert.equal(blocks.attributionHealth().ok, true, 'four is not yet a verdict');
-  recordBlocks(5, -5000, { startAt: Date.UTC(2026, 0, 3), pad: 'e' });
-  assert.equal(blocks.attributionHealth().ok, false, 'five is');
+test('three is enough, and it is the third that decides', () => {
+  // Three because across 2,206 blocks on a live node the number with nobody
+  // credited was zero. Two would survive the arithmetic too and is still the
+  // wrong number: the arithmetic assumes misses are independent, and the
+  // things that cause them hit adjacent blocks.
+  recordBlocks(2, -5000);
+  assert.equal(blocks.attributionHealth().ok, true, 'two is not yet a verdict');
+  recordBlocks(3, -5000, { startAt: Date.UTC(2026, 0, 3), pad: 'e' });
+  assert.equal(blocks.attributionHealth().ok, false, 'three is');
 });
 
 test('one credited block in the sample is enough to stay quiet', () => {
