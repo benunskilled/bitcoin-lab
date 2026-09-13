@@ -178,17 +178,32 @@ module.exports = {
   stratumRaceTimeoutMs: Number(pick(process.env.STRATUM_RACE_TIMEOUT_MS, '8000')),
 
   // Idle-socket timeout for stratum pool connections - a LAST-RESORT
-  // backstop, not the primary way we detect a dead connection (see
-  // setKeepAlive in stratum-client.js for that). Block intervals are
-  // exponentially distributed around a ~10 minute mean with no hard upper
-  // bound - the textbook math says a 120-minute gap should be vanishingly
-  // rare (~0.0006% per wait), but real-world observation of this exact
-  // node has shown it happening more than once, so the math is being
-  // deliberately overridden here in favor of what's actually been seen: 6
-  // hours (P(within 360 min) is astronomically smaller still) all but
-  // eliminates false-miss risk from a spurious reconnect, while TCP
-  // keepalive (below) remains the fast path (minutes, not hours) for an
-  // actually-dead socket.
+  // backstop, not the primary way a dead connection is noticed (see
+  // setKeepAlive in stratum-client.js for that). TCP keepalive stays the fast
+  // path, minutes rather than hours; this only has to be long enough that a
+  // genuinely quiet network never causes a reconnect, because a spurious
+  // reconnect costs a false miss.
+  //
+  // Six hours, and the note that used to justify it was wrong. It said this
+  // node had been observed going over 120 minutes between blocks more than
+  // once, and that the arithmetic was therefore being overridden in favour of
+  // what had actually been seen. The database it described is gone - the app
+  // has been reinstalled since - and the one there is now says something else:
+  // across 2,205 gaps the longest is 78 minutes and none reaches two hours.
+  // The record for the whole network since 2009 is 2h19m, set on 1 July 2021
+  // during the Chinese mining ban. A single node seeing 120 minutes twice is
+  // not something that happened.
+  //
+  // What almost certainly did happen is that the app itself was not running -
+  // a hung update, or the stalled ZMQ subscription that dashboard-server.js
+  // now watches for. Both leave the same hole in the record, and neither has
+  // anything to do with how fast blocks were arriving.
+  //
+  // Six hours stands anyway, on a better argument: this is a backstop with no
+  // cost to being generous, it is more than twice the network's all-time
+  // record, and the thing it guards against - a false miss written into the
+  // pool statistics - is the one error in this file that nothing later can
+  // correct.
   stratumIdleTimeoutMs: Number(pick(process.env.STRATUM_IDLE_TIMEOUT_MS, String(6 * 60 * 60 * 1000))),
 
   // Username sent with mining.authorize - many solo-mining stratum servers
