@@ -16,6 +16,25 @@ const config = require('./config');
 
 let idCounter = 0;
 
+// One connection pool for the whole process instead of a fresh TCP handshake
+// per call. The peer profiler alone asks for getpeerinfo every fifteen
+// seconds, and the dashboard, the rotation and the sync add to that; none of
+// it is heavy over a Docker bridge, but there is no reason to open and close a
+// socket several thousand times a day to the same host.
+//
+// maxSockets is small on purpose. Core handles RPC on a small thread pool and
+// four in flight is already more than anything here does at once; a larger
+// number would only queue work somewhere else.
+const agent = new http.Agent({ keepAlive: true, maxSockets: 4, keepAliveMsecs: 30000 });
+
+// Core is this app's own trusted service, so this is not a defence against an
+// attacker - it is a guard against being pointed at the wrong port. Without a
+// ceiling, an endpoint that streams something unbounded is a process that
+// grows until it dies, and the cause is invisible. getpeerinfo on a node with
+// two hundred peers is a few hundred kilobytes, so 16 MB is far past anything
+// legitimate.
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+
 function call(method, params = [], { timeoutMs = 10000 } = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(config.bitcoin.rpcUrl);
@@ -40,12 +59,27 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
           Authorization: `Basic ${auth}`,
         },
         timeout: timeoutMs,
+        agent,
       },
       (res) => {
         let raw = '';
+        let bytes = 0;
+        let aborted = false;
         res.setEncoding('utf8');
-        res.on('data', (chunk) => { raw += chunk; });
+        res.on('data', (chunk) => {
+          if (aborted) return;
+          bytes += Buffer.byteLength(chunk, 'utf8');
+          if (bytes > MAX_RESPONSE_BYTES) {
+            aborted = true;
+            raw = '';
+            res.destroy();
+            reject(new Error(`RPC ${method}: response exceeded ${MAX_RESPONSE_BYTES} bytes`));
+            return;
+          }
+          raw += chunk;
+        });
         res.on('end', () => {
+          if (aborted) return;
           let parsed;
           try {
             parsed = JSON.parse(raw);
@@ -71,6 +105,7 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
 
 module.exports = {
   call,
+  agent,
   getPeerInfo: () => call('getpeerinfo'),
   getBlockHeader: (hash) => call('getblockheader', [hash]),
   getBlockCount: () => call('getblockcount'),
