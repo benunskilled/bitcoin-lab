@@ -71,6 +71,40 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/bitcoin-lab:${{ steps.vars.outputs.tag }}
             ${{ startsWith(github.ref, 'refs/tags/v') && format('ghcr.io/{0}/bitcoin-lab:latest', github.repository_owner) || '' }}
 
+      # "The image built" is not the same statement as "the image runs". Both
+      # runtime dependencies are native: better-sqlite3 and zeromq ship
+      # compiled binaries per platform, and the Dockerfile prunes the ones a
+      # Debian container cannot use - a per-platform delete, which is exactly
+      # the kind of step that can take an architecture out without anyone
+      # noticing. The test job above runs on ubuntu-latest, which is x86, and
+      # the machine this app was developed on is x86 too. Nothing anywhere
+      # actually executed the arm64 half before a user did.
+      #
+      # So: start the arm64 image under QEMU and make it load both modules and
+      # open a database. Seconds, and it fails the release rather than the
+      # install on somebody's Raspberry Pi.
+      #
+      # It runs after the push rather than before, because a multi-arch build
+      # cannot be loaded into the local daemon to be tested first. That is
+      # deliberate and safe here: nothing installs an image on its own. The
+      # store package pins a digest that is copied out of this workflow by
+      # hand, and a red workflow is one nobody copies a digest from.
+      - name: Smoke-test the arm64 image
+        run: |
+          docker run --rm --platform linux/arm64 \
+            ghcr.io/${{ github.repository_owner }}/bitcoin-lab:${{ steps.vars.outputs.tag }} \
+            node -e "
+              const Database = require('better-sqlite3');
+              const zmq = require('zeromq');
+              const db = new Database(':memory:');
+              db.exec('CREATE TABLE t (a)');
+              db.prepare('INSERT INTO t VALUES (1)').run();
+              if (db.prepare('SELECT COUNT(*) AS n FROM t').get().n !== 1) throw new Error('sqlite did not round-trip');
+              const sub = new zmq.Subscriber();
+              sub.close();
+              console.log('arm64: better-sqlite3 and zeromq both load and work');
+            "
+
       - name: Print pinned reference for the app package
         run: |
           echo "Paste this into all four image: lines in bitcoin-lab-community-store/bitcoinlab-node/docker-compose.yml:"
