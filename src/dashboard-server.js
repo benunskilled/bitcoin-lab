@@ -257,11 +257,28 @@ async function router(req, res, pathname, url) {
       logger.error('health check: database unreadable', { error: err.message });
     }
     const { allOk, services } = dbOk ? serviceHealth() : { allOk: false, services: {} };
+    // Every worker can be alive and reporting in while the thing they exist to
+    // do quietly produces nothing - which is what a clock disagreement between
+    // Core and this app looks like. Reported beside the heartbeats because it
+    // is the same question from the user's side: is this working?
+    //
+    // Not part of `ok`: the HTTP status answers the container's healthcheck,
+    // and a clock problem on the node is not a reason for Docker to restart
+    // this process in a loop.
+    let attribution = null;
+    if (dbOk) {
+      try {
+        attribution = queries.attributionHealth();
+      } catch (err) {
+        logger.warn('attribution health check failed', { error: err.message });
+      }
+    }
     return sendJson(res, dbOk ? 200 : 503, {
       ok: dbOk,
       allServicesOk: dbOk && allOk,
       version: require('../package.json').version,
       services,
+      attribution,
     });
   }
 

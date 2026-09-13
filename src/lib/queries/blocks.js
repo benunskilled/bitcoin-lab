@@ -29,4 +29,69 @@ function latestBlock() {
   return { ...race, firstPeers };
 }
 
-module.exports = { latestBlock };
+// How many recent blocks the diagnosis looks at, and how few it needs before
+// it will say anything at all. Twenty blocks is about three hours - long
+// enough that a run of them with nobody credited is not bad luck, short enough
+// that a fault shows up the same afternoon it starts.
+const ATTRIBUTION_SAMPLE = 20;
+const ATTRIBUTION_MIN = 5;
+
+// The same window the relay profiler matches last_block against. Repeated here
+// rather than imported, because requiring the profiler from a query module
+// would drag in the RPC client and the ZMQ socket for one number. A test
+// asserts the two stay equal, so this cannot drift unnoticed.
+const ATTRIBUTION_WINDOW_MS = 2500;
+
+/**
+ * Is block attribution actually working, and if not, does the data say why?
+ *
+ * The failure this exists for is the quiet one. Point this app at a Core on
+ * another machine whose clock is a few seconds out, and every block is
+ * recorded with nobody credited: the peer tables fill up, the block counter
+ * climbs, First % stays at 0 for every peer forever, and nothing anywhere
+ * connects the two. The README has carried it as a known limitation for
+ * exactly that reason - it was not detectable from inside.
+ *
+ * The symptom is first_count. One peer credited per block is the normal case,
+ * and a run of zeroes is the fault. The cause is nearest_delta_ms: the closest
+ * last_block any peer reported, relative to when the block was detected. Under
+ * a second when the clocks agree, a steady several seconds when they do not,
+ * with the sign saying which way round.
+ *
+ * Deliberately cautious about blaming the clock. A run of zeroes with a small
+ * delta is a real fault too, just not this one, and telling somebody whose
+ * clock is fine to go and check their clock costs them an afternoon.
+ */
+function attributionHealth() {
+  const rows = db.instance
+    .prepare(
+      `SELECT first_count AS firstCount, nearest_delta_ms AS deltaMs
+         FROM relay_race
+        WHERE first_count IS NOT NULL
+        ORDER BY id DESC LIMIT ?`,
+    )
+    .all(ATTRIBUTION_SAMPLE);
+
+  const healthy = { ok: true, blocks: rows.length, reason: null, skewMs: null };
+  if (rows.length < ATTRIBUTION_MIN) return healthy;
+  if (rows.some((r) => r.firstCount > 0)) return healthy;
+
+  // Nobody credited across the whole sample. Is the clock the explanation?
+  const deltas = rows
+    .map((r) => r.deltaMs)
+    .filter((d) => typeof d === 'number')
+    .sort((a, b) => a - b);
+  const median = deltas.length ? deltas[Math.floor(deltas.length / 2)] : null;
+  const clockIsTheCause = median !== null && Math.abs(median) > ATTRIBUTION_WINDOW_MS;
+
+  return {
+    ok: false,
+    blocks: rows.length,
+    reason: clockIsTheCause ? 'clock' : 'unknown',
+    skewMs: clockIsTheCause ? median : null,
+  };
+}
+
+module.exports = {
+  latestBlock, attributionHealth, ATTRIBUTION_SAMPLE, ATTRIBUTION_MIN, ATTRIBUTION_WINDOW_MS,
+};

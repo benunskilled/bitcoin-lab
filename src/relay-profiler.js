@@ -70,18 +70,50 @@ function isFirstPeer(peer, detectedAtMs) {
   return Math.abs(lastBlockMs - detectedAtMs) <= FIRST_WINDOW_MS && lastBlockMs <= detectedAtMs + 1000;
 }
 
+/**
+ * How far the closest last_block any peer reported sits from the instant we
+ * detected the block, signed: negative means Core's clocks are behind ours.
+ *
+ * On a healthy node this is under a second, because the peer that delivered
+ * the block has a last_block of right now and the only error is last_block's
+ * one-second resolution. It is the diagnostic half of the attribution: when
+ * nobody is credited, this says whether that is because the clocks disagree
+ * (a steady several seconds, block after block) or for some other reason.
+ *
+ * Costs one pass over a list already in memory, after the timestamp and after
+ * the RPC. Nothing here is on the timing path.
+ */
+function nearestLastBlockDeltaMs(peers, detectedAtMs) {
+  let nearest = null;
+  for (const peer of peers) {
+    if (typeof peer.last_block !== 'number' || peer.last_block <= 0) continue;
+    const delta = peer.last_block * 1000 - detectedAtMs;
+    if (nearest === null || Math.abs(delta) < Math.abs(nearest)) nearest = delta;
+  }
+  return nearest;
+}
+
 function recordRace({ blockHash, detectedAtMs, peers }) {
   const database = db.instance;
 
   const insertRace = database.prepare(
-    `INSERT OR IGNORE INTO relay_race (block_hash, block_height, detected_at) VALUES (?, NULL, ?)`,
+    `INSERT OR IGNORE INTO relay_race (block_hash, block_height, detected_at, first_count, nearest_delta_ms)
+     VALUES (?, NULL, ?, ?, ?)`,
   );
   const insertObservation = database.prepare(
     `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)`,
   );
 
+  const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
+  const nearestDeltaMs = nearestLastBlockDeltaMs(peers, detectedAtMs);
+
   const tx = database.transaction(() => {
-    const info = insertRace.run(blockHash, detectedAtMs);
+    const info = insertRace.run(
+      blockHash,
+      detectedAtMs,
+      firstCount,
+      nearestDeltaMs === null ? null : Math.round(nearestDeltaMs),
+    );
     if (info.changes === 0) {
       // Already recorded (duplicate ZMQ delivery / reconnect replay) - skip.
       return null;
@@ -149,6 +181,7 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     blockHash,
     eligible: peers.length,
     first: firstCount,
+    nearestLastBlockMs: nearestLastBlockDeltaMs(peers, detectedAtMs),
     processingMs: Number(elapsedMs.toFixed(2)),
   });
 
@@ -187,4 +220,6 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { recordRace, handleHashBlock, main, isFirstPeer, FIRST_WINDOW_MS };
+module.exports = {
+  recordRace, handleHashBlock, main, isFirstPeer, nearestLastBlockDeltaMs, FIRST_WINDOW_MS,
+};
