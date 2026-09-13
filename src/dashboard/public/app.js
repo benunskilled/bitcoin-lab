@@ -1064,14 +1064,32 @@ async function refreshHealth() {
   const down = Object.entries(report.services || {})
     .filter(([, v]) => !v.ok)
     .map(([name]) => name);
-  if (down.length === 0) {
-    banner.hidden = true;
+  if (down.length > 0) {
+    banner.hidden = false;
+    banner.textContent = down.length === 1
+      ? `The ${down[0]} service is not reporting in. Check its container logs - data it collects is not being recorded right now.`
+      : `${down.length} background services are not reporting in (${down.join(', ')}). Check the app's container logs.`;
     return;
   }
-  banner.hidden = false;
-  banner.textContent = down.length === 1
-    ? `The ${down[0]} service is not reporting in. Check its container logs - data it collects is not being recorded right now.`
-    : `${down.length} background services are not reporting in (${down.join(', ')}). Check the app's container logs.`;
+
+  // Every service alive and still nothing being measured. Attribution matches
+  // Core's last_block against the instant ZMQ delivered the block, so a few
+  // seconds of disagreement between the two clocks credits nobody, ever, while
+  // every other part of the page looks perfectly normal.
+  const attribution = report.attribution;
+  if (attribution && attribution.ok === false) {
+    const seconds = attribution.skewMs == null ? null : Math.abs(attribution.skewMs) / 1000;
+    banner.hidden = false;
+    banner.textContent = attribution.reason === 'clock'
+      ? `No peer has been credited with any of the last ${attribution.blocks} blocks. `
+        + `Bitcoin Core's clock looks about ${seconds.toFixed(1)} seconds `
+        + `${attribution.skewMs < 0 ? 'behind' : 'ahead of'} this app's.`
+      : `No peer has been credited with any of the last ${attribution.blocks} blocks, `
+        + 'so First % cannot fill up. Check the relay profiler\'s logs.';
+    return;
+  }
+
+  banner.hidden = true;
 }
 
 /**

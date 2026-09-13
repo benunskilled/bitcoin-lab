@@ -403,6 +403,30 @@ function runMigrations() {
       if (!hasColumn) db.prepare(`ALTER TABLE trusted_peer ADD COLUMN kept INTEGER NOT NULL DEFAULT 0`).run();
     });
 
+    // Two numbers per block that were computed and then thrown away, and
+    // together they turn a silent fault into a diagnosable one.
+    //
+    // Attribution works by matching Core's per-peer last_block against the
+    // instant ZMQ delivered the hash. If Core's clock and this app's disagree
+    // by more than the matching window, no peer is ever credited: First % sits
+    // at 0 for everyone forever, the tables look populated, and nothing says
+    // why. It is in the README as a known limitation precisely because there
+    // was no way to tell from inside.
+    //
+    // first_count is the symptom - how many peers were credited, and zero
+    // block after block is the fault. nearest_delta_ms is the cause: the
+    // signed distance from the detection instant to the closest last_block any
+    // peer reported. Under a second on a healthy node; about -5000, every
+    // time, on one whose Core is five seconds behind. NULL on rows written
+    // before this existed, and the diagnosis ignores those.
+    migrate('relay_race_attribution_v1_16_4', 'recorded what block attribution actually saw', () => {
+      const has = (name) => db
+        .prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('relay_race') WHERE name = ?`)
+        .get(name).n > 0;
+      if (!has('first_count')) db.prepare(`ALTER TABLE relay_race ADD COLUMN first_count INTEGER`).run();
+      if (!has('nearest_delta_ms')) db.prepare(`ALTER TABLE relay_race ADD COLUMN nearest_delta_ms INTEGER`).run();
+    });
+
     // Stratum Race is a switch now, and an absent flag means off - the same
     // rule the rotation uses, so a fresh install starts quiet rather than
     // opening eight connections to public pools before anyone has looked at
