@@ -37,7 +37,20 @@ function blockHashFromZmq(payload) {
 function start({ url, logger, onBlock, reconnectDelayMs = 5000 }) {
   let stopped = false;
   let socket = null;
-  const state = { connected: false, lastBlockAtMs: null };
+  // `connected` is worth less than its name suggests, and the reason matters
+  // for anything trying to detect a stalled subscription. zmq's connect() does
+  // not connect: it registers an intent and returns immediately, and libzmq
+  // then retries underneath forever without telling anybody. Point this at a
+  // port with nothing behind it and the flag below stays true, no error is
+  // thrown, and the `for await` loop simply never yields. A wrong port,
+  // zmqpubhashblock not configured, a firewall in the way - all of them look
+  // exactly like a quiet network.
+  //
+  // So the only honest evidence that this is working is that blocks arrive.
+  // startedAtMs is here to give "none have, ever" something to be measured
+  // against, which is the state a misconfigured install sits in from the
+  // first second.
+  const state = { connected: false, lastBlockAtMs: null, startedAtMs: Date.now() };
 
   (async () => {
     while (!stopped) {

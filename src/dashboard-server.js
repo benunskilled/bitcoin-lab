@@ -208,6 +208,66 @@ function serviceHealth() {
   return { allOk, services };
 }
 
+// How long without a single block before the ZMQ subscription is presumed
+// stalled rather than merely quiet.
+//
+// Six hours, and the interesting part is why it is not three.
+//
+// Measurement first: across 2,205 gaps recorded on a live node the longest was
+// 78 minutes, five were over an hour, and none reached two. Three hours looked
+// like plenty. It is not, and the sample is the reason - fifteen days cannot
+// see the tail of this distribution at all. A 150-minute gap would have been
+// expected 0.0007 times in that sample, so finding none rules out nothing.
+//
+// The textbook model is no better. Treating blocks as a Poisson process at a
+// constant ten minutes puts a 150-minute gap at one per sixty years. The real
+// network has done better than that twice in one summer: 122 minutes on 19
+// April 2021 when power cuts in Xinjiang took 45% of the hashrate off
+// overnight, and 2 hours 19 minutes between blocks 689,300 and 689,301 on 1
+// July 2021 during the Chinese mining ban - the longest gap since 2009. The
+// model is wrong in the tail because the hashrate is not constant, and a
+// difficulty period that opened with more hashrate than it closes with
+// stretches every gap inside it.
+//
+// So three hours would sit forty minutes above the all-time record, which is
+// no margin at all for a warning that must not cry wolf - least of all during
+// exactly the sort of network-wide event that produces those gaps, when the
+// operator has enough to think about. Six hours is more than twice the record.
+// It matches the stratum idle backstop below, for the same reason, and the
+// extra three hours cost nothing: this is a fault that lasts until somebody
+// notices it, so finding it the same day is the whole win.
+//
+// It has to be this blunt because nothing better exists. zmq's connect() is
+// not a connection (see hashblock-subscriber.js), so a subscription pointed at
+// a dead port reports itself as connected indefinitely. Blocks arriving is the
+// only evidence there is.
+const ZMQ_STALL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Is the relay profiler still hearing from Core?
+ *
+ * Separate from the heartbeat, which only says the process is alive - and it
+ * is: it is sitting on a socket that will never speak again, writing "I am
+ * well" every thirty seconds. Nothing is recorded, the tables stop growing,
+ * and every other indicator on the page looks normal.
+ *
+ * `since` is the last block if there has been one, and otherwise when the
+ * subscription started, so an install whose ZMQ was never reachable at all is
+ * caught by the same rule instead of sitting at null forever.
+ */
+function zmqHealth(services) {
+  const beat = services['relay-profiler'];
+  if (!beat || !beat.ok) return null;   // a dead worker is already being reported
+  const since = beat.lastBlockAtMs ?? beat.subscribedAtMs;
+  if (typeof since !== 'number') return null;   // an older worker that does not report it
+  const quietMs = Date.now() - since;
+  return {
+    ok: quietMs <= ZMQ_STALL_MS,
+    quietMs,
+    everReceived: typeof beat.lastBlockAtMs === 'number',
+  };
+}
+
 async function handleWidgetStats(req, res) {
   const { live, bestPeer, bestPool, trustedTotal, trustedOnline } = queries.widgetStats();
 
@@ -279,6 +339,7 @@ async function router(req, res, pathname, url) {
       version: require('../package.json').version,
       services,
       attribution,
+      zmq: dbOk ? zmqHealth(services) : null,
     });
   }
 

@@ -215,6 +215,9 @@ function main() {
   health.start(db, 'relay-profiler', logger, () => ({
     zmqConnected: subscription.state.connected,
     lastBlockAtMs: subscription.state.lastBlockAtMs,
+    // Without this, "no block since the process started" and "a block a
+    // moment ago" are the same null to anyone reading the heartbeat.
+    subscribedAtMs: subscription.state.startedAtMs,
   }));
 }
 

@@ -1072,6 +1072,21 @@ async function refreshHealth() {
     return;
   }
 
+  // Every service alive and still nothing arriving. Reported before
+  // attribution, because a stalled subscription means no new blocks at all -
+  // the attribution check is then frozen on old data and would say nothing.
+  const zmq = report.zmq;
+  if (zmq && zmq.ok === false) {
+    const hours = Math.floor(zmq.quietMs / 3600000);
+    banner.hidden = false;
+    banner.textContent = zmq.everReceived
+      ? `No block has arrived from Bitcoin Core for ${hours} hours. The connection reports itself as fine, `
+        + 'which it always does - check that Bitcoin Node is running and still publishing over ZMQ.'
+      : 'No block has ever arrived from Bitcoin Core. Nothing is being measured - check that Bitcoin Node '
+        + 'is running and that its ZMQ block notifications are switched on.';
+    return;
+  }
+
   // Every service alive and still nothing being measured. Attribution matches
   // Core's last_block against the instant ZMQ delivered the block, so a few
   // seconds of disagreement between the two clocks credits nobody, ever, while
