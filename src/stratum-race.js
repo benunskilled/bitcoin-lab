@@ -56,6 +56,9 @@ const active = new Map();
  */
 const openRaces = new Map();
 
+// See handleNotify for why ten is already absurdly generous.
+const MAX_OPEN_RACES = 10;
+
 // A stale notify must be recognised as stale without a database round-trip on
 // every single message, and without growing forever. Prevhashes are only ever
 // interesting for seconds, so a small ring of recently seen ones is enough.
@@ -131,6 +134,7 @@ function syncConnections() {
       });
       conn.on('notify', ({ prevhash, receivedAtHr }) => handleNotify(pool, prevhash, receivedAtHr));
       conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
+      conn.on('protocolError', (info) => logger.warn('pool sent something unusable', { label: pool.label, ...info }));
       conn.on('authorizeResult', ({ ok, error }) => {
         if (!ok) logger.warn('pool rejected mining.authorize - it will likely never send us a job', { label: pool.label, error });
       });
@@ -216,6 +220,22 @@ function handleNotify(pool, prevhash, receivedAtHr) {
     // other open race - a stale job is simply ignored.
     if (recentPrevhashes.has(prevhash)) {
       logger.debug('stale prevhash from a lagging pool, ignoring', { prevhash, label: pool.label });
+      return;
+    }
+
+    // One race per block, and a block every ten minutes against an eight
+    // second window - so two open at once is already a coincidence and three
+    // is not a thing that happens. The client only lets through a well-formed
+    // 64-hex prevhash, which is the real guard; this is the second one, for
+    // the case where a pool sends hashes that are shaped right and still made
+    // up. Refusing to open the eleventh costs a block nothing, because a
+    // genuine new block would have to arrive while ten others are still
+    // unresolved.
+    if (openRaces.size >= MAX_OPEN_RACES) {
+      logger.warn('too many races open at once, ignoring this prevhash', {
+        open: openRaces.size,
+        label: pool.label,
+      });
       return;
     }
 
@@ -339,13 +359,27 @@ function applyToggle() {
   }
 }
 
+/**
+ * The process is going away - a container restart, an app update, SIGTERM.
+ *
+ * The same release path as the master switch, for the same reason. A race cut
+ * short by a restart says nothing about the pools that had not answered yet,
+ * so nobody is charged a miss for it; abandonOpenRaces above has the whole
+ * argument.
+ *
+ * This used to call finalizeAllRaces(), which does charge them. A restart
+ * landing inside the eight-second race window therefore wrote misses that were
+ * the restart's fault and not the pool's - the exact Win%/Miss bias the rest of
+ * this file goes to some length to avoid. Rare, because that window is eight
+ * seconds out of a ten-minute block interval, but wrong every time it happened
+ * and in a direction nothing later could correct.
+ */
+function handleProcessShutdown() {
+  shutDownRace();
+}
+
 function main() {
-  processGuard.install(logger, {
-    onShutdown: () => {
-      finalizeAllRaces();
-      stopAllConnections();
-    },
-  });
+  processGuard.install(logger, { onShutdown: handleProcessShutdown });
   db.open();
   // The heartbeat runs whether or not the race does. A worker that is switched
   // off is healthy, not wedged, and its healthcheck has to be able to tell the
@@ -377,6 +411,7 @@ module.exports = {
   finalizeAllRaces,
   abandonOpenRaces,
   shutDownRace,
+  handleProcessShutdown,
   applyToggle,
   syncConnections,
   active,

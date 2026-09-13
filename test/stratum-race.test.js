@@ -234,6 +234,41 @@ test('switching off abandons an open race instead of charging everyone a miss', 
   assert.ok(rows[0].latencyMs != null, 'and it is a real result, not a miss charged to the other pool');
 });
 
+test('shutting the process down abandons an open race instead of charging everyone a miss', () => {
+  // The separate path from the one above: not the user switching the feature
+  // off, but SIGTERM - a container restart or an app update. It used to run
+  // finalizeAllRaces(), so a restart inside the race window charged a miss to
+  // every pool that had not answered yet, which is a fact about the restart
+  // and not about the pool.
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  race.handleNotify(a, prevhash(71), hr());
+  assert.equal(race.openRaces.size, 1);
+
+  race.handleProcessShutdown();
+
+  assert.equal(race.openRaces.size, 0, 'the open race is gone');
+  const rows = observationsFor(prevhash(71));
+  assert.equal(rows.length, 1, 'only the pool that really reported has a row');
+  assert.ok(rows[0].latencyMs != null, 'and B is not charged a miss for a restart it had no part in');
+});
+
+test('a race that really timed out still charges a miss', () => {
+  // The other half of the same rule, so the fix above cannot quietly become
+  // "never record a miss again". A pool that had its eight seconds and said
+  // nothing is a fact about the pool, and that one counts.
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  race.handleNotify(a, prevhash(72), hr());
+  race.finalizeRace(prevhash(72));
+
+  const rows = observationsFor(prevhash(72));
+  assert.equal(rows.length, 2, 'both pools have a row');
+  assert.equal(rows.find((r) => r.poolId === 2).latencyMs, null, 'and the silent one is a miss');
+});
+
 test('applyToggle acts only when the switch has actually moved', () => {
   // Every pool disabled, so switching on has nothing to dial.
   db.instance.prepare('UPDATE stratum_pool SET enabled = 0').run();
@@ -251,4 +286,22 @@ test('applyToggle acts only when the switch has actually moved', () => {
   watchPools(fakePool(1, 'A'));
   race.applyToggle();
   assert.equal(race.active.size, 1, 'an unchanged switch is left alone');
+});
+
+test('a flood of made-up prevhashes cannot open unlimited races', () => {
+  // The client only lets a well-formed 64-hex prevhash through, so this is the
+  // second guard, for hashes that are shaped right and still invented. Without
+  // it each one is a stratum_race row, an open race and a timer.
+  const a = fakePool(1, 'A');
+  watchPools(a);
+
+  for (let i = 0; i < 40; i += 1) {
+    race.handleNotify(a, prevhash(1000 + i), hr());
+  }
+
+  assert.equal(race.openRaces.size, 10, 'the cap holds');
+  const opened = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n;
+  assert.equal(opened, 10, 'and nothing past it reached the database');
+
+  race.abandonOpenRaces();
 });
