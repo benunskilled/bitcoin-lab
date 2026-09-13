@@ -269,3 +269,11 @@ module.exports = {
 
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };
+
+// Every number above came through Number(), which turns a typo into NaN rather
+// than into an error - and NaN never throws, it just makes timers fire flat out
+// and comparisons come out false while the app looks like it is running. So the
+// whole set is checked here, once, and a bad value stops the process with a
+// message naming the variable instead of starting something that quietly does
+// nothing correct. See validate-config.js for the rules.
+require('./validate-config').assertConfig(module.exports);
