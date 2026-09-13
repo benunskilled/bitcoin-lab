@@ -10,6 +10,29 @@ const { EventEmitter } = require('events');
 // tested from outside the user's own network.
 const HEARTBEAT_INTERVAL_MS = 15 * 60 * 1000;
 
+// A pool is somebody else's server, and the only thing keeping this buffer
+// from growing without limit is that server choosing to send a newline. One
+// that never does - broken, or hostile - would otherwise grow it until the
+// worker dies of memory exhaustion, and Docker would restart it into the same
+// stream again.
+//
+// 128 KiB is far beyond any real Stratum message. A mining.notify carries a
+// coinbase and a merkle branch and lands in the low kilobytes; the largest
+// thing seen from the eight pre-configured pools is well under 8 KiB. Anything
+// past this is not a message that arrived in pieces, it is a stream with no
+// message in it, so the connection goes rather than the line: the reconnect
+// path below is already the right answer to a pool that has stopped making
+// sense, and it backs off on its own.
+const MAX_STRATUM_LINE_BYTES = 128 * 1024;
+
+// Bitcoin block hashes are 32 bytes, and Stratum sends them as hex. Anything
+// else in the prevhash slot is not a block this node will ever hear about, and
+// letting it through means a stranger's socket can mint rows in stratum_race
+// and timers in the worker at whatever rate it likes, one per string it makes
+// up. Checked here, at the edge, because everything downstream treats a
+// prevhash as an identity.
+const PREVHASH_RE = /^[0-9a-fA-F]{64}$/;
+
 /**
  * Minimal, read-mostly Stratum V1 client used purely for timing purposes.
  * It sends `mining.subscribe` and `mining.authorize` (the same first steps
@@ -154,6 +177,17 @@ class StratumPoolConnection extends EventEmitter {
       if (!line) continue;
       this._handleLine(line, receivedAtHr);
     }
+    // Checked after the loop, so a legitimate burst of complete lines in one
+    // chunk is never the thing that trips it. What is left here is one
+    // unterminated line, and only that is measured.
+    if (Buffer.byteLength(this.buffer, 'utf8') > MAX_STRATUM_LINE_BYTES) {
+      this.buffer = '';
+      this.emit('protocolError', {
+        reason: 'line exceeds maximum size',
+        limitBytes: MAX_STRATUM_LINE_BYTES,
+      });
+      this.socket?.destroy(new Error('stratum line exceeds maximum size'));
+    }
   }
 
   _handleLine(line, receivedAtHr) {
@@ -165,6 +199,10 @@ class StratumPoolConnection extends EventEmitter {
     }
     if (msg.method === 'mining.notify' && Array.isArray(msg.params) && msg.params.length >= 9) {
       const [, prevhash, , , , , , , cleanJobs] = msg.params;
+      if (typeof prevhash !== 'string' || !PREVHASH_RE.test(prevhash)) {
+        this.emit('protocolError', { reason: 'mining.notify without a usable prevhash' });
+        return;
+      }
       this.notifyCount += 1;
       this.emit('notify', { prevhash, cleanJobs: Boolean(cleanJobs), receivedAtHr });
       return;
