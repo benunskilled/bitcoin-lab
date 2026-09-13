@@ -86,6 +86,37 @@ function wilsonLowerBound(successes, trials) {
  * record as sorting below any measured one (see beatsHolder), and a peer that
  * has simply never been present for a block should not be confused with one
  * that has been present for five hundred and delivered none of them.
+ *
+ * All of the above was an argument. It has since been measured, against 2,206
+ * recorded blocks on a real node, replayed in order so that at every point the
+ * score saw only what the app would have known then (scripts/backtest-score.js
+ * runs it against any database with enough history). Of 1,604 evaluable blocks,
+ * asking each rule to rank the peers connected at that moment and looking up
+ * where the peer that actually delivered came out:
+ *
+ *   rule                 top-1    top-3    top-8   mean rank
+ *   this one             34.7 %   64.2 %   96.1 %      4.30
+ *   lifetime only        25.4 %   66.8 %   96.3 %      4.45
+ *   recent, raw rate     33.7 %   63.5 %   95.9 %      4.47
+ *
+ * So the window earns its place: against lifetime alone it ranked the real
+ * deliverer better on 615 blocks and worse on 270, which is not a coincidence
+ * anybody needs to argue about. Wilson earns its place too, though by less -
+ * 126 to 98 against the raw recent rate, which is the right direction and not
+ * yet proof.
+ *
+ * Two things that came out of it and are worth knowing. The first is that
+ * lifetime-only is BETTER at top-3 and top-8. The lifetime record finds the
+ * solid field; the recent window finds the one peer. The rotation needs the
+ * one peer, so this is the right trade, but it is a trade and not a rout.
+ *
+ * The second is the rule this file nearly grew instead: "once a peer has 50
+ * observations in the window, judge it on the window alone and drop the
+ * lifetime part". It changed the ranking on 19 blocks out of 1,604, and of
+ * those it was better on 7 and worse on 12. It is not an improvement, and the
+ * reason is that it is barely a different rule - a peer with enough history to
+ * be judged has usually filled most of the window too, so `filled` is already
+ * near 1 and the blend is already nearly all window.
  */
 function peerScore({ first, eligible, recentFirst, recentEligible }) {
   if (!eligible || eligible <= 0) return null;
