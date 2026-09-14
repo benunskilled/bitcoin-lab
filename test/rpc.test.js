@@ -89,3 +89,84 @@ test('malformed JSON says so, and names the method', async () => {
   };
   await assert.rejects(rpc.call('getblockcount'), /RPC getblockcount: invalid JSON/);
 });
+
+// --- the clock offset, read off Core's own Date header ---------------------
+
+function respondWithDate(coreSkewMs) {
+  handler = (req, res) => {
+    // What Core's machine would put in the header if its clock were off by
+    // coreSkewMs. HTTP dates are whole seconds and truncated, which is the
+    // part the estimator has to correct for.
+    res.setHeader('Date', new Date(Date.now() + coreSkewMs).toUTCString());
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ result: 'ok', error: null }));
+  };
+}
+
+test('agreeing clocks read as agreeing', async () => {
+  respondWithDate(0);
+  for (let i = 0; i < 20; i += 1) await rpc.call('getblockcount');
+  const reading = rpc.clockOffset();
+  assert.ok(reading, 'something was measured');
+  assert.ok(Math.abs(reading.offsetMs) < 700, `offset read as ${reading.offsetMs}ms`);
+});
+
+test('a clock five seconds behind is read as five seconds behind', async () => {
+  respondWithDate(-5000);
+  for (let i = 0; i < 20; i += 1) await rpc.call('getblockcount');
+  const reading = rpc.clockOffset();
+  assert.ok(reading.offsetMs < -4300 && reading.offsetMs > -5700, `offset read as ${reading.offsetMs}ms`);
+});
+
+test('and the sign is not lost when it goes the other way', async () => {
+  respondWithDate(4000);
+  for (let i = 0; i < 20; i += 1) await rpc.call('getblockcount');
+  assert.ok(rpc.clockOffset().offsetMs > 3300, 'Core ahead reads positive');
+});
+
+test('the half-second of truncation is corrected, not left as a lean', async () => {
+  // Without the correction every reading lands in the second below the truth,
+  // so a node whose clocks agree perfectly would report itself half a second
+  // behind - forever, and in the same direction.
+  respondWithDate(0);
+  for (let i = 0; i < 20; i += 1) await rpc.call('getblockcount');
+  assert.ok(rpc.clockOffset().offsetMs > -500, 'no permanent lean towards "behind"');
+});
+
+test('a response without the header is skipped rather than guessed at', async () => {
+  handler = (req, res) => {
+    res.removeHeader('Date');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ result: 'ok', error: null }));
+  };
+  const before = rpc.clockOffset().samples;
+  await rpc.call('getblockcount');
+  assert.equal(rpc.clockOffset().samples, before, 'nothing was added');
+});
+
+test('an error response still tells us the time', async () => {
+  // A node with the wrong credentials is exactly one whose clock nobody has
+  // looked at either, so a 401 must not cost us the reading.
+  handler = (req, res) => {
+    res.setHeader('Date', new Date(Date.now() - 9000).toUTCString());
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ result: null, error: { code: -1, message: 'unauthorized' } }));
+  };
+
+  // Asserted on the value rather than on a sample count, because the ring is
+  // capped: it is already full from the tests above, so a new reading replaces
+  // an old one instead of adding to the total. And one failure among nineteen
+  // good samples must not move the median anyway - that is what the median is
+  // for - so the ring has to be filled with them before the reading can say
+  // anything about them at all.
+  for (let i = 0; i < 20; i += 1) await assert.rejects(rpc.call('getblockcount'));
+  assert.ok(rpc.clockOffset().offsetMs < -8000, `read as ${rpc.clockOffset().offsetMs}ms`);
+});
+
+test('one bad reading does not move the verdict', async () => {
+  respondWithDate(0);
+  for (let i = 0; i < 20; i += 1) await rpc.call('getblockcount');
+  respondWithDate(-30000);
+  await rpc.call('getblockcount');
+  assert.ok(Math.abs(rpc.clockOffset().offsetMs) < 700, 'a single wild sample is outvoted');
+});

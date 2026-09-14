@@ -1087,6 +1087,20 @@ async function refreshHealth() {
     return;
   }
 
+  // The clocks, read straight off Core's Date header rather than inferred from
+  // the damage. Ahead of the attribution warning because it is the cause of it,
+  // it is the more accurate of the two, and it can be said before First % has
+  // had a chance to stick at zero.
+  const clock = report.coreClock;
+  if (clock && clock.ok === false) {
+    const seconds = (Math.abs(clock.offsetMs) / 1000).toFixed(1);
+    banner.hidden = false;
+    banner.textContent = `Bitcoin Core's clock is about ${seconds} seconds `
+      + `${clock.offsetMs < 0 ? 'behind' : 'ahead of'} this app's. Block attribution needs them within `
+      + 'a couple of seconds, so First % will stay at 0 until they agree.';
+    return;
+  }
+
   // Every service alive and still nothing being measured. Attribution matches
   // Core's last_block against the instant ZMQ delivered the block, so a few
   // seconds of disagreement between the two clocks credits nobody, ever, while
