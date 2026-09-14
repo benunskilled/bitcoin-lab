@@ -3,9 +3,14 @@ name: Tests
 # Runs on every push and pull request, not only on release tags - so a broken
 # change is visible before it is tagged, rather than after it has already been
 # built and published.
+#
+# Tags are included as well, but only because the integration job below is
+# gated on them; the unit tests running twice on a tag is the price of that and
+# costs nothing worth saving.
 on:
   push:
     branches: ['**']
+    tags: ['v*.*.*']
   pull_request:
   workflow_dispatch: {}
 
@@ -32,6 +37,83 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Everything in the job above proves this code does what it was written to
+  # do. None of it can prove the thing the app rests on: that Bitcoin Core
+  # reports what the app assumes it reports. getpeerinfo's last_block,
+  # connection_type and addr; addnode and getaddednodeinfo; a pubhashblock
+  # message carrying a display-order hash. Those are somebody else's promises,
+  # they can change between major versions, and a mock agrees with whatever it
+  # was taught.
+  #
+  # So this one runs two real regtest nodes and checks the claim the whole
+  # product is built on: that the peer which delivered a block is the peer the
+  # app credits with it.
+  #
+  # Only on tags and on demand, deliberately. It answers a question whose answer
+  # changes when Core does - roughly twice a year - and running it on every
+  # push would fetch 90 MB and start two nodes to re-answer it after a typo in
+  # a comment. On a tag it is the last thing checked before a release; by hand
+  # it is how to find out whether a new Core has moved anything.
+  integration:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    name: Against real Bitcoin Core
+    env:
+      # Bumping this is the entire maintenance burden of this job, and the
+      # reason to bump it is a new Core release, not a schedule.
+      CORE_VERSION: '31.1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # 90 MB, and the same 90 MB every time until CORE_VERSION changes.
+      - name: Cache Bitcoin Core
+        id: core-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/bitcoin-core
+          key: bitcoin-core-${{ env.CORE_VERSION }}-x86_64-linux-gnu
+
+      - name: Fetch and verify Bitcoin Core
+        if: steps.core-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE="https://bitcoincore.org/bin/bitcoin-core-${CORE_VERSION}"
+          TARBALL="bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz"
+          mkdir -p ~/bitcoin-core && cd ~/bitcoin-core
+
+          if ! curl -fsSLO "${BASE}/${TARBALL}"; then
+            echo "::error::Could not fetch ${BASE}/${TARBALL}"
+            echo "Check https://bitcoincore.org/bin/ for the current version and update CORE_VERSION above."
+            exit 1
+          fi
+          curl -fsSLO "${BASE}/SHA256SUMS"
+
+          # This checks that what arrived is what the release lists - a guard
+          # against a truncated or corrupted download, which is the failure that
+          # actually happens. It is NOT a guard against bitcoincore.org itself
+          # being wrong: the sums come from the same host as the file. Doing
+          # better means SHA256SUMS.asc and the builders' keys, which is real
+          # key management for a throwaway regtest node in a disposable runner.
+          if ! sha256sum --ignore-missing --check SHA256SUMS; then
+            echo "::error::${TARBALL} does not match the published SHA256SUMS"
+            exit 1
+          fi
+
+          tar -xzf "${TARBALL}" --strip-components=2 \
+            "bitcoin-${CORE_VERSION}/bin/bitcoind" "bitcoin-${CORE_VERSION}/bin/bitcoin-cli"
+          rm -f "${TARBALL}" SHA256SUMS
+
+      - name: Run the integration test
+        run: |
+          export PATH="$HOME/bitcoin-core:$PATH"
+          bitcoind -version | head -1
+          node test/integration/regtest.js
 
   audit:
     runs-on: ubuntu-latest
