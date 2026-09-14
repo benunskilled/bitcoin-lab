@@ -268,6 +268,39 @@ function zmqHealth(services) {
   };
 }
 
+// How far Core's clock may sit from this app's before it is worth saying so.
+//
+// Two seconds, set against the 2.5 the attribution window allows - so the
+// warning arrives while attribution still mostly works rather than after it
+// has stopped. Not lower, because an HTTP date is whole seconds and the
+// estimate carries about a second of uncertainty of its own; a threshold at
+// one second would be reporting its own rounding.
+//
+// The whole question only exists for a Core on another machine. Two processes
+// on one host read one clock, so this is nought by construction on Umbrel.
+const CLOCK_OFFSET_WARN_MS = 2000;
+
+/**
+ * Whether the two clocks agree, read from the Date header Core puts on every
+ * RPC response (see rpc.js).
+ *
+ * Deliberately separate from the attribution check. That one says "nothing is
+ * being credited", which is the damage, and can only speak once three blocks
+ * have gone by. This says "the clocks are four seconds apart", which is the
+ * cause, and it can say it on the first call - before First % has had a chance
+ * to stick at zero.
+ */
+function clockHealth() {
+  const reading = rpc.clockOffset();
+  if (!reading) return null;
+  return {
+    ok: Math.abs(reading.offsetMs) < CLOCK_OFFSET_WARN_MS,
+    offsetMs: reading.offsetMs,
+    samples: reading.samples,
+    maxRttMs: reading.maxRttMs,
+  };
+}
+
 async function handleWidgetStats(req, res) {
   const { live, bestPeer, bestPool, trustedTotal, trustedOnline } = queries.widgetStats();
 
@@ -340,6 +373,7 @@ async function router(req, res, pathname, url) {
       services,
       attribution,
       zmq: dbOk ? zmqHealth(services) : null,
+      coreClock: clockHealth(),
     });
   }
 

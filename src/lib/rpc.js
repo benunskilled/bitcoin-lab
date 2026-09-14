@@ -35,9 +35,68 @@ const agent = new http.Agent({ keepAlive: true, maxSockets: 4, keepAliveMsecs: 3
 // legitimate.
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
+/**
+ * What Core's machine thinks the time is, read off the Date header it puts on
+ * every RPC response, against what this machine thinks.
+ *
+ * This matters because block attribution compares two clocks: the instant ZMQ
+ * delivered a hash, measured here, against Core's own last_block, measured
+ * there. On Umbrel both are the same machine and there is nothing to get
+ * wrong. Point this app at a node somewhere else and a few seconds of drift
+ * credits no peer with anything, ever - and until now the only way to find
+ * that out was to watch attribution fail for half an hour first. The header
+ * says it outright, on the first call, while everything still works.
+ *
+ * Two things the arithmetic has to respect.
+ *
+ * The header is generated somewhere between the request leaving and the
+ * response arriving, so it is compared against the midpoint of those two
+ * instants rather than either end. Over a Docker bridge that is a fraction of
+ * a millisecond either way; over anything slower, the midpoint is the honest
+ * choice.
+ *
+ * And an HTTP date is whole seconds, truncated - so a single reading always
+ * lands somewhere in the second BELOW the true offset, uniformly. The average
+ * of many readings therefore sits half a second low, which is corrected for
+ * here rather than being left as a permanent lean towards "Core is behind".
+ */
+const CLOCK_SAMPLES = 20;
+const clockSamples = [];
+
+function recordClockSample(dateHeader, sentAtMs, receivedAtMs) {
+  if (!dateHeader) return;
+  const coreMs = Date.parse(dateHeader);
+  if (!Number.isFinite(coreMs)) return;
+  const localMidpointMs = (sentAtMs + receivedAtMs) / 2;
+  clockSamples.push({
+    offsetMs: coreMs - localMidpointMs + 500,
+    rttMs: receivedAtMs - sentAtMs,
+    atMs: receivedAtMs,
+  });
+  if (clockSamples.length > CLOCK_SAMPLES) clockSamples.shift();
+}
+
+/**
+ * The median of what has been seen lately, or null before anything has.
+ *
+ * Median rather than the last reading, because one sample carries the whole
+ * second of truncation error and a threshold applied to it would flicker.
+ */
+function clockOffset() {
+  if (clockSamples.length === 0) return null;
+  const sorted = clockSamples.map((s) => s.offsetMs).sort((a, b) => a - b);
+  return {
+    offsetMs: Math.round(sorted[Math.floor(sorted.length / 2)]),
+    samples: sorted.length,
+    maxRttMs: Math.max(...clockSamples.map((s) => s.rttMs)),
+    measuredAtMs: clockSamples[clockSamples.length - 1].atMs,
+  };
+}
+
 function call(method, params = [], { timeoutMs = 10000 } = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(config.bitcoin.rpcUrl);
+    const sentAtMs = Date.now();
     const body = JSON.stringify({
       jsonrpc: '1.0',
       id: `bitcoinlab-${++idCounter}`,
@@ -62,6 +121,11 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
         agent,
       },
       (res) => {
+        // Before anything else is done with the response, and regardless of
+        // what its status turns out to be: a 401 or a 500 carries the header
+        // just as well as a 200, and a node whose credentials are wrong is
+        // exactly one whose clock nobody has checked either.
+        recordClockSample(res.headers.date, sentAtMs, Date.now());
         let raw = '';
         let bytes = 0;
         let aborted = false;
@@ -106,6 +170,7 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
 module.exports = {
   call,
   agent,
+  clockOffset,
   getPeerInfo: () => call('getpeerinfo'),
   getBlockHeader: (hash) => call('getblockheader', [hash]),
   getBlockCount: () => call('getblockcount'),
