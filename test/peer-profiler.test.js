@@ -108,3 +108,62 @@ test('a session row from before core_peer_id was recorded still reconnect-detect
 
   assert.equal(sessions().length, 2, 'a much newer conntime is a new session even without an id to compare');
 });
+
+// --- what a peer offers, and whether Core knows its chain -------------------
+//
+// Recorded so the question "can this peer deliver a block at all?" can be
+// answered from data later. Nothing reads these yet, which is exactly why
+// they need a test: a column nobody reads is a column nobody notices breaking.
+
+function flags() {
+  return db.instance
+    .prepare(
+      `SELECT ps.services, ps.relay_txes, ps.synced_headers
+       FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
+       WHERE p.address = ? ORDER BY ps.id`,
+    )
+    .all(ADDRESS);
+}
+
+test('a session records the services, the relay flag and the header height', () => {
+  upsertSessions([{
+    ...corePeer({ id: 7, conntimeSecondsAgo: 60 }),
+    servicesnames: ['NETWORK', 'WITNESS'],
+    relaytxes: true,
+    synced_headers: 967308,
+  }]);
+
+  assert.deepEqual(flags(), [{ services: 'NETWORK,WITNESS', relay_txes: 1, synced_headers: 967308 }]);
+});
+
+test('a peer that advertises nothing is recorded as nothing, not as unknown', () => {
+  // The distinction is the whole point: '' is "it told us it offers nothing",
+  // NULL is "Core did not say". Folding one into the other would lose the
+  // only signal that separates a stripped-down connection from an old row.
+  upsertSessions([{
+    ...corePeer({ id: 8, conntimeSecondsAgo: 60 }),
+    servicesnames: [],
+    relaytxes: false,
+    synced_headers: -1,
+  }]);
+
+  assert.deepEqual(flags(), [{ services: '', relay_txes: 0, synced_headers: -1 }]);
+});
+
+test('a poll without the fields keeps what an earlier poll recorded', () => {
+  upsertSessions([{
+    ...corePeer({ id: 9, conntimeSecondsAgo: 60 }),
+    servicesnames: ['NETWORK'],
+    relaytxes: true,
+    synced_headers: 900000,
+  }]);
+
+  // Same connection, but Core reports none of the three this time.
+  upsertSessions([corePeer({ id: 9, conntimeSecondsAgo: 90 })]);
+  assert.deepEqual(flags(), [{ services: 'NETWORK', relay_txes: 1, synced_headers: 900000 }],
+    'a missing field must not erase a recorded one');
+
+  // And a value that IS reported overwrites, because the chain moves on.
+  upsertSessions([{ ...corePeer({ id: 9, conntimeSecondsAgo: 120 }), synced_headers: 900010 }]);
+  assert.equal(flags()[0].synced_headers, 900010);
+});

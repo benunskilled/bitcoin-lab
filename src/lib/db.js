@@ -27,6 +27,27 @@ CREATE TABLE IF NOT EXISTS peer_session (
   -- ordinary local peers. NULL on rows written before this column existed.
   network TEXT,
   subver TEXT,
+  -- What the peer said about itself in its version message, and what Core
+  -- has learned about its chain since. Recorded, not yet acted on.
+  --
+  -- A peer that offers no services at all, refuses transactions, and whose
+  -- chain Core never learns is not a node that can hand us a block - it is
+  -- something else holding a connection open. Today such a peer counts as
+  -- eligible for every race exactly like a full node, which quietly inflates
+  -- the number every ranking is measured against. Whether that should change
+  -- is a question for data, not for an argument, so this writes the three
+  -- fields down and changes nothing else.
+  --
+  -- services: Core's servicesnames, comma-joined. '' means NODE_NONE - the
+  -- peer advertises nothing. NULL means Core did not report the field.
+  services TEXT,
+  -- relay_txes: the version message's fRelay. 0 means "send me no
+  -- transactions". NULL for rows written before this column existed.
+  relay_txes INTEGER,
+  -- synced_headers: overwritten on every poll, unlike the two above which are
+  -- fixed for the life of a connection. -1 means Core has never seen a header
+  -- from this peer and has no idea what chain it is on.
+  synced_headers INTEGER,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
   min_ping_ms REAL,
@@ -445,6 +466,21 @@ function runMigrations() {
       const hasRun = db.prepare(`SELECT EXISTS (SELECT 1 FROM peer_session) AS n`).get().n > 0;
       if (!hasRun) return;
       db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)`).run('stratum_race_enabled', '1');
+    });
+
+    // Same shape as the network column above: the CREATE TABLE carries these
+    // for fresh installs, so each one is checked before it is added.
+    //
+    // Existing rows keep NULL, and nothing reads them yet. Sessions that are
+    // still open when this runs fill in on the next poll, because the writer
+    // only overwrites a value when Core actually reported one.
+    migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
+      );
+      for (const [name, type] of [['services', 'TEXT'], ['relay_txes', 'INTEGER'], ['synced_headers', 'INTEGER']]) {
+        if (!existing.has(name)) db.prepare(`ALTER TABLE peer_session ADD COLUMN ${name} ${type}`).run();
+      }
     });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
