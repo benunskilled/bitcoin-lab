@@ -3,27 +3,9 @@
 const config = require('../config');
 const queries = require('../queries');
 const peerSync = require('../peer-sync');
-const manualPeer = require('../manual-peer');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
 const { MIN_ELIGIBLE_FOR_JUDGEMENT, evictableTrusted, beatsHolder } = require('./rules');
-
-// Turns a live candidate's ranking-table address into the real, dialable
-// address addnode needs. For an outbound peer, Core dialed that address
-// itself, so it's already correct. For an inbound peer, getpeerinfo's addr
-// is the peer's ephemeral OUTBOUND-source port, not the port its node
-// actually listens on - useless for addnode - so we re-derive the real
-// listening port exactly the way the interactive "Add as Manual" flow does:
-// strip the address down to a bare host and probe our own configured
-// Bitcoin P2P ports against it. Returns null if nothing answers (not every
-// inbound peer listens), in which case this candidate simply cannot be
-// auto-promoted this tick - the caller moves on to the next-best one.
-async function resolveDialableAddress(candidate) {
-  if (candidate.direction === 'outbound') {
-    return candidate.address;
-  }
-  return manualPeer.findListeningAddress(manualPeer.hostFromAddress(candidate.address));
-}
 
 /**
  * Pass 4: find the single best-performing non-trusted live peer and either
@@ -58,29 +40,38 @@ async function promoteBestCandidate(ranking) {
       !p.sourceObscured &&
       !p.localUmbrelPeer &&
       // Tor, I2P and CJDNS peers have no address this container can dial, so
-      // resolveDialableAddress would probe and fail for each of them on every
-      // single pass. Skipping them here is not a policy decision about those
-      // networks - they stay in the ranking and keep earning First % - it just
-      // stops the loop from repeatedly attempting the impossible.
+      // they could never be kept even if they earned it. Not a policy about
+      // those networks - they stay in the ranking and keep earning First % -
+      // it just stops the loop attempting the impossible on every pass.
       !p.privateNetwork &&
+      // Inbound peers are measured and ranked, and the loop leaves them alone.
+      //
+      // Promoting one used to be a feature, and it destroyed the thing it was
+      // rewarding. An inbound peer's record belongs to the connection IT
+      // opened; promotion probes for its listening port, dials out to that
+      // instead, and drops the original session so Core redials it as a manual
+      // one. The peer that earned the record is then gone, replaced by a
+      // different connection to the same host whose record starts at zero -
+      // and observed on a real node, delivering nothing afterwards.
+      //
+      // The likely reason is that a long-lived peer which keeps winning has
+      // become one of Core's high-bandwidth compact-block peers, a per-
+      // connection standing that a reconnect throws away. That is a
+      // hypothesis. What is not a hypothesis is that the connection being
+      // measured was deliberately severed, which is enough on its own.
+      //
+      // Adding one by hand still works and always did: that is a person
+      // deciding, having seen the number, and it is their slot to spend.
+      p.direction === 'outbound' &&
       p.eligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
       p.first > 0,
   );
 
   for (const candidate of candidates) {
-    const resolved = await resolveDialableAddress(candidate);
-    if (!resolved) continue; // e.g. an inbound peer that isn't actually listening - try the next-best candidate
-
-    // The candidate was filtered as untrusted on the address the ranking row
-    // carries - but for an inbound peer that is its ephemeral source port,
-    // and resolveDialableAddress just turned it into the real listening
-    // address, which may already be a manual peer. Without this re-check the
-    // loop "promotes" the same peer again on every single tick: the upsert in
-    // addTrustedPeer quietly becomes a label update, a bogus promote row goes
-    // into the log, and the one promotion this tick was allowed is spent -
-    // permanently starving every genuine candidate behind it.
-    if (trusted.some((p) => p.address === resolved)) continue;
-
+    // An outbound peer's address is the one Core dialled, so it is already
+    // what addnode needs - no probing, and no chance of resolving onto an
+    // address that is a manual peer under a different spelling.
+    const resolved = candidate.address;
     const label = `auto-promoted (${candidate.firstPct.toFixed(1)}% first)`;
 
     if (trusted.length < config.maxManualPeers) {

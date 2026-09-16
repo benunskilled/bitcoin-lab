@@ -295,46 +295,41 @@ test('REGRESSION: a stronger candidate replaces an offline manual peer with a wo
   assert.ok(db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(candidate));
 });
 
-test('REGRESSION: an inbound peer already trusted under its real address is not re-promoted', async () => {
-  // The inbound row carries the peer's ephemeral source port; the address it
-  // actually listens on is already a manual peer. Without a re-check after
-  // resolving, this "promoted" the same peer on every tick - burning the one
-  // promotion per pass forever and filling the log with false entries.
-  seedLivePeer({ address: '198.51.100.9:8333', eligible: 144, first: 95, trusted: true });
-  seedLivePeer({ address: '198.51.100.9:61234', direction: 'inbound', connectionType: 'inbound', eligible: 144, first: 95 });
-  mock.method(manualPeer, 'findListeningAddress', async (host) => `${host}:8333`);
+test('an inbound peer is never promoted, however well it has done', async () => {
+  // It used to be, and that destroyed what it was rewarding. An inbound peer's
+  // record belongs to the connection it opened; promotion probed for its
+  // listening port, dialled out to that instead, and dropped the original
+  // session. The peer that earned the number was gone, and what replaced it
+  // delivered nothing on a real node.
+  seedLivePeer({ address: '198.51.100.7:54321', direction: 'inbound', connectionType: 'inbound', eligible: 500, first: 400 });
 
   const promoted = await peerRotation.promoteBestCandidate(ranking());
 
-  assert.equal(promoted, 0, 'the peer is already manual under its listening address');
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n, 0, 'and no promote row may be logged');
+  assert.equal(promoted, 0, 'the best peer on the node is left exactly where it is');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 0, 'nothing was added');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n, 0, 'and nothing is claimed in the log');
 });
 
-test('promotes a reachable inbound candidate by re-deriving its real listening port', async () => {
-  const candidate = seedLivePeer({ address: '198.51.100.7:54321', direction: 'inbound', connectionType: 'inbound', eligible: 144, first: 40 });
-  // The rotation's contract with manual-peer.js is findListeningAddress - the
-  // port scan itself is manual-peer's own business and is covered by its tests.
-  mock.method(manualPeer, 'findListeningAddress', async (host) => (host === '198.51.100.7' ? `${host}:9333` : null));
+test('a weaker outbound peer is promoted over a stronger inbound one', async () => {
+  // The ranking still has the inbound peer at the top - it is measured and
+  // ranked like anyone else. It is only the loop that will not act on it.
+  seedLivePeer({ address: '198.51.100.8:11111', direction: 'inbound', connectionType: 'inbound', eligible: 500, first: 450 });
+  const outbound = seedLivePeer({ eligible: 500, first: 60 });
 
   const promoted = await peerRotation.promoteBestCandidate(ranking());
 
   assert.equal(promoted, 1);
-  // The live inbound address (with its ephemeral outbound-source port) must
-  // never be the one persisted - only the re-probed real listening port is.
-  assert.equal(db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(candidate), undefined);
-  const row = db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get('198.51.100.7:9333');
-  assert.ok(row, 'the peer must be trusted under its real, probed listening address');
+  assert.ok(db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(outbound));
 });
 
-test('skips an unreachable inbound candidate and falls through to the next-best one', async () => {
-  seedLivePeer({ address: '198.51.100.8:11111', direction: 'inbound', connectionType: 'inbound', eligible: 144, first: 90 });
-  const fallback = seedLivePeer({ eligible: 144, first: 60 }); // outbound, worse first%, but reachable by construction
-  mock.method(manualPeer, 'findListeningAddress', async () => null); // inbound peer isn't actually listening on 8333 or 9333
-
-  const promoted = await peerRotation.promoteBestCandidate(ranking());
-
-  assert.equal(promoted, 1);
-  assert.ok(db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(fallback));
+test('an inbound peer is still measured and still ranked', async () => {
+  // Excluding it from the loop must not quietly exclude it from the table -
+  // seeing that a peer you did not choose is your best one is the whole
+  // argument for adding it by hand.
+  const inbound = seedLivePeer({ address: '198.51.100.9:61234', direction: 'inbound', connectionType: 'inbound', eligible: 500, first: 400 });
+  const row = ranking().find((p) => p.address === inbound);
+  assert.ok(row, 'it is in the ranking');
+  assert.ok(row.firstPct > 50, `with its real rate, got ${row.firstPct}`);
 });
 
 test('tick is a complete no-op when the toggle is off', async () => {
