@@ -94,21 +94,42 @@ function startNode(name, node) {
     // Nothing here should ever reach a real network, and a regtest node with
     // dns seeding on is a regtest node trying to.
     '-dnsseed=0',
-    '-upnp=0',
+    // Deliberately no -upnp: Core removed the option, and a flag that no longer
+    // exists is a node that refuses to start. Nothing needs it - UPnP is off by
+    // default, and -bind=127.0.0.1 above is what actually keeps this local.
   ];
   if (node.zmq) args.push(`-zmqpubhashblock=tcp://127.0.0.1:${node.zmq}`);
 
   const proc = spawn(BITCOIND, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const record = { name, node, proc, stderr: '', exited: null };
   proc.stdout.on('data', () => {});
-  proc.stderr.on('data', (d) => process.stderr.write(`[${name}] ${d}`));
-  started.push({ name, node, proc });
+  proc.stderr.on('data', (d) => {
+    record.stderr += d;
+    process.stderr.write(`[${name}] ${d}`);
+  });
+  // A node that refuses to start says why in one line and then exits. Without
+  // this the harness waits out its whole timeout and then reports that nothing
+  // answered on a port - true, useless, and thirty seconds late. The first CI
+  // run of this file died exactly that way, on a flag Core had removed.
+  proc.on('exit', (code) => { record.exited = code; });
+  started.push(record);
   return proc;
+}
+
+// Throws if any node has given up, carrying what it said about it.
+function assertNodesAlive() {
+  for (const r of started) {
+    if (r.exited === null) continue;
+    const why = r.stderr.trim().split('\n').filter(Boolean).pop() || `exit code ${r.exited}`;
+    throw new Error(`the ${r.name} node exited instead of starting: ${why}`);
+  }
 }
 
 async function waitFor(what, fn, { timeoutMs = 30000, everyMs = 250 } = {}) {
   const deadline = Date.now() + timeoutMs;
   let last;
   for (;;) {
+    assertNodesAlive();
     try {
       const value = await fn();
       if (value) return value;
