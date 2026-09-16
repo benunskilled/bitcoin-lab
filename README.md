@@ -201,13 +201,12 @@ itself.
   it is only exempt from being swapped. With all eight starred the rotation has
   nothing left to promote.
 
-Inbound peers are ranked too, and can be promoted — by you, or by the rotation,
-which tests them the same way it tests anyone else. Their `getpeerinfo` address
-carries a temporary source port rather than the port they listen on — if they
-listen at all — so Bitcoin Lab re-derives the real one with a TCP handshake
-(8333, then 9333) before touching anything. A promoted peer joins under that
-listening port, which counts as a new address here, so its record starts again
-from zero.
+Inbound peers are ranked too, and the rotation leaves them alone. Keeping one
+means dialling out to the port it listens on and dropping the session it opened
+— so the connection that earned the record is gone, and what replaces it starts
+at zero. On this node that replacement then delivered nothing. You can still add
+one by hand, and the button does the port probe for you; that is a decision made
+with the number in front of you, which is different from a loop making it.
 
 ### One setting that matters more than any of this
 
