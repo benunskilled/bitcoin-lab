@@ -75,12 +75,18 @@ function upsertSessions(peers) {
 
   const insertSession = database.prepare(
     `INSERT INTO peer_session
-       (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms,
+        services, relay_txes, synced_headers)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  // COALESCE on the three new columns, not plain assignment: a poll where Core
+  // omits a field must not erase what an earlier poll recorded. It also
+  // backfills a session that was already open when the columns were added.
   const updateSession = database.prepare(
     `UPDATE peer_session
-     SET core_peer_id = ?, direction = ?, connection_type = ?, network = ?, subver = ?, min_ping_ms = ?, last_ping_ms = ?
+     SET core_peer_id = ?, direction = ?, connection_type = ?, network = ?, subver = ?, min_ping_ms = ?, last_ping_ms = ?,
+         services = COALESCE(?, services), relay_txes = COALESCE(?, relay_txes),
+         synced_headers = COALESCE(?, synced_headers)
      WHERE id = ?`,
   );
 
@@ -97,14 +103,22 @@ function upsertSessions(peers) {
       // (queries/ranking-row.js) instead of being spread over the writer and the reader.
       const network = peer.network || null;
 
+      // An empty array is a fact - the peer advertises NODE_NONE - so it is
+      // kept as '' and only a missing field becomes NULL.
+      const services = Array.isArray(peer.servicesnames) ? peer.servicesnames.join(',') : null;
+      const relayTxes = typeof peer.relaytxes === 'boolean' ? (peer.relaytxes ? 1 : 0) : null;
+      const syncedHeaders = typeof peer.synced_headers === 'number' ? peer.synced_headers : null;
+
       const existingSessionId = openByAddress.get(peer.addr);
       if (existingSessionId) {
-        updateSession.run(peer.id, direction, connectionType, network, peer.subver || null, minPingMs, lastPingMs, existingSessionId);
+        updateSession.run(peer.id, direction, connectionType, network, peer.subver || null, minPingMs, lastPingMs,
+          services, relayTxes, syncedHeaders, existingSessionId);
       } else {
         // conntime is Core's own unix-second connection start - more
         // accurate than "now" for a connection we're only just noticing.
         const startedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
-        insertSession.run(peerRow.id, peer.id, direction, connectionType, network, peer.subver || null, startedAt, minPingMs, lastPingMs);
+        insertSession.run(peerRow.id, peer.id, direction, connectionType, network, peer.subver || null, startedAt, minPingMs, lastPingMs,
+          services, relayTxes, syncedHeaders);
       }
     }
   });
