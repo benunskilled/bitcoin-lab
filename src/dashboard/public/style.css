@@ -33,6 +33,27 @@ body {
   color: var(--accent);
 }
 
+/* The link to the other app in the pair. Quiet on purpose: it is an offer, not
+   a part of this dashboard. Hidden until the other side has answered. */
+.sibling-link {
+  margin-right: auto;
+  padding-left: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.sibling-link:hover { color: var(--text); }
+
+/* The address doubles as the way over to Peer Map; it should read as a link
+   without turning the table into a wall of blue. */
+.peer-jump { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border); }
+.peer-jump:hover { color: var(--accent); text-decoration-color: var(--accent); }
+
+/* The peer another app pointed at. Marked, not filtered - and unlike the
+   new-block tint it does not fade, so it can still be found after scrolling. */
+tr.row-focus td { background: rgba(247,147,26,.10); }
+tr.row-focus td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
 .status-pill {
   font-size: 13px;
   color: var(--muted);

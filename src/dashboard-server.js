@@ -23,6 +23,7 @@ const db = require('./lib/db');
 const rpc = require('./lib/rpc');
 const queries = require('./lib/queries');
 const peerSync = require('./lib/peer-sync');
+const sibling = require('./lib/sibling');
 const health = require('./lib/health');
 const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
@@ -413,6 +414,10 @@ async function router(req, res, pathname, url) {
       // and, more to the point, nothing being measured, so a table of
       // yesterday's numbers would be a lie told by a stale row.
       stratumRaceEnabled: stratumRace.isEnabled(),
+      // Whether Peer Map is installed beside this app. The page uses it to
+      // decide whether to offer a link there at all - a link to an app nobody
+      // installed is worse than no link.
+      peerMapInstalled: await sibling.isInstalled(),
     });
   }
 

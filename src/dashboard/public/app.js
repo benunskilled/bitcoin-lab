@@ -31,6 +31,23 @@ let MAX_MANUAL_PEERS = 8; // overwritten from /api/status once loaded (config.ma
 // window is worse than one that omits it.
 let RECENT_WINDOW_BLOCKS = null;
 
+// Peer Map is the other app in the pair: the same peers on a world map, with
+// what kind of software each one runs. Whether it is installed is answered by
+// this app's own server (it can see the container; a browser cannot), and the
+// port is the one Peer Map's store manifest publishes.
+let PEER_MAP_INSTALLED = false;
+const PEER_MAP_PORT = 8791;
+function peerMapURL(address) {
+  const base = `${location.protocol}//${location.hostname}:${PEER_MAP_PORT}/`;
+  return address ? `${base}?peer=${encodeURIComponent(address)}` : base;
+}
+
+// A peer another app pointed at, via ?peer=<address>. Marked once and scrolled
+// to, then left alone: it is a starting point, not a filter, and a row that
+// jumped under the cursor on every refresh would be its own kind of rude.
+const FOCUS_ADDRESS = new URLSearchParams(location.search).get('peer');
+let focusDone = false;
+
 async function api(path, options) {
   const res = await fetch(path, {
     ...options,
@@ -132,6 +149,12 @@ async function refreshStatus() {
     }
   }
   applyStratumEnabled(Boolean(s.stratumRaceEnabled));
+  PEER_MAP_INSTALLED = Boolean(s.peerMapInstalled);
+  const siblingLink = document.getElementById('sibling-link');
+  if (siblingLink) {
+    siblingLink.hidden = !PEER_MAP_INSTALLED;
+    if (PEER_MAP_INSTALLED) siblingLink.href = peerMapURL(null);
+  }
   // The peer count comes from SQLite and the block height from a Bitcoin
   // Core RPC call. Tying them together meant a single RPC hiccup (Core
   // restarting, still in IBD, a timeout) replaced a perfectly good peer
@@ -234,6 +257,25 @@ function applyBlockUpdate(race) {
 
 // address -> "row-first-block" if still within its highlight window, pruning
 // expired entries as we go (cheap - the map only ever holds recent misses).
+// Two different marks that must not be confused: row-first-block is "this peer
+// delivered the block that just landed" and fades on its own; row-focus is
+// "another app asked about this one" and stays until the page is left.
+function rowClassFor(address) {
+  const classes = [highlightClassFor(address)];
+  if (FOCUS_ADDRESS && address === FOCUS_ADDRESS) classes.push('row-focus');
+  return classes.filter(Boolean).join(' ');
+}
+
+// Somebody arrived from Peer Map asking about one peer. Put it in front of them
+// once, and only once - the tables re-render every twenty seconds.
+function scrollToFocusOnce() {
+  if (!FOCUS_ADDRESS || focusDone) return;
+  const row = document.querySelector('tr.row-focus');
+  if (!row) return;
+  focusDone = true;
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 function highlightClassFor(address) {
   const expiry = highlightUntil.get(address);
   if (expiry == null) return '';
@@ -419,6 +461,12 @@ function addressCell(p) {
   if (p.proxiedPrivatePeer) {
     return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - this peer reached your node over ${escapeHtml(p.privateNetwork)}, so the address Bitcoin Core sees is your own ${escapeHtml(p.privateNetwork)} proxy's, not the peer's. Its real address is never visible to Core, and this app dials out over plain TCP only - so it can never be made a manual peer. It still ranks normally and can still deliver a block first.">${escapeHtml(p.privateNetwork)} peer</td>`;
   }
+  // With Peer Map installed the address becomes the way over: same peer, the
+  // other question. Without it, a plain cell - no dead links.
+  if (PEER_MAP_INSTALLED) {
+    const safe = escapeHtml(p.address);
+    return `<td class="cell-truncate" title="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" title="Show this peer in Peer Map">${safe}</a></td>`;
+  }
   return truncatedCell(p.address);
 }
 
@@ -494,7 +542,7 @@ function statusPill(p, status) {
 
 function peerRow(p, { status = p.status, actions }) {
   return `
-    <tr class="${highlightClassFor(p.address)}">
+    <tr class="${rowClassFor(p.address)}">
       ${addressCell(p)}
       ${clientCell(p)}
       <td class="col-status">${statusPill(p, status)}</td>
@@ -527,6 +575,7 @@ function renderPeerTables(peers, options = {}) {
   // top LIVE_PEER_LIMIT (already sorted best-first by the API) by default,
   // with a toggle to see the rest on demand rather than always scrolling a
   // huge table.
+  scrollToFocusOnce();
   const visibleLivePeers = showAllLivePeers ? livePeers : livePeers.slice(0, LIVE_PEER_LIMIT);
   const limitToggle = document.getElementById('live-peer-limit-toggle');
   const countLabel = document.getElementById('live-peer-count');
@@ -1291,5 +1340,26 @@ document.getElementById('storage-card').addEventListener('toggle', (e) => {
 wireReset('peers');
 wireReset('pools');
 
+
+// The other half of this pair is a separate app: installed on its own, running
+// in its own container, on its own port. If it is there, it sits on port 8791
+// of the same host - a fixed number, because the app store's manifest assigns
+// it, and the browser already knows the host.
+//
+// Knock before showing the link. A link to an app nobody installed is worse
+// than no link at all, and this is the only way to tell from here: nothing on
+// that port refuses the connection, and the fetch fails. The reply itself is
+// unreadable across origins and does not need to be read - that it answered at
+// all is the whole answer.
+function showSiblingLink() {
+  const a = document.getElementById('sibling-link');
+  if (!a) return;
+  const url = `${location.protocol}//${location.hostname}:8791/`;
+  fetch(url + 'api/health', { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(2500) })
+    .then(() => { a.href = url; a.hidden = false; })
+    .catch(() => { /* not installed, or not reachable: stay quiet */ });
+}
+
+showSiblingLink();
 startRefreshLoop();
 startEventStream();
