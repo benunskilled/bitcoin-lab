@@ -168,6 +168,10 @@ tr:hover td { background: #0f151b; }
 .pill.live { background: rgba(63,185,80,.15); color: var(--good); }
 .pill.manual { background: rgba(247,147,26,.15); color: var(--accent); }
 .pill.offline { background: rgba(138,153,168,.15); color: var(--muted); }
+/* Not an error and not a warning: this peer is working exactly as its software
+   is meant to. Red because it cannot deliver a block, and the green pill next
+   to it says the opposite. The reason is in the tooltip. */
+.pill.norelay { background: rgba(248,81,73,.15); color: var(--bad); cursor: help; }
 /* Peer Rotation's own action log - kick is a removal (bad-colored, even
    though it's working as intended), promote/swap add a manual peer
    (good-colored); swap gets the accent color since, unlike a plain

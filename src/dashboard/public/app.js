@@ -77,6 +77,34 @@ function statusPillClass(status) {
   return 'live';
 }
 
+// Software that does not pass blocks on at all. These peers are connected,
+// they count in every total, and they can never win a block - a phone wallet
+// has nothing to relay, a crawler is there to look, an indexer serves someone
+// else's wallet. Measured over 2,270 peers on one node: 790 observations
+// between them, not one first.
+//
+// The test is the user agent, which the peer writes itself, so it is a hint
+// and not proof. That is fine for a colour: nothing is excluded from the
+// ranking, nothing is decided - a green pill just stops claiming that this
+// connection was ever in the running.
+//
+// Deliberately NOT in here: block-relay-only peers. They refuse transactions
+// and pass blocks on, which is the opposite of this list.
+const CANNOT_RELAY = [
+  [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
+  [/neutrino/i, 'a light client'],
+  [/electrs|electrum|esplora/i, 'an address indexer'],
+  [/bitnodes|metrika|nodemap|crawler|scanner/i, 'a network crawler'],
+  [/kit\.edu|dsn\.tm|dsn\.kastel/i, 'a research scanner'],
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited/i, 'a client of another chain'],
+];
+
+function cannotRelayReason(client) {
+  if (!client) return null;
+  for (const [re, what] of CANNOT_RELAY) if (re.test(client)) return what;
+  return null;
+}
+
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 // subver (Client) is fully attacker-controlled - any P2P peer can set an
 // arbitrary user-agent string - so it must never go into innerHTML
@@ -454,12 +482,22 @@ document.addEventListener('focusout', () => {
  *   actions  what may be done to this peer here - the live table alone offers
  *            Disconnect, and only the manual table carries the star.
  */
+// The pill is red rather than green when the peer runs software that does not
+// relay blocks. The explanation lives in the tooltip, not in the table: the
+// colour is the signal, and a dashboard is not the place for a paragraph.
+function statusPill(p, status) {
+  const reason = cannotRelayReason(p.client);
+  if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
+  const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
+  return `<span class="pill norelay" title="${title}">${status}</span>`;
+}
+
 function peerRow(p, { status = p.status, actions }) {
   return `
     <tr class="${highlightClassFor(p.address)}">
       ${addressCell(p)}
       ${clientCell(p)}
-      <td class="col-status"><span class="pill ${statusPillClass(status)}">${status}</span></td>
+      <td class="col-status">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
