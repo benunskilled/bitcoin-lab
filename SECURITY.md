@@ -42,11 +42,11 @@ means reaching every action the dashboard offers. The widget endpoint
 Umbrel's home screen fetches it without credentials.
 
 **Outbound TCP to mining pools.** Stratum Race opens a persistent connection to
-each enabled pool and parses whatever comes back. Eight public pools are enabled
-by default, so a fresh install talks to eight external servers straight away.
-The parser is the attack surface: it reads JSON from a socket a stranger
-controls. It never submits a share, and it authorises with a well-known burn
-address.
+each enabled pool and parses whatever comes back. Eight public pools come
+pre-configured, but the whole feature is off until you switch it on, so a fresh
+install opens no pool connection at all. The parser is the attack surface: it
+reads JSON from a socket a stranger controls. It never submits a share, and it
+authorises with a well-known burn address.
 
 **The block-timing path.** `relay-profiler` subscribes to Core's ZMQ socket
 inside the app's own network. It is not exposed outside it, and a flaw there
