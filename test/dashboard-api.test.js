@@ -11,6 +11,9 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bitcoinlab-api-'));
 process.env.SQLITE_PATH = path.join(tmpDir, 'test.db');
 process.env.DATA_DIR = tmpDir;
 process.env.LOG_LEVEL = 'error';
+// No neighbour in a test: 'off' skips the check entirely, so /api/status does
+// not spend a DNS lookup on a container name that only exists on Umbrel.
+process.env.PEERMAP_HEALTH_URL = 'off';
 
 const db = require('../src/lib/db');
 const health = require('../src/lib/health');
