@@ -88,10 +88,13 @@ function fmtBytes(bytes) {
   return `${(mb / 1024).toFixed(2)} GB`;
 }
 
+// The colour says what kind of connection this is, and nothing else. Manual,
+// inbound, outbound - the same three colours Peer Map paints its markers with.
 function statusPillClass(status) {
   if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
   if (status.includes('MANUAL')) return 'manual';
-  return 'live';
+  if (status.includes('INBOUND')) return 'inbound';
+  return 'outbound';
 }
 
 // Software that does not pass blocks on at all. These peers are connected,
@@ -530,14 +533,15 @@ document.addEventListener('focusout', () => {
  *   actions  what may be done to this peer here - the live table alone offers
  *            Disconnect, and only the manual table carries the star.
  */
-// The pill is red rather than green when the peer runs software that does not
-// relay blocks. The explanation lives in the tooltip, not in the table: the
-// colour is the signal, and a dashboard is not the place for a paragraph.
+// The pill is struck through when the peer runs software that does not relay
+// blocks. The explanation lives in the tooltip, not in the table: a dashboard is
+// not the place for a paragraph.
 function statusPill(p, status) {
   const reason = cannotRelayReason(p.client);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
-  return `<span class="pill norelay" title="${title}">${status}</span>`;
+  // The type colour stays; the strike is what says "never in the running".
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
 }
 
 function peerRow(p, { status = p.status, actions }) {

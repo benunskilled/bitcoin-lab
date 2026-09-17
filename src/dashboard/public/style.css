@@ -7,6 +7,18 @@
   --accent: #f7931a;
   --good: #3fb950;
   --bad: #f85149;
+
+  /* Connection types. One set for both apps of this pair: a peer has the same
+     colour here and in Peer Map, because it is the same peer. Validated as a
+     categorical set against --panel: worst pair CVD dE 12.6 (protanopia),
+     normal-vision dE 15.1, contrast >= 3:1.
+     Manual used to wear the Bitcoin orange, which is this app's brand colour -
+     so did the title and the buttons, and a red status pill beside it measured
+     dE 14.8 against it, below the floor where two colours stay apart. The
+     accent is a brand now, not a category. */
+  --manual: #3987e5;
+  --inbound: #9e9a28;
+  --outbound: #1a9e8f;
 }
 
 * { box-sizing: border-box; }
@@ -186,13 +198,16 @@ tr:hover td { background: #0f151b; }
   font-size: 11px;
   font-weight: 600;
 }
-.pill.live { background: rgba(63,185,80,.15); color: var(--good); }
-.pill.manual { background: rgba(247,147,26,.15); color: var(--accent); }
+.pill.manual { background: rgba(57,135,229,.15); color: var(--manual); }
+.pill.inbound { background: rgba(158,154,40,.18); color: var(--inbound); }
+.pill.outbound { background: rgba(26,158,143,.15); color: var(--outbound); }
 .pill.offline { background: rgba(138,153,168,.15); color: var(--muted); }
-/* Not an error and not a warning: this peer is working exactly as its software
-   is meant to. Red because it cannot deliver a block, and the green pill next
-   to it says the opposite. The reason is in the tooltip. */
-.pill.norelay { background: rgba(248,81,73,.15); color: var(--bad); cursor: help; }
+/* Software that passes no blocks on. Struck through rather than recoloured:
+   every hue in this table already means a connection type, and a fourth meaning
+   on the same axis is one a colour-blind reader cannot separate - measured, not
+   assumed. It is not a fault either; a wallet is doing what a wallet does, and
+   the colour still says what kind of connection this is. */
+.pill.norelay { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .7; cursor: help; }
 /* Peer Rotation's own action log - kick is a removal (bad-colored, even
    though it's working as intended), promote/swap add a manual peer
    (good-colored); swap gets the accent color since, unlike a plain
