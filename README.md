@@ -1,444 +1,59 @@
 # Bitcoin Lab
 
-**Your peers are an asset. You have never been able to tell which ones are
-valuable.**
+**Eight peers you picked will beat two hundred you did not.**
 
-If you have never touched this, your node has ten outbound connections that
-Bitcoin Core picked at random, and no manual ones. If it is listening, add
-whatever dialled in — you did not choose those either.
-
-One peer out of that whole set delivers most of your blocks. The rest are along
-for the ride. You have no means of telling them apart: `getpeerinfo` gives you an
-address, a user agent and a ping, and none of it correlates with who delivers.
-
-Core will drop that peer whenever it suits, for reasons that have nothing to do
-with it being the one that mattered. It is not doing anything wrong — it
-selects for the health of the network, which is its job, not for your latency.
-So the best peer you have is on loan, and you will not notice when it goes.
-
-## What you actually want
-
-Not that one peer, kept forever. Blocks are not made in one place: a peer
-sitting next to one large miner is no help when the next block is found on the
-other side of the world. What you want is a set where *many* peers deliver, from
-different directions.
-
-That is the real measure of how well connected a node is. One peer in ten
-delivering only means the other nine are worse. A dozen delivering is a node that
-is close to the front whoever finds the next block.
-
-Bitcoin Lab makes that difference visible — and you do not have to act on it
-yourself: switch the rotation on and it does the finding, testing and swapping
-for you.
-
-For the first hours the numbers mean nothing. A peer is not judged until it has
-been connected through 50 blocks, so expect an empty ranking, and an idle
-rotation if you turned it on.
-
-After a few days the difference is noticeable. Then it flattens: the eight slots
-fill with the best peers seen so far, and every further gain has to beat one of
-them — which gets rarer the better they are.
-
-The other ten keep changing. An outbound peer that goes 50 blocks without ever
-delivering gets dropped, and Core immediately gives you a new random one. A peer
-that has delivered is never dropped by this app. So the ten fill up with peers that
-deliver too — slower, and never with the best ones, because the best ones get
-promoted into the eight and stop being ordinary.
-
-You can see it in how long they have been connected. Of the ten peers Core
-picked here, three have ever delivered a block, and those three have been
-connected for 4.8, 4.8 and 4.0 days. The other seven arrived within the last
-seven hours, and none of them has reached 50 blocks yet, so none has been
-dropped. The three that lasted sit between 0.1% and 0.2% over their whole
-record. The eight I picked run from 2.2% to 46.8%.
-
-A node without a forwarded port has less to compete with. It still takes
-inbound connections — on Umbrel they arrive over Tor and I2P — but none of
-those can be kept: there is no address this app can dial back on. So the ten
-outbound Core gives it are everything it has, until the eight manual slots make
-that eighteen — and those ten should fill up further than mine. I cannot measure
-that here. A friend runs this on a node without a forwarded port and is happy
-with it.
+Bitcoin Lab watches which of your Bitcoin Core peers actually deliver each new
+block first, keeps the ones that prove themselves, and — if you want it — times
+how quickly mining pools turn those blocks into fresh work.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/5.png?v=1.16.1)
 
-## What it buys you
+Over the last 500 blocks on my node:
 
-If you solo mine against your own node, your pool cannot hand out work on a new
-block until your node knows the block exists. Every millisecond before that,
-your miner is hashing something that is already solved.
-
-So the number that matters is how fast a block reaches you, and the only part of
-that path you can choose is which peers carry it.
-
-I more than halved that delay on my own node, from about 1.2 seconds behind to
-under 0.5, in under a week with the rotation running. Nothing but this loop did
-it: measure the outbound peers Core hands you, keep the ones that deliver, drop
-the ones that do not.
-
-You will notice fewer stale shares on your miner: less work handed out on a
-block that had already been found.
-
-## Stability, not just speed
-
-A `bitcoind` restart wipes the outbound set completely: the addnode list Core
-builds at runtime lives only in its memory, and Core re-reads only bitcoin.conf
-on the way back up — which this app never touches. Core starts over with ten
-fresh peers out of its address database, and whatever the old ones were worth
-goes with them.
-
-Bitcoin Lab keeps its own copy of your eight proven manual peers and puts them
-back, so a restart costs you nothing you had earned.
-
-## How a peer is judged
-
-A new block is detected **only** over Core's ZMQ `pubhashblock` topic and
-timestamped before anything else happens, so no RPC call sits on the timing path.
-One `getpeerinfo` snapshot follows. Every peer connected at that moment counts as
-**Eligible**; the one that actually delivered the block counts as **First**.
-
-The rank comes from the last 500 blocks — about three and a half days. Within
-that window it is `First / Eligible`, taken as a Wilson lower bound, so four
-blocks out of fifty cannot outrank sixty out of nine hundred. A peer that has
-not been connected for all 500 yet is judged on its whole record for the part
-of the window it missed. Nothing is discarded: the lifetime figures stay in the
-table and on the page, they just no longer decide the order.
-
-### What it looks like after a while
-
-My eight manual slots after 1,882 blocks of this. My node listens, so these eight
-compete with everything that dials in:
-
-```
-             First % (last 500)     ping
-peer 1          46.8 %   234/500    15 ms
-peer 2          11.2 %    56/500    34 ms
-peer 3          14.3 %    14/98     20 ms
-peer 4           8.4 %    42/500   100 ms
-peer 5           7.2 %    36/500    17 ms
-peer 6           7.2 %    36/500    17 ms
-peer 7           6.8 %    34/500    19 ms
-peer 8           2.2 %    11/500   106 ms
-```
-
-1,688 of the 1,882 blocks recorded — almost nine in ten — reached me through a
-manual peer, with 207 peers connected: 189 of them dialling in, 18 outbound,
-and eight of those chosen by me. Core connected me to every one of the eight at
-some point; the measurement decided which of them stayed.
-
-Over the last 500 blocks the eight slots delivered 469 of them. The rest splits
-two ways: the ten connections Core picked for itself delivered 8, and everything
-that dialled in — the large majority of my two hundred connections — delivered
-23 between them. Taken one at a time none of those is worth a slot: by this
-ranking's own rule all but one of them sits below 1%.
-
-Be careful about what that 23 means. It does not show the crowd is incapable, it
-shows the crowd is being beaten — every block has exactly one first, so take the
-eight away and somebody in that crowd is first instead. This node has been in
-both states, and the difference is measurable: over the first 500 blocks it ever
-recorded, when the manual set was still a rough draft, the same crowd delivered
-76. Over the last 500 it delivers 23. What changed is not them.
-
-The eight rows above add up to 463 rather than 469 because the rotation swapped
-a slot during that window: the peer that has since been replaced delivered the
-other six.
-
-Peer 5 is why the ranking stopped counting whole lifetimes. Over its whole
-record it has delivered 23.4% of the blocks it saw, second best of all eight.
-Over the last 500 it has delivered 7.2%. A lifetime ranking would put it near
-the top of this table on the strength of a past it is no longer having. The
-window puts it fifth, which is where it belongs now.
-
-Peer 1 went the other way: 29.5% over its whole record, 46.8% over the window.
-Peer 8 is on its way out at 2.2%, having averaged 8.9%. None of that shows up
-in a lifetime number.
-
-Peers 2 and 3 are why the table is not sorted by the percentage you can see.
-Peer 2 has delivered 56 of 500 blocks, peer 3 has delivered 14 of 98. Raw, that
-is 11.2% against 14.3%, and the thinner record looks like the better peer. The
-Wilson bound charges each of them for what it does not know yet, and they come
-out at exactly the same 8.7%. Thin does not mean ignored, it means discounted
-until the sample grows.
-
-The ping is not what counts. Where a peer sits relative to where blocks are made
-is — and a peer that sits close today will probably still sit close tomorrow.
-
-Every number here comes from one node: a first-gen Lenovo ThinkCentre with an
-i7, running Umbrel, listening on IPv4 and IPv6 with Tor and I2P enabled and
-`maxconnections=200`. Worth knowing: with two hundred connections competing to
-deliver each block, the eight manual slots still took almost nine in ten. A node
-without a forwarded port has ten outbound connections and few inbound ones.
-Eight strong peers on top of that count even more there.
-
-## What you can do about it
-
-Two moves. You can make them yourself on the dashboard, or switch the rotation on
-and let it make them for you. Switch it on. Over the 1,882 blocks this node has
-recorded, Core handed it 752 outbound peers; 232 of them stayed long enough to be
-judged, and 17 have been promoted into the eight. Sifting that by hand means
-reading a table several times a day and remembering what it said last time.
-
-It is off until you ask for it because it disconnects peers. An app that starts
-rearranging your node's connections before anyone has looked at it would deserve
-the suspicion.
-
-The eight is Core's own limit, not this app's. These are not places to take from
-someone; they are connections you already could have and are not using — on
-almost every node all eight sit empty, because Core never uses `addnode` by
-itself.
-
-- **Keep a good peer.** It is registered via `addnode`, so Core holds on to it
-  instead of letting it rotate away — up to 8 such connections
-  (`MAX_ADDNODE_CONNECTIONS`). With all eight filled you have 18 outbound
-  connections and you chose eight of them.
-- **Drop a peer that never delivers.** Core replaces a dropped *outbound*
-  connection immediately with a fresh random one, which then gets ranked the
-  same way.
-- **Protect a peer from the rotation.** Anything you add by hand comes in
-  protected — that is the star in the peer list — and the rotation leaves it
-  alone: it is neither displaced by a better peer nor parked when it goes
-  offline. Click the star to release it. It is still measured and still ranked,
-  it is only exempt from being swapped. With all eight starred the rotation has
-  nothing left to promote.
-
-Inbound peers are ranked too, and the rotation leaves them alone. Keeping one
-means dialling out to the port it listens on and dropping the session it opened
-— so the connection that earned the record is gone, and what replaces it starts
-at zero. On this node that replacement then delivered nothing. You can still add
-one by hand, and the button does the port probe for you; that is a decision made
-with the number in front of you, which is different from a loop making it.
-
-### One setting that matters more than any of this
-
-**Set Bitcoin Core's outgoing connections to clearnet only.** On Umbrel:
-Bitcoin Node → Settings → **Outgoing Peer Connections**. Three toggles —
-Clearnet, Tor, I2P — and all three are on by default. **Leave only Clearnet on.**
-
-Not one of the 1,136 blocks this node has been handed first came over Tor or
-I2P. Every one arrived over clearnet — every case the app has been able to
-label, without exception.
-
-An outbound slot on one of those networks is wasted twice: the peer will not
-deliver, and this app could not keep it if it did. It dials out over plain TCP —
-no Tor proxy, no I2P bridge, no CJDNS interface — so there is no address to call
-back on.
-
-Inbound over Tor or I2P is fine. Those peers dialled you, and they rank like
-everyone else.
-
-## Listening, or not
-
-**The effect is biggest on a node with no forwarded port.** Ten outbound
-connections are everything it has to work with — fill the eight manual slots and
-that becomes eighteen, eight of them picked by you. Whatever dials in over Tor
-or I2P does not help much.
-
-A listening node is usually the better connected of the two, though: more peers
-means a better chance that several of them sit somewhere useful. That advantage
-is real — it is just unmanaged and temporary. You did not choose those peers,
-and they leave on their own schedule.
-
-Which is the part this app changes. An inbound peer that turns out to be good
-can be tried: if it answers on its listening port, it becomes one of your eight.
-If it does not, the advantage lasts exactly as long as that peer feels like
-staying.
-
-## Peer rotation (recommended, off by default)
-
-A toggle on the dashboard automates the loop. Every ~10 minutes it:
-
-1. **Drops a peer that is never first** — disconnects any live outbound peer
-   that has been eligible for at least 50 blocks (about eight hours) and has
-   never once delivered a block before the others.
-2. **Parks a manual peer that has been offline too long** — the slot is freed,
-   its record kept.
-3. **Puts a parked peer back** when it answers again.
-4. **Promotes the best candidate** — the highest-ranked peer with a real track
-   record that is not already manual, into a free slot, or in place of the
-   weakest manual peer if it clearly beats it.
-
-A peer that has just taken a slot cannot be displaced for its first 50 blocks.
-
-Every action is written to a rotation log shown under the toggle, with the
-parked peers listed beside it. The last thirty actions are kept.
-
-### Offline manual peers
-
-A manual peer that goes dark loses its slot, but not its record: it is *parked*,
-re-probed on every pass, and put back the moment it answers. A weak peer keeps
-its slot about an hour and is remembered for four days; a strong one keeps it a
-day and is remembered for five months.
-
-## What the loop has been through
-
-The Outbound Peers card carries four numbers over the whole history, counted by
-IP so a host that reconnected or was kept under a second address counts once:
-how many outbound peers Core has handed this node, how many stayed connected
-long enough to be judged, how many ever delivered a block first, and how many
-were kept.
-
-On my node the middle pair is the whole argument: of 232 random outbound peers
-that stayed connected through 50 blocks, 18 ever delivered one.
-
-## Storage
-
-The dashboard header shows what this app's data occupies on disk, and a panel at
-the bottom of the page breaks it into the two things that grow: peer
-measurements and pool history.
-
-Each can be cleared on its own. Your manual peers are never part of either —
-they survive a reset with their record starting again from zero, which is the
-point: by then, finding them has taken months.
-
-## Stratum Race (optional, off by default)
-
-The other half of the app: it times how quickly each mining pool turns a new
-block into fresh work, your own local pool included.
-
-Each pool gets its own TCP connection and is timed on when its `mining.notify`
-carrying a new `prevhash` arrives — `hrtime` on the socket's `data` event, before
-any parsing. The first pool to report a given prevhash sets 0 ms and every other
-pool is measured against it. No pool is special-cased, including your own. A pool
-that does not report inside the timeout window is scored a miss.
-
-Your own pool goes in with one button: templates for GoBrrr, Bassin and Public
-Pool fill in the container name and the port the stratum server listens on
-inside that container — often not the port your miner connects to.
-
-Per pool: wins, win %, average / median / P90 latency, races seen, misses. The
-public pools are the baseline your own is measured against.
-
-What it answers: whether your own pool keeps up with the public ones, and whether
-it gets closer as your peer set improves.
-
-## Architecture
-
-Four processes from one image, sharing one SQLite file (WAL mode, 10s busy
-timeout), each restarted independently by Docker:
-
-| Process | Job |
+| Who delivered the block first | Share |
 |---|---|
-| `dashboard` | HTTP API, static frontend, and the SSE block stream |
-| `peer-profiler` | Session bookkeeping, manual/addnode sync, peer rotation |
-| `relay-profiler` | The ZMQ block-timing path and First/Eligible recording |
-| `stratum-race` | One persistent TCP connection per pool, `mining.notify` timing |
+| the eight manual peers Bitcoin Lab picked | 90% |
+| Bitcoin Core's own ten outbound connections | 3% |
+| around 190 inbound peers, none of them chosen by me | 7% |
 
-The relay profiler does nothing but sit on its ZMQ socket, so a slow dashboard
-request or a stalled pool connection can never delay the one timestamp that has
-to be exact. Each worker writes a heartbeat into the shared `meta` table every 30
-seconds; `GET /api/health` reports all four.
+Two hundred connections, and eight of them do the work. That is one node over
+2,207 blocks rather than a benchmark — [what one node measured](docs/measured.md)
+has the rest of the numbers, and the machine they came from.
 
-Everything reaches Bitcoin Core through its RPC and ZMQ interfaces. Pull this app
-off the machine and the node is exactly as it was.
-
-Between them the four processes hold about 80 MB of memory on a live node — a
-Node runtime each and almost nothing on top, because everything that grows lives
-in SQLite. CPU is idle between blocks. Umbrel adds its own proxy container in
-front, which costs about as much again.
+Three moves follow from it: **keep** a peer that delivers, **drop** one that never
+does — Core hands you a fresh random peer in its place, which is the engine of the
+whole thing — and **protect** the ones you chose yourself. A switch on the
+dashboard makes all three for you every ten minutes, and it stays off until you
+ask for it.
 
 ## Install
 
-Bitcoin Lab ships as an Umbrel Community App — see
-[bitcoin-lab-community-store](https://github.com/benunskilled/bitcoin-lab-community-store)
-for the store URL and the installation steps. It also runs as a plain Docker
-Compose stack outside Umbrel; see [Running locally](#running-locally).
+**Umbrel.** Bitcoin Lab ships as an Umbrel Community App. The
+[Bitcoin Peer Lab store](https://github.com/benunskilled/bitcoin-lab-community-store)
+has the store URL and the steps — and, beside it,
+[Peer Map](https://github.com/benunskilled/peer-map), which puts the same peers on
+a world map and says what kind of software each one runs. Neither needs the other.
 
-It needs Umbrel's **Bitcoin Node** app, and reaches it only over RPC and ZMQ. It
-never touches bitcoin.conf, host configuration, or any state Core depends on.
+It needs Umbrel's **Bitcoin Node** app and reaches it only over RPC and ZMQ. It
+never touches bitcoin.conf, wallet data, block data, or any other state Core
+depends on. The dashboard is then at `<your-umbrel>:8790`.
 
-## Running locally
+**Anywhere else.** A Docker Compose stack — see [docs/install.md](docs/install.md).
 
-A normal multi-container Docker Compose stack; the Umbrel-specific wiring lives
-only in the packaging repo.
+## More about it
 
-```sh
-docker compose -f docker-compose.dev.yml up --build
-bash test/regtest-generate.sh   # mine a regtest block
-docker compose -f docker-compose.dev.yml logs -f relay-profiler
-```
-
-Dashboard: http://localhost:8788
-
-## Tests
-
-```sh
-npm install
-npm test
-```
-
-## Configuration
-
-All configuration is environment variables (see `src/lib/config.js`) — no config
-files to hand-edit.
-
-Worth knowing: Stratum Race opens one persistent TCP connection to each enabled
-pool, and eight public pools come pre-configured. It is switched off until you
-turn it on, so a fresh install talks to nothing but your own node. Once it is
-on, it subscribes and authorizes but never submits a share; the address it
-authorizes with is a well-known burn address, configurable below. Disable or
-delete any of the pools on the dashboard, or switch the whole thing off again.
-
-On Umbrel these are supplied automatically
-via the `bitcoin` app dependency contract (`APP_BITCOIN_*`); for local use set
-the plain `BITCOIN_*` equivalents (`docker-compose.dev.yml` is a working
-example).
-
-| Variable | Purpose | Default |
-|---|---|---|
-| `BITCOIN_RPC_HOST` / `APP_BITCOIN_NODE_IP` | Bitcoin Core RPC + ZMQ host | `127.0.0.1` |
-| `BITCOIN_RPC_PORT` / `APP_BITCOIN_RPC_PORT` | RPC port | `8332` |
-| `BITCOIN_RPC_USER` / `APP_BITCOIN_RPC_USER` | RPC username | - |
-| `BITCOIN_RPC_PASS` / `APP_BITCOIN_RPC_PASS` | RPC password | - |
-| `BITCOIN_ZMQ_HASHBLOCK_PORT` / `APP_BITCOIN_ZMQ_HASHBLOCK_PORT` | ZMQ `pubhashblock` port | `28334` |
-| `DATA_DIR` | SQLite storage root | `/data` |
-| `DASHBOARD_PORT` | Dashboard HTTP port | `8788` |
-| `STRATUM_RACE_TIMEOUT_MS` | Window a pool has to report before it is scored a miss | `8000` |
-| `PEER_POLL_INTERVAL_MS` | Peer Profiler session poll interval | `15000` |
-| `STRATUM_HISTORY_RETENTION_DAYS` | How long stratum race history is kept | `365` |
-| `FEELER_PEER_RETENTION_DAYS` | How long sessions of peers with no relay history are kept | `14` |
-| `MAX_MANUAL_PEERS` | Manual peers addnode'd at once — mirrors Core's `MAX_ADDNODE_CONNECTIONS` | `8` |
-| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `50` |
-| `NEW_MANUAL_PEER_GRACE_BLOCKS` | Blocks a newly added manual peer cannot be displaced for | `50` |
-| `MIN_SWAP_MARGIN_PCT` | How much better a challenger must be, in points of First %, to take a slot | `0.2` |
-| `RECENT_SCORE_WINDOW_BLOCKS` | Blocks the ranking judges a peer on, once it has been around for all of them | `500` |
-| `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" | `30` |
-| `OFFLINE_GRACE_MIN_HOURS` | Shortest an offline manual peer keeps its slot, whatever its record | `1` |
-| `OFFLINE_GRACE_MAX_HOURS` | Longest, however good its record | `24` |
-| `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of grace bought per point of First % | `1` |
-| `PARKED_PEER_PROBES_PER_TICK` | Retired peers re-tested per rotation pass | `3` |
-| `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Longest gap between tests for a peer at or above full-speed % | `12` |
-| `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Longest gap for a peer with no record worth chasing | `48` |
-| `PARKED_PEER_FULL_SPEED_PCT` | First % from which a parked peer is chased at full speed | `20` |
-| `PARKED_PEER_RETENTION_DAYS_PER_PCT` | Days a parked peer is remembered, per point of First % | `5` |
-| `PARKED_PEER_MIN_RETENTION_DAYS` / `_MAX_` | Floor and ceiling on that | `2` / `180` |
-| `BITCOIN_ZMQ_HOST` / `APP_BITCOIN_NODE_IP` | ZMQ host, when it differs from the RPC host | RPC host |
-| `BITCOIN_ZMQ_HASHBLOCK_URL` | Full ZMQ URL, overriding host and port together | - |
-| `BITCOIN_NETWORK` / `APP_BITCOIN_NETWORK` | Network label shown in the header | `mainnet` |
-| `SQLITE_PATH` | Full path to the database file, overriding `DATA_DIR` | `$DATA_DIR/sqlite/bitcoinlab.db` |
-| `STRATUM_AUTHORIZE_ADDRESS` | Address sent in `mining.authorize` when racing a pool - never receives anything, so it is a burn address by default | `1BitcoinEater…f59kuE` |
-| `STRATUM_IDLE_TIMEOUT_MS` | Silence after which a pool connection is considered dead and reopened | `21600000` (6h) |
-| `PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES` | Shortest gap between two tests of the same parked peer | `30` |
-| `PARKED_PEER_MAX_RETENTION_DAYS` | Ceiling on how long a parked peer is remembered | `180` |
-| `DOCKER_PROXY_MASKED_HOST` | The gateway address Docker substitutes for relayed inbound IPv6 peers | `10.21.0.1` |
-| `UMBREL_INTERNAL_NETWORK_CIDR` | Range treated as "another app on this Umbrel" rather than a peer | `10.21.0.0/16` |
-| `LOG_LEVEL` | `error` / `warn` / `info` / `debug` | `info` |
-
-## Known limitations
-
-- **Inbound IPv6 peers show no address.** Docker can only hand an inbound IPv6
-  connection to an IPv4-only container by relaying it through docker-proxy,
-  which re-originates the connection from the Docker bridge gateway. Core never
-  learns the peer's real address, so there is nothing for this app to recover or
-  act on — those rows are labelled honestly instead of showing a meaningless
-  local IP.
-- **Relay observations are never pruned.** They *are* the ranking, so they are
-  kept regardless of age — about four megabytes a day on a node with a couple of
-  hundred peers, one and a half gigabytes a year. The Storage panel shows what it
-  currently costs, and lets you delete it if you want the space back.
-- **Core has to share this app's clock.** Point it at a node on a different
-  machine and the two clocks have to agree to within about two seconds —
-  otherwise no peer is ever credited, First % stays at 0, and nothing in the
-  log says why.
+| | |
+|---|---|
+| [What one node measured](docs/measured.md) | the numbers, and the machine behind them |
+| [Is it worth it?](docs/is-it-worth-it.md) | the solo-mining case, and when there is none |
+| [How a peer is judged](docs/how-a-peer-is-judged.md) | ZMQ timing, First and Eligible, the Wilson bound |
+| [What you can do about it](docs/what-you-can-do.md) | the three moves, and the eight slots Core never uses |
+| [Peer rotation](docs/peer-rotation.md) | the loop, and why every threshold is where it is |
+| [Stratum Race](docs/stratum-race.md) | timing your own pool against the public ones |
+| [Architecture](docs/architecture.md) | four processes, one SQLite file, what it costs to run |
+| [Configuration](docs/configuration.md) | every environment variable |
+| [Known limitations](docs/limitations.md) | what this does not measure and cannot tell you |
+| [Security](SECURITY.md) | what it can reach, and how to report something |
 
 ## Licence
 
