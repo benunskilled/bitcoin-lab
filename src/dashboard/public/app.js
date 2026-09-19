@@ -228,6 +228,29 @@ function setBlockHeight(height) {
   lastKnownHeight = height;
 }
 
+// Who mined the block that just landed. Three states, and the difference
+// matters: a pool we recognise gets its short name, an unknown miner gets the
+// text he wrote into his own coinbase (in quotes, so it never reads as a name
+// we are vouching for), and a block that says neither shows nothing at all.
+function setBlockPool(race) {
+  const el = document.getElementById('block-pool');
+  if (!el) return;
+  const known = race && race.pool;
+  const raw = race && !known && race.poolTag ? race.poolTag : null;
+  el.classList.toggle('raw', Boolean(raw));
+  if (known) {
+    el.textContent = race.pool;
+    el.title = `Mined by ${race.poolName}, from the block's coinbase`;
+  } else if (raw) {
+    el.textContent = `"${raw}"`;
+    el.title = 'No pool we know of. This is the text the miner wrote into the block.';
+  } else {
+    el.textContent = '';
+    el.removeAttribute('title');
+  }
+  el.hidden = !(known || raw);
+}
+
 function triggerBlockWave() {
   const wave = document.getElementById('block-wave');
   wave.classList.remove('roll');
@@ -247,6 +270,7 @@ function applyBlockUpdate(race) {
   // (it is backfilled by a separate RPC after the race is recorded), so only
   // set it when it is actually there.
   if (race.blockHeight != null) setBlockHeight(race.blockHeight);
+  setBlockPool(race);
 
   const isNewRace = lastRaceId !== null && race.id !== lastRaceId;
   lastRaceId = race.id;

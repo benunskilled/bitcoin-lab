@@ -24,6 +24,7 @@ const rpc = require('./lib/rpc');
 const health = require('./lib/health');
 const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
+const poolId = require('./lib/pool-id');
 const logger = require('./lib/logger').make('relay-profiler');
 
 // A peer counts as "first" if Core recorded a block from it within this
@@ -143,6 +144,84 @@ async function backfillHeightAndPeerCounts(raceId, blockHash) {
   }
 }
 
+const addressesOf = (tx) =>
+  (tx.vout || [])
+    .map((out) => {
+      const spk = out.scriptPubKey || {};
+      return spk.address || (Array.isArray(spk.addresses) ? spk.addresses[0] : null);
+    })
+    .filter(Boolean);
+
+/**
+ * Who mined this block, read off its coinbase.
+ *
+ * Deliberately late and deliberately slow: it runs after the race is already
+ * written, it is two RPC calls, and nothing waits for the answer. A block
+ * nobody could attribute is recorded as such (pool_source = 'none') so it is
+ * never asked about twice; a block this failed on keeps pool_source NULL and
+ * the catch-up below picks it up later.
+ */
+async function attributePool(raceId, blockHash) {
+  let name = null;
+  let tag = null;
+  let source = 'none';
+  try {
+    const block = await rpc.getBlock(blockHash, 1);
+    const coinbaseTxid = Array.isArray(block.tx) ? block.tx[0] : null;
+    if (!coinbaseTxid) return;
+    const tx = await rpc.getRawTransaction(coinbaseTxid, blockHash);
+    const coinbaseHex = (tx.vin && tx.vin[0] && tx.vin[0].coinbase) || '';
+    const hit = poolId.identify({ coinbaseHex, addresses: addressesOf(tx) });
+    if (hit) {
+      name = hit.name;
+      tag = hit.tag;
+      source = hit.source;
+    } else {
+      // Nobody we know of. What the miner wrote about himself is still worth
+      // showing - as his own words, never as a pool name.
+      tag = poolId.coinbaseLabel(coinbaseHex);
+      source = tag ? 'coinbase' : 'none';
+    }
+  } catch (err) {
+    logger.warn('could not read the coinbase (non-critical)', { blockHash, error: err.message });
+    return;
+  }
+  try {
+    db.instance
+      .prepare(`UPDATE relay_race SET pool_name = ?, pool_tag = ?, pool_source = ? WHERE id = ?`)
+      .run(name, tag, source, raceId);
+    logger.debug('block attributed', { blockHash, pool: name || tag, source });
+  } catch (err) {
+    logger.warn('could not record the pool (non-critical)', { blockHash, error: err.message });
+  }
+}
+
+// Blocks recorded while this was not running, or while Core was unreachable,
+// stay unattributed. Fill in the most recent ones once at startup - bounded,
+// because the point is the block somebody is about to look at, not the
+// history of the whole database.
+const CATCHUP_LIMIT = 20;
+
+async function catchUpAttribution() {
+  let rows;
+  try {
+    rows = db.instance
+      .prepare(
+        `SELECT id, block_hash AS blockHash FROM relay_race
+         WHERE pool_source IS NULL ORDER BY id DESC LIMIT ?`,
+      )
+      .all(CATCHUP_LIMIT);
+  } catch (err) {
+    logger.warn('could not look for unattributed blocks', { error: err.message });
+    return;
+  }
+  if (!rows.length) return;
+  logger.info('filling in the pool for recent blocks', { blocks: rows.length });
+  for (const row of rows) {
+    await attributePool(row.id, row.blockHash);
+  }
+}
+
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   let peers;
   try {
@@ -186,13 +265,27 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   });
 
   backfillHeightAndPeerCounts(raceId, blockHash);
+  attributePool(raceId, blockHash).catch((err) =>
+    logger.warn('pool attribution failed (non-critical)', { blockHash, error: err.message }),
+  );
 }
 
 function main() {
   let subscription;
   processGuard.install(logger, { onShutdown: () => subscription && subscription.stop() });
   db.open();
-  logger.info('starting', { zmq: config.bitcoin.zmqHashBlockUrl });
+  const list = poolId.size();
+  logger.info('starting', {
+    zmq: config.bitcoin.zmqHashBlockUrl,
+    poolList: `${list.tags} tags, ${list.addresses} addresses`,
+  });
+
+  // Blocks recorded while this was not running have no pool yet. Two seconds
+  // in rather than straight away, so a block arriving in the first moments
+  // after a restart is never queued behind the history.
+  setTimeout(() => {
+    catchUpAttribution().catch((err) => logger.warn('catch-up failed', { error: err.message }));
+  }, 2000).unref?.();
 
   subscription = hashblock.start({
     url: config.bitcoin.zmqHashBlockUrl,

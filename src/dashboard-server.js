@@ -127,8 +127,14 @@ const sseClients = new Set();
 // Waiting briefly before reading means the payload carries the finished race
 // (including which peer was first) rather than the previous one.
 const BLOCK_SETTLE_MS = 750;
+const POOL_SETTLE_MS = 4000;
 const SSE_KEEPALIVE_MS = 25_000;
-let lastBroadcastRaceId = null;
+// The pool a block was mined by arrives a moment after the race itself (the
+// relay profiler reads the coinbase once the race is written), so the same
+// race is worth sending twice: once when it lands, once when it has a name.
+// Keying the dedupe on both is what lets the safety net below deliver the
+// second one without sending anything else.
+let lastBroadcastKey = null;
 
 function sseBroadcast(event, payload) {
   const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
@@ -150,8 +156,9 @@ function broadcastLatestBlock({ force = false } = {}) {
     return;
   }
   if (!race) return;
-  if (!force && race.id === lastBroadcastRaceId) return;
-  lastBroadcastRaceId = race.id;
+  const key = `${race.id}:${race.poolSource || ''}`;
+  if (!force && key === lastBroadcastKey) return;
+  lastBroadcastKey = key;
   sseBroadcast('block', race);
 }
 
@@ -425,9 +432,34 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, queries.peerRanking());
   }
 
-  // Removed in v1.13.0, all three unused by anything in this repo:
+  // For the app next door. Peer Map shows the same peers on a map and marks
+  // the one that delivered the last block, so it needs the block - but it
+  // polls every ten seconds and holds no connection open, which is why this
+  // is a plain reply and not the event stream this page uses.
+  //
+  // Deliberately narrow: the height, when it arrived, who mined it, and the
+  // addresses that were credited. Not whatever latestBlock() grows later, and
+  // not the labels the owner gave his peers.
+  if (req.method === 'GET' && pathname === '/api/blocks/latest') {
+    const race = queries.latestBlock();
+    if (!race) return sendJson(res, 200, null);
+    return sendJson(res, 200, {
+      height: race.blockHeight,
+      detectedAt: race.detectedAt,
+      pool: race.pool,
+      poolName: race.poolName,
+      poolTag: race.poolTag,
+      poolSource: race.poolSource,
+      firstPeers: race.firstPeers.map((p) => p.address),
+    });
+  }
+
+  // Removed in v1.13.0, both unused by anything in this repo:
   //   GET  /api/peers/live    - /api/status already carries liveSummary()
-  //   GET  /api/blocks/latest - blocks arrive over /api/events instead
+  //
+  // /api/blocks/latest went the same way and came back above in 1.20.0: this
+  // page still gets its blocks over /api/events, but Peer Map next door has
+  // no event stream and should not open one.
   //   POST /api/peers/trust   - the dangerous one. It wrote whatever address
   //     it was handed straight into trusted_peer, with no port probe and no
   //     bracket normalisation, so an IPv6 address added through it could
@@ -644,7 +676,13 @@ function main() {
   subscription = hashblock.start({
     url: config.bitcoin.zmqHashBlockUrl,
     logger,
-    onBlock: () => setTimeout(() => broadcastLatestBlock(), BLOCK_SETTLE_MS),
+    onBlock: () => {
+      setTimeout(() => broadcastLatestBlock(), BLOCK_SETTLE_MS);
+      // And again once the coinbase has been read - two RPC calls after the
+      // race, so a second or two later. Sends nothing if the answer has not
+      // changed, and the 20-second net below catches a slow one.
+      setTimeout(() => broadcastLatestBlock(), POOL_SETTLE_MS);
+    },
   });
 
   // Safety net for the event stream: if ZMQ is unavailable to THIS process

@@ -254,3 +254,36 @@ test('serveStatic refuses to walk out of the public directory', async () => {
   }
   assert.equal((await fetch(`${baseUrl}/favicon.svg`)).status, 200, 'but real assets still serve');
 });
+
+// The neighbour's endpoint. Peer Map polls this to mark the peer that
+// delivered the last block, so it must answer before any block has ever been
+// seen, and it must not hand out anything beyond the block itself.
+test('GET /api/blocks/latest serves the neighbour', async () => {
+  db.instance.prepare('DELETE FROM relay_observation').run();
+  db.instance.prepare('DELETE FROM relay_race').run();
+
+  const empty = await api('/api/blocks/latest');
+  assert.equal(empty.status, 200);
+  assert.equal(empty.body, null);
+
+  const peer = db.getOrCreatePeer('1.2.3.4:8333');
+  const race = db.instance
+    .prepare(
+      `INSERT INTO relay_race (block_hash, block_height, detected_at, pool_name, pool_tag, pool_source)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run('00beef', 967724, 1_700_000_000_000, 'Foundry USA', 'Foundry USA Pool', 'address');
+  db.instance
+    .prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 1)')
+    .run(race.lastInsertRowid, peer.id);
+
+  const { status, body } = await api('/api/blocks/latest');
+  assert.equal(status, 200);
+  assert.equal(body.height, 967724);
+  assert.equal(body.pool, 'Foundry');
+  assert.equal(body.poolName, 'Foundry USA');
+  assert.equal(body.poolSource, 'address');
+  assert.deepEqual(body.firstPeers, ['1.2.3.4:8333']);
+  // Addresses, not the owner's own labels for them.
+  assert.equal('trustedLabel' in body, false);
+});

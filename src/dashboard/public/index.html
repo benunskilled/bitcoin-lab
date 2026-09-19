@@ -26,6 +26,10 @@
         <div class="hero-stat">
           <div class="hero-l">Block Height</div>
           <div class="hero-n" id="block-height-number">–</div>
+          <!-- Who mined it, when the block says so. Empty is a normal answer
+               and takes no room: not every miner is on a list, and not every
+               coinbase carries a name. -->
+          <div class="hero-sub" id="block-pool" hidden></div>
         </div>
         <div class="stat-grid" id="live-stats"></div>
       </div>

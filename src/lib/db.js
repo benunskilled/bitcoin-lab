@@ -474,6 +474,22 @@ function runMigrations() {
     // Existing rows keep NULL, and nothing reads them yet. Sessions that are
     // still open when this runs fill in on the next poll, because the writer
     // only overwrites a value when Core actually reported one.
+    // Who mined the block, read off its coinbase (see lib/pool-id.js).
+    //
+    // pool_source is the one that matters operationally: NULL means nobody has
+    // looked yet, so the catch-up in the relay profiler knows what to fetch,
+    // and 'none' means it looked and the block tells us nothing - without that
+    // distinction every dashboard view would ask Core about the same
+    // unattributable block again.
+    migrate('relay_race_pool_v1_20_0', 'recorded which pool mined each block', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      for (const name of ['pool_name', 'pool_tag', 'pool_source']) {
+        if (!existing.has(name)) db.prepare(`ALTER TABLE relay_race ADD COLUMN ${name} TEXT`).run();
+      }
+    });
+
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),

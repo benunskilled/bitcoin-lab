@@ -462,6 +462,20 @@ th.col-actions { padding-left: 20px; }
 /* Core has not answered yet, said in the number's own slot: sentence-sized
    rather than 42px, and muted, so it reads as a state rather than as a fault
    in this app. Dropped the moment a height arrives. */
+/* Quiet by design: the height is the number, this is a footnote to it. The
+   raw variant is what the miner wrote about himself rather than a pool we
+   know, so it reads as a quotation and not as a name. */
+.hero-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hero-sub.raw { font-style: italic; }
+
 .hero-n.waiting {
   font-size: 15px;
   font-weight: 400;
