@@ -173,6 +173,16 @@ module.exports = {
   clockOffset,
   getPeerInfo: () => call('getpeerinfo'),
   getBlockHeader: (hash) => call('getblockheader', [hash]),
+  // Verbosity 1 is the cheap shape: the header's fields plus the list of
+  // transaction IDs. The coinbase is tx[0], and getrawtransaction reads it out
+  // of the block file without a transaction index as long as the block hash
+  // comes with it. Verbosity 2 would decode every transaction in the block -
+  // megabytes for one script we actually want. Both are given more time than
+  // the default: a full block's ID list is a couple of hundred kilobytes of
+  // JSON, and this never runs anywhere that is waiting for it.
+  getBlock: (hash, verbosity = 1) => call('getblock', [hash, verbosity], { timeoutMs: 20000 }),
+  getRawTransaction: (txid, blockHash) =>
+    call('getrawtransaction', [txid, true, blockHash], { timeoutMs: 20000 }),
   getBlockCount: () => call('getblockcount'),
   addNode: (nodeAddr, command = 'add') => call('addnode', [nodeAddr, command]),
   disconnectNode: (addressOrId) => {

@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('../db');
+const poolId = require('../pool-id');
 
 // Latest relay race (newest block Bitcoin Core told us about via ZMQ) plus
 // the peer(s) whose getpeerinfo.last_block matched the detection instant -
@@ -10,7 +11,8 @@ const db = require('../db');
 function latestBlock() {
   const race = db.instance
     .prepare(
-      `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt
+      `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
+              pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource
        FROM relay_race ORDER BY id DESC LIMIT 1`,
     )
     .get();
@@ -26,7 +28,11 @@ function latestBlock() {
     )
     .all(race.id);
 
-  return { ...race, firstPeers };
+  // Two different things, and the page has to be able to tell them apart:
+  // `pool` is a pool we recognise, `poolTag` on its own is the text the miner
+  // wrote about himself. A block with neither carries nothing at all.
+  const pool = race.poolName ? poolId.shortName(race.poolName) : null;
+  return { ...race, pool, firstPeers };
 }
 
 // How many blocks in a row with nobody credited before this says anything.
