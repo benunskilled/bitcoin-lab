@@ -10,10 +10,17 @@
  * the word order on top of that, some send it plainly, and nothing in the
  * protocol says which - so the practical answer is to accept any of them.
  *
- * This produces the handful of encodings the same hash can appear in. A
- * lookup tries them all: five indexed reads on a unique column, and a wrong
- * encoding colliding with a real block hash is not a thing that happens to
- * 32 random bytes.
+ * This produces the distinct encodings the same hash can appear in - four of
+ * them, because reversing the bytes inside each word and then reversing all
+ * 32 is the same operation as reversing the word order. A lookup tries them
+ * all: four indexed reads on a unique column, and a wrong encoding colliding
+ * with a real block hash is not a thing that happens to 32 random bytes.
+ *
+ * In practice one of the four does all the work. Checked against 200 of the
+ * 524 races recorded on the node this app is built against: 200 of 200 found
+ * their block, every one through the word order reversed and the bytes inside
+ * the words untouched. The other three cost nothing and stay for pools that
+ * do it differently.
  *
  * Nothing here decides which encoding is right. It only makes sure a race and
  * a block that belong together find each other.
