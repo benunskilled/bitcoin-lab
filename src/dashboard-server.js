@@ -441,9 +441,10 @@ async function router(req, res, pathname, url) {
   // addresses that were credited. Not whatever latestBlock() grows later, and
   // not the labels the owner gave his peers.
   if (req.method === 'GET' && pathname === '/api/blocks/latest') {
-    const race = queries.latestBlock();
+    const race = queries.blockDetail();
     if (!race) return sendJson(res, 200, null);
     return sendJson(res, 200, {
+      hash: race.blockHash,
       height: race.blockHeight,
       detectedAt: race.detectedAt,
       pool: race.pool,
@@ -451,6 +452,12 @@ async function router(req, res, pathname, url) {
       poolTag: race.poolTag,
       poolSource: race.poolSource,
       firstPeers: race.firstPeers.map((p) => p.address),
+      // How many peers could have delivered it - the denominator behind the
+      // one that did.
+      eligible: race.eligible,
+      // The same block seen from the mining side, when a race was recorded
+      // for it. null is the normal answer with Stratum Race switched off.
+      stratum: race.stratum,
     });
   }
 

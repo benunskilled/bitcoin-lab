@@ -2,6 +2,7 @@
 
 const db = require('../db');
 const poolId = require('../pool-id');
+const prevhash = require('../prevhash');
 
 // Latest relay race (newest block Bitcoin Core told us about via ZMQ) plus
 // the peer(s) whose getpeerinfo.last_block matched the detection instant -
@@ -33,6 +34,92 @@ function latestBlock() {
   // wrote about himself. A block with neither carries nothing at all.
   const pool = race.poolName ? poolId.shortName(race.poolName) : null;
   return { ...race, pool, firstPeers };
+}
+
+/**
+ * Everything this app knows about one block, in the three roles that must not
+ * be confused: who MINED it (the coinbase), who DELIVERED it here first (the
+ * peers credited with First), and who turned it into fresh work first (the
+ * Stratum race for the same block).
+ *
+ * Any of the three can be missing - an unlisted miner, a block nobody was
+ * credited for, a race that was not recorded because Stratum Race was off -
+ * and each is missing on its own. Nothing here fills a gap with a guess.
+ */
+function blockDetail(raceId = null) {
+  const race = raceId == null
+    ? latestBlock()
+    : (() => {
+      const row = db.instance
+        .prepare(
+          `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
+                  pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource
+           FROM relay_race WHERE id = ?`,
+        )
+        .get(raceId);
+      if (!row) return null;
+      const peers = db.instance
+        .prepare(
+          `SELECT p.address AS address, tp.label AS trustedLabel
+             FROM relay_observation ro
+             JOIN peer p ON p.id = ro.peer_id
+             LEFT JOIN trusted_peer tp ON tp.address = p.address
+            WHERE ro.race_id = ? AND ro.first = 1`,
+        )
+        .all(row.id);
+      return { ...row, pool: row.poolName ? poolId.shortName(row.poolName) : null, firstPeers: peers };
+    })();
+  if (!race) return null;
+
+  const eligible = db.instance
+    .prepare(`SELECT COUNT(*) AS n FROM relay_observation WHERE race_id = ?`)
+    .get(race.id).n;
+
+  return { ...race, eligible, stratum: stratumForBlock(race.blockHash) };
+}
+
+/**
+ * The Stratum race for one block, found through the encodings the same hash
+ * can arrive in (see lib/prevhash.js). Returns null when no race was recorded
+ * for it, which is the normal answer on a node with Stratum Race switched off.
+ */
+function stratumForBlock(blockHash) {
+  const byPrevhash = db.instance.prepare(
+    `SELECT id, created_at AS createdAt, prevhash FROM stratum_race WHERE prevhash = ?`,
+  );
+  let found = null;
+  for (const candidate of prevhash.encodings(blockHash)) {
+    const hit = byPrevhash.get(candidate);
+    if (hit) { found = hit; break; }
+  }
+  if (!found) return null;
+
+  const entries = db.instance
+    .prepare(
+      `SELECT sp.label AS label, sp.host AS host, sp.port AS port,
+              sp.is_default AS isDefault,
+              so.latency_ms AS latencyMs, so.rank AS rank
+         FROM stratum_observation so
+         JOIN stratum_pool sp ON sp.id = so.pool_id
+        WHERE so.race_id = ?
+        ORDER BY so.rank IS NULL, so.rank ASC, sp.label ASC`,
+    )
+    .all(found.id)
+    .map((e) => ({
+      label: e.label,
+      host: e.host,
+      port: e.port,
+      // A pool the owner added himself rather than one of the public ones
+      // this app ships with - the answer to "and how did mine do".
+      own: !e.isDefault,
+      latencyMs: e.latencyMs,
+      rank: e.rank,
+      // No job inside the race window. Kept as a row rather than dropped: a
+      // pool that said nothing is a result too.
+      miss: e.latencyMs === null,
+    }));
+
+  return { raceId: found.id, createdAt: found.createdAt, prevhash: found.prevhash, entries };
 }
 
 // How many blocks in a row with nobody credited before this says anything.
@@ -117,5 +204,5 @@ function attributionHealth() {
 }
 
 module.exports = {
-  latestBlock, attributionHealth, ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
+  latestBlock, blockDetail, stratumForBlock, attributionHealth, ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };
