@@ -13,7 +13,7 @@ your pool and public pools.
 Built for Bitcoin enthusiasts who enjoy understanding their setup, trying things
 out and seeing what makes a difference on their own node.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/5.png?v=1.16.1)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/5.png?v=1.21.0)
 
 ## Why it exists
 
