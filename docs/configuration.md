@@ -1,15 +1,16 @@
 # Configuration
 
-Everything is an environment variable. There are no config files to hand-edit,
-and the defaults are all in [`src/lib/config.js`](../src/lib/config.js) with the
-reasoning written next to them.
+Bitcoin Lab is ready to use with its default settings. On Umbrel, the connection details for Bitcoin Core are supplied automatically.
 
-On Umbrel the Bitcoin Core settings arrive on their own through the `bitcoin` app
-dependency as `APP_BITCOIN_*`. A normal Umbrel install sets none of this by hand.
-Outside Umbrel use the plain `BITCOIN_*` equivalents —
-[`docker-compose.dev.yml`](../docker-compose.dev.yml) is a working example.
+For the best results with peer rotation, set Bitcoin Core's outgoing connections to clearnet only. Tor and I2P peers occupy outbound slots but cannot be kept as manual peers by Bitcoin Lab, slowing the search for stronger candidates.
 
-Where a plain name and an `APP_` name both exist, the plain one wins.
+On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming Tor and I2P connections are fine.
+
+To customise the app, set environment variables in your Docker Compose configuration. The tables below list the available settings and their defaults.
+
+Where both a `BITCOIN_*` variable and an `APP_BITCOIN_*` equivalent exist, the `BITCOIN_*` value takes precedence. Peer rotation and Stratum Race are enabled through the dashboard.
+
+Apply shared settings consistently to the services that use them, then recreate the affected containers. See [docker-compose.dev.yml](../docker-compose.dev.yml) for a Compose example and [src/lib/config.js](../src/lib/config.js) for the configuration source.
 
 ## Bitcoin Core
 
@@ -24,7 +25,7 @@ Where a plain name and an `APP_` name both exist, the plain one wins.
 | `BITCOIN_ZMQ_HASHBLOCK_PORT` / `APP_BITCOIN_ZMQ_HASHBLOCK_PORT` | ZMQ `pubhashblock` port | `28334` |
 | `BITCOIN_ZMQ_HASHBLOCK_URL` | Full ZMQ URL, overriding host and port together | - |
 
-`BITCOIN_ZMQ_HASHBLOCK_URL` takes precedence over the host and port settings.
+`BITCOIN_ZMQ_HASHBLOCK_URL` takes precedence over the ZMQ host and port settings. Without it, the ZMQ host is selected from `BITCOIN_ZMQ_HOST`, then `APP_BITCOIN_NODE_IP`, then the resolved RPC host.
 
 ## Storage and dashboard
 
@@ -35,99 +36,78 @@ Where a plain name and an `APP_` name both exist, the plain one wins.
 | `DASHBOARD_PORT` | Dashboard HTTP port *inside the container* | `8788` |
 | `LOG_LEVEL` | `error` / `warn` / `info` / `debug` | `info` |
 
-`DASHBOARD_PORT` is the port the dashboard listens on inside its container, and
-there is rarely a reason to change it. On Umbrel the app is published on **8790**
-instead, because 8788 belongs to another app in the official store and two apps
-cannot share a port on the host.
+On Umbrel, the dashboard is available at `<your-umbrel>:8790`. The default `8788` is its internal container port.
 
 ## Peer measurement and rotation
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `MAX_MANUAL_PEERS` | Manual peers `addnode`'d at once | `8` |
-| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks a peer must have been eligible for before its First % is acted on | `50` |
-| `NEW_MANUAL_PEER_GRACE_BLOCKS` | Blocks a newly promoted manual peer cannot be displaced for | `50` |
-| `MIN_SWAP_MARGIN_PCT` | How much better a challenger must be, in points of First %, to take a slot | `0.2` |
-| `RECENT_SCORE_WINDOW_BLOCKS` | Blocks the ranking judges a peer on, once it has been around for all of them | `500` |
+| `MAX_MANUAL_PEERS` | Maximum size of the saved manual selection; allowed range: 1–8 | `8` |
+| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Minimum lifetime Eligible count for automatic outbound judgement and promotion | `50` |
+| `NEW_MANUAL_PEER_GRACE_BLOCKS` | Grace against replacement by a stronger candidate, counted from entry into the manual selection | `50` |
+| `MIN_SWAP_MARGIN_PCT` | Required lead in ranking-score points for a challenger to take a slot | `0.2` |
+| `RECENT_SCORE_WINDOW_BLOCKS` | Recent block window used for scoring; lifetime performance fills any missing observations | `500` |
 | `PEER_POLL_INTERVAL_MS` | Peer-profiler session poll interval | `15000` |
 | `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" | `30` |
 
-`MAX_MANUAL_PEERS` mirrors Core's own `MAX_ADDNODE_CONNECTIONS`, which is 8.
-Raising it here does not raise Core's limit; it only makes this app try to hold
-connections Core will not keep open.
+`MAX_MANUAL_PEERS` accepts values from 1 to 8, matching Core's maximum of eight simultaneous manual connections. Larger values are rejected at startup.
 
-The peer profiler polls for session bookkeeping only. Block timing never touches
-this interval — the relay profiler is driven by ZMQ.
+The peer-profiler interval controls connection bookkeeping. Block observations are triggered separately by ZMQ events.
 
 ## Offline manual peers
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `OFFLINE_GRACE_MIN_HOURS` | Shortest an offline manual peer keeps its slot, whatever its record | `1` |
-| `OFFLINE_GRACE_MAX_HOURS` | Longest, however good its record | `24` |
-| `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of grace bought per point of First % | `1` |
-| `PARKED_PEER_PROBES_PER_TICK` | Parked peers re-tested per rotation pass | `3` |
+| `OFFLINE_GRACE_MIN_HOURS` | Minimum offline grace before automatic parking | `1` |
+| `OFFLINE_GRACE_MAX_HOURS` | Maximum offline grace before automatic parking | `24` |
+| `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of offline grace per percentage point of lifetime First | `1` |
+| `PARKED_PEER_PROBES_PER_TICK` | Maximum parked candidates considered for probing per rotation pass | `3` |
 | `PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES` | Shortest gap between two tests of the same parked peer | `30` |
-| `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Longest gap for a peer at or above the full-speed % | `12` |
-| `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Longest gap for a peer with no record worth chasing | `48` |
-| `PARKED_PEER_FULL_SPEED_PCT` | First % from which a parked peer is chased at full speed | `20` |
-| `PARKED_PEER_RETENTION_DAYS_PER_PCT` | Days a parked peer is remembered, per point of First % | `5` |
-| `PARKED_PEER_MIN_RETENTION_DAYS` | Floor on that | `2` |
-| `PARKED_PEER_MAX_RETENTION_DAYS` | Ceiling on that | `180` |
+| `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Backoff ceiling for peers at or above the full-speed First threshold | `12` |
+| `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Backoff ceiling at 0% lifetime First | `48` |
+| `PARKED_PEER_FULL_SPEED_PCT` | Lifetime First % at which the faster backoff ceiling applies | `20` |
+| `PARKED_PEER_RETENTION_DAYS_PER_PCT` | Days a parked peer is retained per percentage point of lifetime First | `5` |
+| `PARKED_PEER_MIN_RETENTION_DAYS` | Minimum parked retention in days | `2` |
+| `PARKED_PEER_MAX_RETENTION_DAYS` | Maximum parked retention in days | `180` |
 
-Both the grace and the retention are bought with the peer's own record and then
-clamped. With the defaults:
+Offline grace and parked retention use lifetime First %, within their configured minimum and maximum values.
 
-```
-grace       0.8% -> 1h (the floor)    5% -> 5h     12% -> 12h    24%+ -> 24h
-retention   0.8% -> 4 days            5% -> 25 days             36%+ -> 180 days
-```
+| Lifetime First | Offline grace | Parked retention |
+|---|---:|---:|
+| 0.8% | 1 hour | 4 days |
+| 5% | 5 hours | 25 days |
+| 12% | 12 hours | 60 days |
+| 24% | 24 hours | 120 days |
+| 36% | 24 hours | 180 days |
 
-Probing backs off as a peer keeps failing to answer, and the ceiling it backs off
-to depends on the same record: full speed from `PARKED_PEER_FULL_SPEED_PCT`
-upwards, sliding to the slow ceiling as the record approaches zero — 40% is
-knocked on every 12 hours, 10% about every 30, 1% about every 46. Only a few
-parked peers are tested per pass, so this never turns into a scan.
+Probe intervals increase with repeated failures. With the defaults, the backoff ceiling is 12 hours for peers at 20% lifetime First or above, 30 hours at 10%, and about 46 hours at 1%. These are ceilings, not fixed intervals from the first probe; checks are scheduled during rotation passes.
 
-The reasoning behind all of it is in [peer-rotation.md](peer-rotation.md).
+See [How peer rotation works](peer-rotation.md) for protection, parking and recovery rules.
 
 ## Stratum Race
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `STRATUM_RACE_TIMEOUT_MS` | Window a pool has to report a new prevhash before it is scored a miss | `8000` |
-| `STRATUM_IDLE_TIMEOUT_MS` | Silence after which a pool connection is considered dead and reopened | `21600000` (6h) |
+| `STRATUM_RACE_TIMEOUT_MS` | Race window, starting with the first pool; a missing matching job counts as a miss | `8000` |
+| `STRATUM_IDLE_TIMEOUT_MS` | Socket inactivity timeout before reconnecting | `21600000` (6h) |
 | `STRATUM_AUTHORIZE_ADDRESS` | Address sent in `mining.authorize` | `1BitcoinEaterAddressDontSendf59kuE` |
 | `STRATUM_HISTORY_RETENTION_DAYS` | How long stratum race history is kept | `365` |
 
-The authorize address is not a payout address and never receives anything — this
-app does not submit shares. It is there because many solo pools run ckpool-solo,
-which validates the username as a real Bitcoin address and simply never sends
-`mining.notify` to a connection that failed to authorize.
+The default authorisation address is a public burn address used to subscribe to pools that require a valid Bitcoin address. Bitcoin Lab does not submit shares or use it to earn mining payouts.
 
-The idle timeout is a last-resort backstop, not how a dead socket is normally
-noticed; TCP keepalive does that in minutes. Six hours is deliberately far past
-what the block-interval maths says is possible, because this node has seen long
-gaps more than once and a spurious reconnect would cost a false miss.
+TCP keepalive helps detect broken connections. The socket inactivity timeout provides a separate fallback for a connection that remains silent.
 
-The master switch for Stratum Race lives on the dashboard, not here. While it is
-off, no pool socket is open.
+Stratum Race is controlled from the dashboard. While it is off, no pool connection is open.
 
 ## Peer history retention
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `FEELER_PEER_RETENTION_DAYS` | How long sessions of peers that were never around for a block are kept | `14` |
+| `FEELER_PEER_RETENTION_DAYS` | Retention for inactive, non-manual peers with no recorded relay observations, in days | `14` |
 
-A peer that has ever appeared in a relay observation — connected at the moment a
-block landed, even once — is part of the ranking and is never pruned, whatever
-its age. Crawlers, one-off probes, feelers and addr-fetch connections that came
-and went without ever being present for a block have no analytical value here,
-and keeping their session history for months was the real source of unbounded
-growth.
+Peers with recorded relay observations retain their delivery and session history. The shorter retention period removes inactive peers that never appeared in a block observation; manually selected peers are also retained.
 
-Relay observations themselves are never time-pruned at all. They *are* the
-ranking. You can delete them from the Storage panel if you want the space back.
+Relay observations are not deleted automatically by age. The 500-block scoring window controls the ranking, not data retention. You can clear peer measurements from the dashboard's Storage panel while keeping your manual selection.
 
 ## Docker and Umbrel networking
 
@@ -149,14 +129,12 @@ When you type in a bare IP, or when an inbound peer has to be checked for a
 reachable listening port, Bitcoin Lab tries `8333` and then `9333`. That list is
 in `src/lib/config.js` and is not an environment variable.
 
-## About changing these
+## Changing defaults
 
-The rotation defaults were picked from what this app actually did on a live node,
-and they lean on each other: acting soon enough to keep a good outbound peer
-before Core rotates it away, not letting a freshly promoted peer lose its slot
-straight away, not swapping over a difference that is noise, freeing an offline
-slot quickly without forgetting a peer that was worth something, and keeping
-probe traffic for dead addresses down to nothing.
+The rotation settings work together: observation thresholds, grace periods, swap margins and parking determine how quickly candidates are tried and how long proven peers are retained. [How peer rotation works](peer-rotation.md) explains the choices behind the defaults.
 
-Changing them is supported. Changing one hard is worth thinking through against
-the rest.
+Numeric settings are validated at startup. Invalid values stop the service with an error naming the setting. In particular, minimum grace and retention values must not exceed their maximums, and `RECENT_SCORE_WINDOW_BLOCKS` must be at least `MIN_ELIGIBLE_FOR_JUDGEMENT`.
+
+---
+
+[← Back to the README](../README.md)
