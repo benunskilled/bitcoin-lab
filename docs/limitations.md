@@ -1,22 +1,23 @@
-# Known limitations
+# Practical limitations
 
-- **The numbers here are from one node.** They are what happened on the machine
-  this app was built on. They are not a controlled benchmark and not a prediction
-  for yours.
-- **Inbound IPv6 peers show no address.** Docker can only hand an inbound IPv6
-  connection to an IPv4-only container by relaying it through docker-proxy, which
-  re-originates the connection from the Docker bridge gateway. Core never learns
-  the peer's real address, so there is nothing for this app to recover or act on.
-  Those rows are labelled honestly instead of showing a meaningless local IP.
-- **Relay observations are never pruned.** They *are* the ranking, so they are
-  kept whatever their age — about four megabytes a day on a node with a couple of
-  hundred peers, one and a half gigabytes a year. The Storage panel shows what it
-  currently costs and lets you delete it if you want the space back.
-- **Core has to share this app's clock.** Point it at a node on a different
-  machine and the two clocks have to agree to within about two seconds. Otherwise
-  no peer is ever credited, First % stays at 0, and nothing in the log says why.
+## History grows over time
 
+Peer observations are kept so delivery history remains available. The 500-block ranking window does not limit how much history is stored.
+
+On the author's node with around 200 peers, this data grew by about 4 MB per day, or roughly 1.5 GB per year. The Storage panel shows current usage and lets you clear measurements while keeping your manual selection.
+
+## Running Core on another machine
+
+On Umbrel, Bitcoin Lab and Bitcoin Core share the same system clock.
+
+If you connect Bitcoin Lab to Core on another machine, keep both clocks synchronised. The dashboard warns when it detects a time difference that could interfere with First attribution.
+
+## Addresses Bitcoin Lab cannot dial
+
+Tor, I2P and CJDNS peers are measured, but Bitcoin Lab cannot add them as manual connections. The same applies to inbound IPv6 peers whose real address is hidden by Docker on Umbrel.
+
+These peers remain part of the ranking while connected. See [Configuration](configuration.md#docker-and-umbrel-networking) for the networking settings.
 
 ---
 
-[← back to the README](../README.md)
+[← Back to the README](../README.md)

@@ -2,60 +2,30 @@
 
 ## Reporting a vulnerability
 
-Please report privately, not as a public issue: use **Report a vulnerability**
-under this repository's Security tab. That opens a private advisory only the
-maintainer can see.
+If you find a security issue in Bitcoin Lab, please report it privately through **Security → Report a vulnerability** in this repository.
 
-This is a one-person project, not a company with a rota. Expect a first reply
-within a week. If a week passes with no answer, opening a public issue that
-says only *"awaiting a reply on a private report"* — with no details — is a
-reasonable nudge.
+Include the affected version, steps to reproduce the issue and its potential impact. Please leave out passwords, RPC credentials and other private information.
 
-If a fix is warranted, the release notes say plainly what was wrong and what an
-affected node was exposed to. There is no embargo policy to negotiate: this app
-has no users it could coordinate with, so a fix ships as soon as it is ready.
+Bitcoin Lab is actively maintained. I aim to respond promptly.
 
 ## Supported versions
 
-The latest release only. Older versions get nothing, including the one you are
-running — updating is the fix.
+Security fixes are provided for the latest release. Please update before checking whether an issue still occurs.
 
-## What is worth attacking
+## Access to your node
 
-Bitcoin Lab holds no keys, no wallet, and no funds. What it does hold is access
-to a node, so the interesting targets are these:
+Bitcoin Lab uses Bitcoin Core's RPC and ZMQ interfaces. It reads peer information and block events, and uses `addnode` and `disconnectnode` to manage connections.
 
-**Bitcoin Core's RPC interface.** The app is given RPC credentials by Umbrel and
-uses them for a small, fixed set of calls: `getpeerinfo`, `getaddednodeinfo`,
-`getblockcount`, `getblockheader`, `addnode` and `disconnectnode`. Two of those
-change your node's state. A flaw that let someone choose the argument to `addnode` could
-attach your node to a peer of their choosing; one that reached `disconnectnode`
-could drop your connections. Neither steals anything, and both are recoverable —
-but on a mining node, who you are connected to is not a cosmetic detail.
+The app does not access wallet files, private keys or Core's block files, and does not edit `bitcoin.conf`.
 
-**The dashboard's HTTP API.** It has no authentication of its own. It relies
-entirely on Umbrel's app proxy sitting in front of it, which is what asks for
-your Umbrel password. Reaching port 8788 directly — from another container, from
-the LAN if the port is published, from a browser tricked into requesting it —
-means reaching every action the dashboard offers. The widget endpoint
-(`/api/widget/stats`) is deliberately unauthenticated and read-only, because
-Umbrel's home screen fetches it without credentials.
+On Umbrel, the app proxy handles dashboard authentication. The dashboard has no login of its own, so direct access to its internal port also gives access to its peer-management controls.
 
-**Outbound TCP to mining pools.** Stratum Race opens a persistent connection to
-each enabled pool and parses whatever comes back. Eight public pools come
-pre-configured, but the whole feature is off until you switch it on, so a fresh
-install opens no pool connection at all. The parser is the attack surface: it
-reads JSON from a socket a stranger controls. It never submits a share, and it
-authorises with a well-known burn address.
+## Connections to mining pools
 
-**The block-timing path.** `relay-profiler` subscribes to Core's ZMQ socket
-inside the app's own network. It is not exposed outside it, and a flaw there
-would corrupt measurements rather than the node.
+When Stratum Race is enabled, Bitcoin Lab opens connections to the selected pools and reads their mining-job messages. It authorises with a public burn address and never submits mining shares.
 
-## What is not in scope
+Stratum Race is off on a fresh install. While it is disabled, no pool connections are open.
 
-- Anything that requires already having your Umbrel password.
-- Bitcoin Core itself, Umbrel itself, or a mining pool's own behaviour —
-  report those to the people who maintain them.
-- The peer ranking being wrong. That is a bug, sometimes an interesting one,
-  but it is not a vulnerability. Open an issue.
+## Other reports
+
+For ordinary bugs, display issues or unexpected rankings, please open a GitHub issue. Report problems in Bitcoin Core, Umbrel or pool software to their respective maintainers.

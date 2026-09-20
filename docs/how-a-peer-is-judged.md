@@ -1,39 +1,46 @@
-# How a peer is judged
+# How peers are ranked
 
-Not by ping.
+## First and Eligible
 
-A new block is picked up **only** from Core's ZMQ `pubhashblock` topic, and the
-time is taken before anything else happens, so no RPC call and no database write
-ever sits on the timing path. One `getpeerinfo` snapshot follows straight after.
-Every peer connected at that moment counts as **Eligible**. The one that actually
-delivered the block counts as **First**.
+Bitcoin Lab records what happens each time a new block reaches your node. Two numbers form the basis of every peer's record:
 
-Not everything that counts as Eligible was ever in the running. A phone wallet,
-a network crawler, an address indexer: software like that passes no blocks on at
-all, so it can never be First, and a zero beside its name says nothing about its
-quality. Those peers are marked in red rather than counted quietly among the
-competition. Over 2,270 peers on this node, 688 ran software like that; between
-them they produced 790 observations and not one first. Block-relay-only peers
-are the opposite case and stay green — they refuse transactions and relay
-blocks, which is exactly the job being measured.
+- **Eligible:** How many block arrivals the peer was connected for.
+- **First:** How many times it was credited with delivering the block first.
 
-The rank comes from the last 500 blocks — about three and a half days. Inside
-that window the number is `First / Eligible`, but taken as a Wilson lower bound,
-so a peer is ranked by what its record can prove rather than by what it happened
-to do. A thin record is discounted, not ignored, and a peer that has not been
-around for the whole window is judged on its lifetime for the part it missed.
+**First %** is First divided by Eligible. A peer that delivered first for 20 of its 100 observed blocks has a First rate of 20%.
 
-Those are two different questions, kept apart on purpose: the 500-block window
-asks how good this peer is *now*, and the Wilson bound asks how much evidence
-there is for the answer.
+This measures how often a peer wins against the other connections on your node. The ranking then considers both that performance and how much evidence supports it.
 
-The lifetime figures stay in the table. They just stopped deciding the order.
+The ranking focuses on the last 500 blocks, so a peer that used to perform well cannot keep its place indefinitely on old results. For peers with fewer observations in that window, lifetime performance fills in the missing history.
 
-A peer is not acted on at all until it has been eligible through 50 blocks, which
-is about eight hours. So for the first day the ranking is nearly empty and the
-rotation, if you switched it on, does nothing. That is correct, not broken.
+## Give the evidence some weight
 
+A peer that wins two of its first ten blocks has a 20% First rate. That looks better than a peer with 75 wins across 500 blocks at 15%, but the second has a much stronger track record.
+
+Bitcoin Lab uses the lower bound of a Wilson confidence interval to account for that difference. In practical terms, a high percentage needs enough observations behind it to earn a high rank.
+
+That is why the order in the table can differ from the raw First percentages: the score considers both the results and the evidence supporting them.
+
+## How block delivery is observed
+
+Bitcoin Lab listens for new blocks through Core's ZMQ interface and records the arrival time immediately. It then checks Core's peer information to identify which connection delivered the new block.
+
+Core updates a peer's `last_block` timestamp when it processes a newly accepted block from that peer. Later copies of the same block from other peers do not update their timestamps. Bitcoin Lab matches this signal to the block event to record First.
+
+This builds a record of which connections actually bring new blocks to your node first.
+
+## Not every connection serves the same purpose
+
+Wallets, crawlers and indexers connect to your node for different reasons. They are not necessarily there to deliver blocks, so a zero First rate does not mean they are failing at their job.
+
+Bitcoin Lab marks software categories that are not expected to relay blocks.
+
+## From ranking to selection
+
+The ranking updates as new blocks arrive. With rotation enabled, Bitcoin Lab uses these scores to choose candidates for your manual slots.
+
+See [How peer rotation works](peer-rotation.md) for promotion rules, grace periods and protected peers.
 
 ---
 
-[← back to the README](../README.md)
+[← Back to the README](../README.md)
