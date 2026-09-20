@@ -69,6 +69,19 @@ The figures describe who delivered first on one node, rather than an absolute
 speed improvement. Your location, routing and peers make your own results worth
 exploring. [Read the full story and measurements.](docs/measured.md)
 
+## Who mined it
+
+Every block names its miner, if you look. The coinbase transaction carries the
+address the reward is paid to and a short text the miner writes into it. Bitcoin
+Lab matches both against a pool list that ships with the app
+([bitcoin-data/mining-pools](https://github.com/bitcoin-data/mining-pools), MIT)
+and puts the pool's name under the height of the newest block.
+
+The lookup happens on your node, from the block Core just handed it — no service
+is asked. A miner nobody has listed stays unnamed: Bitcoin Lab then shows the
+text out of the coinbase in quotes rather than putting a name on it. That is the
+normal answer for a solo finder, and for a pool the list has not caught up with.
+
 ## Compare your pool with Stratum Race
 
 Enable Stratum Race to compare new mining jobs as they arrive from your own pool and eight preconfigured public solo pools. Templates help with adding your local GoBrrr, Bassin or Public Pool.
@@ -90,7 +103,7 @@ Bitcoin Lab communicates with Core through RPC and ZMQ. Peer-management actions 
 
 ## See the other half with Peer Map
 
-[Peer Map](https://github.com/benunskilled/peer-map) puts your peers on a world map and shows their locations, hosting providers, software and advertised services. See at a glance how your peers are spread across regions and providers. Use it alongside Bitcoin Lab to see who delivers your blocks and how your chosen peers are distributed. Both apps work independently.
+[Peer Map](https://github.com/benunskilled/peer-map) puts your peers on a world map and shows their locations, hosting providers, software and advertised services. See at a glance how your peers are spread across regions and providers. Use it alongside Bitcoin Lab to see who delivers your blocks and how your chosen peers are distributed. Both apps work independently. With both installed, Peer Map follows the newest block across your node: who mined it, which peers delivered it and where they sit.
 
 ## Documentation
 
