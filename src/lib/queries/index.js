@@ -27,7 +27,7 @@
 const { peerRanking } = require('./peer-ranking');
 const { weakestTrustedPeer, offlineTrustedPeers, liveSummary } = require('./peers');
 const { stratumRanking, deletePool } = require('./stratum');
-const { latestBlock, blockDetail, attributionHealth } = require('./blocks');
+const { latestBlock, blockDetail, firstTies, attributionHealth } = require('./blocks');
 const { widgetStats, outboundFunnel } = require('./stats');
 const { pruneOldData } = require('./maintenance');
 
@@ -39,6 +39,7 @@ module.exports = {
   stratumRanking,
   blockDetail,
   latestBlock,
+  firstTies,
   attributionHealth,
   deletePool,
   pruneOldData,

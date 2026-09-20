@@ -410,6 +410,11 @@ async function router(req, res, pathname, url) {
       // a couple of hundred peers, measured. Shown so that is visible from the
       // start rather than discovered when the disk fills.
       databaseBytes: db.sizeBytes(),
+      // How many recorded blocks credited more than one peer - the resolution
+      // of the First measurement, stated rather than assumed. Cheap because of
+      // the partial index on the First rows; null on an install that has not
+      // seen a block yet.
+      firstTies: queries.firstTies(),
       // Four counts over the whole history, not the current snapshot: how many
       // outbound peers Core has handed this node, how many lasted long enough
       // to be judged, how many ever delivered, how many were kept. Cheap - one
