@@ -122,6 +122,44 @@ function stratumForBlock(blockHash) {
   return { raceId: found.id, createdAt: found.createdAt, prevhash: found.prevhash, entries };
 }
 
+/**
+ * How often two peers were credited with the same block.
+ *
+ * First comes from Core's `last_block`, a Unix timestamp in whole seconds.
+ * Two connections that hand the same block over inside one second cannot be
+ * told apart, so both are credited - and both keep the credit rather than
+ * sharing half of one, which is why First counts across a whole peer set can
+ * add up to slightly more than the number of blocks.
+ *
+ * How often that happens is a property of the node, not of this app: it
+ * depends on how tightly the first copies of a block arrive, which is a
+ * question of where the node sits and who it is connected to. Measured on the
+ * node this app is built against it is close to never - 2 of 2,206 blocks over
+ * sixteen days - but there is no reason to believe that number travels, which
+ * is exactly why it is counted here rather than written into the docs as a
+ * constant.
+ *
+ * Lifetime rather than a recent window: at this rate a 500-block window would
+ * read zero almost always, and a number that never says anything else is not
+ * worth the space it takes.
+ *
+ * Returns null before the first block is recorded - a fresh install has
+ * nothing to report and should not show "0 in 0".
+ */
+function firstTies() {
+  const races = db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_race`).get().n;
+  if (!races) return null;
+  const ties = db.instance
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT race_id FROM relay_observation WHERE first = 1
+          GROUP BY race_id HAVING COUNT(*) > 1
+       )`,
+    )
+    .get().n;
+  return { races, ties };
+}
+
 // How many blocks in a row with nobody credited before this says anything.
 //
 // Across 2,206 blocks recorded on a live node, the number where no peer was
@@ -204,5 +242,6 @@ function attributionHealth() {
 }
 
 module.exports = {
-  latestBlock, blockDetail, stratumForBlock, attributionHealth, ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
+  latestBlock, blockDetail, stratumForBlock, firstTies, attributionHealth,
+  ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };
