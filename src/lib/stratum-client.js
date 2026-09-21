@@ -134,7 +134,12 @@ class StratumPoolConnection extends EventEmitter {
     // before any buffering/JSON parsing happens.
     socket.on('data', (chunk) => {
       const receivedAtHr = process.hrtime.bigint();
-      this._handleChunk(chunk, receivedAtHr);
+      // The wall clock at the same instant. hrtime says how far apart two
+      // pools' jobs arrived; this says WHEN, on the clock Bitcoin Lab's other
+      // processes stamp their own events with - which is what lets a race be
+      // laid next to the moment Core announced the block.
+      const receivedAtMs = Date.now();
+      this._handleChunk(chunk, receivedAtHr, receivedAtMs);
     });
 
     socket.on('timeout', () => socket.destroy(new Error('idle timeout')));
@@ -168,14 +173,14 @@ class StratumPoolConnection extends EventEmitter {
     }
   }
 
-  _handleChunk(chunk, receivedAtHr) {
+  _handleChunk(chunk, receivedAtHr, receivedAtMs) {
     this.buffer += chunk.toString('utf8');
     let idx;
     while ((idx = this.buffer.indexOf('\n')) >= 0) {
       const line = this.buffer.slice(0, idx).trim();
       this.buffer = this.buffer.slice(idx + 1);
       if (!line) continue;
-      this._handleLine(line, receivedAtHr);
+      this._handleLine(line, receivedAtHr, receivedAtMs);
     }
     // Checked after the loop, so a legitimate burst of complete lines in one
     // chunk is never the thing that trips it. What is left here is one
@@ -190,7 +195,7 @@ class StratumPoolConnection extends EventEmitter {
     }
   }
 
-  _handleLine(line, receivedAtHr) {
+  _handleLine(line, receivedAtHr, receivedAtMs) {
     let msg;
     try {
       msg = JSON.parse(line);
@@ -204,7 +209,7 @@ class StratumPoolConnection extends EventEmitter {
         return;
       }
       this.notifyCount += 1;
-      this.emit('notify', { prevhash, cleanJobs: Boolean(cleanJobs), receivedAtHr });
+      this.emit('notify', { prevhash, cleanJobs: Boolean(cleanJobs), receivedAtHr, receivedAtMs });
       return;
     }
     if (msg.id === 2) {

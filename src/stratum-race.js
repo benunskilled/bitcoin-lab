@@ -132,7 +132,7 @@ function syncConnections() {
         idleTimeoutMs: config.stratumIdleTimeoutMs,
         authorizeAddress: config.stratumAuthorizeAddress,
       });
-      conn.on('notify', ({ prevhash, receivedAtHr }) => handleNotify(pool, prevhash, receivedAtHr));
+      conn.on('notify', ({ prevhash, receivedAtHr, receivedAtMs }) => handleNotify(pool, prevhash, receivedAtHr, receivedAtMs));
       conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
       conn.on('protocolError', (info) => logger.warn('pool sent something unusable', { label: pool.label, ...info }));
       conn.on('authorizeResult', ({ ok, error }) => {
@@ -208,7 +208,7 @@ function finalizeAllRaces() {
   for (const prevhash of [...openRaces.keys()]) finalizeRace(prevhash);
 }
 
-function handleNotify(pool, prevhash, receivedAtHr) {
+function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now()) {
   if (!prevhash) return;
 
   let race = openRaces.get(prevhash);
@@ -243,7 +243,13 @@ function handleNotify(pool, prevhash, receivedAtHr) {
     try {
       info = db.instance
         .prepare(`INSERT OR IGNORE INTO stratum_race (prevhash, created_at) VALUES (?, ?)`)
-        .run(prevhash, Date.now());
+        // When the first job ARRIVED, not when it had been parsed and got
+        // this far. The race's own offsets were always measured from the
+        // arrival (startHr below); created_at used to be taken here, a step
+        // later, which put the race's zero slightly late - and Peer Map lays
+        // this zero next to the moment Core announced the block, so a late
+        // zero made "Core to your pool" look longer than it was.
+        .run(prevhash, receivedAtMs);
     } catch (err) {
       logger.warn('failed to open race', { prevhash, label: pool.label, error: err.message });
       return;

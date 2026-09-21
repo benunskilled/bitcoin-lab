@@ -21,6 +21,17 @@ test('emits notify with prevhash on a well-formed mining.notify line', () => {
   assert.equal(captured.cleanJobs, true);
 });
 
+// Both clocks travel with the job: hrtime for the gaps between pools, the wall
+// clock for when it happened, taken at the same instant the chunk arrived.
+test('a notify carries the wall-clock time of its arrival', () => {
+  const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
+  let captured = null;
+  conn.on('notify', (payload) => { captured = payload; });
+  const notify = { method: 'mining.notify', params: ['j', 'ab'.repeat(32), '', '', [], '', '', '', false] };
+  conn._handleChunk(Buffer.from(`${JSON.stringify(notify)}\n`), process.hrtime.bigint(), 1789900000123);
+  assert.equal(captured.receivedAtMs, 1789900000123);
+});
+
 test('ignores malformed JSON lines without throwing', () => {
   const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
   assert.doesNotThrow(() => conn._handleChunk(Buffer.from('{not json\n'), process.hrtime.bigint()));
