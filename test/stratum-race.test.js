@@ -69,6 +69,23 @@ test('the first pool to report a prevhash defines 0ms and rank 1', () => {
   assert.equal(rows[1].rank, 2);
 });
 
+// The race's zero is laid next to the moment Core announced the block, so it
+// has to be the moment the first job ARRIVED. It used to be stamped once the
+// line had been parsed and handed over - a step later - which made the stretch
+// from Core to the owner's pool look longer than it was.
+test('the race starts at the arrival of the first job, not when it was processed', () => {
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  const arrivedAt = Date.now() - 5_000; // well before this line runs
+  race.handleNotify(a, prevhash(9), hr(), arrivedAt);
+  race.handleNotify(b, prevhash(9), hr(), arrivedAt + 40);
+  race.finalizeRace(prevhash(9));
+
+  const row = db.instance.prepare('SELECT created_at AS createdAt FROM stratum_race WHERE prevhash = ?').get(prevhash(9));
+  assert.equal(row.createdAt, arrivedAt);
+});
+
 test('a pool that never reports is scored as a miss when the race is finalized', () => {
   const [a, b, c] = [fakePool(1, 'A'), fakePool(2, 'B'), fakePool(3, 'C')];
   watchPools(a, b, c);
