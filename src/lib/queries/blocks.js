@@ -13,7 +13,8 @@ function latestBlock() {
   const race = db.instance
     .prepare(
       `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
-              pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource
+              pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
+              template_ms AS templateMs, first_ping_ms AS firstPingMs
        FROM relay_race ORDER BY id DESC LIMIT 1`,
     )
     .get();
@@ -53,7 +54,8 @@ function blockDetail(raceId = null) {
       const row = db.instance
         .prepare(
           `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
-                  pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource
+                  pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
+              template_ms AS templateMs, first_ping_ms AS firstPingMs
            FROM relay_race WHERE id = ?`,
         )
         .get(raceId);
@@ -160,6 +162,67 @@ function firstTies() {
   return { races, ties };
 }
 
+/**
+ * The route of the typical block: the median of every stop over the last
+ * `limit` blocks, each counted from its own race's first job, the way Peer
+ * Map draws a single block. One block's route scatters - a slow peer, a busy
+ * Core, a pool that happened to be first - and the median is what shows
+ * whether a change made anything shorter.
+ *
+ * Each stop takes its median over the blocks that have it, and says how many
+ * that was: a block from before template timing existed still has a Core stop
+ * and a pool stop, just no template one.
+ *
+ * Cheap enough to compute on request - a hundred indexed lookups - and cached
+ * against the newest block, so it is worked out once per block at most.
+ */
+const ROUTE_MEDIAN_BLOCKS = 100;
+let routeCache = { key: null, value: null };
+
+function median(xs) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
+  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
+  if (newest == null) return null;
+  const key = `${newest}:${limit}`;
+  if (routeCache.key === key) return routeCache.value;
+
+  const races = db.instance
+    .prepare(
+      `SELECT block_hash AS blockHash, detected_at AS detectedAt,
+              template_ms AS templateMs, first_ping_ms AS firstPingMs
+         FROM relay_race ORDER BY id DESC LIMIT ?`,
+    )
+    .all(limit);
+
+  const core = [], peer = [], template = [], own = [];
+  let ownLabel = null;
+  for (const r of races) {
+    const race = stratumForBlock(r.blockHash);
+    if (!race || !race.createdAt) continue;
+    const c = r.detectedAt - race.createdAt;
+    core.push(c);
+    if (r.firstPingMs != null) peer.push(c - r.firstPingMs);
+    if (r.templateMs != null) template.push(c + r.templateMs);
+    const mine = race.entries.find((e) => e.own && e.latencyMs != null);
+    if (mine) {
+      own.push(mine.latencyMs);
+      ownLabel = ownLabel || mine.label;
+    }
+  }
+  const stop = (xs) => (xs.length ? { ms: median(xs), n: xs.length } : null);
+  const value = core.length
+    ? { blocks: core.length, core: stop(core), peer: stop(peer), template: stop(template), own: stop(own), ownLabel }
+    : null;
+  routeCache = { key, value };
+  return value;
+}
+
 // How many blocks in a row with nobody credited before this says anything.
 //
 // Across 2,206 blocks recorded on a live node, the number where no peer was
@@ -242,6 +305,6 @@ function attributionHealth() {
 }
 
 module.exports = {
-  latestBlock, blockDetail, stratumForBlock, firstTies, attributionHealth,
+  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, firstTies, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };

@@ -94,12 +94,31 @@ function nearestLastBlockDeltaMs(peers, detectedAtMs) {
   return nearest;
 }
 
+/**
+ * The ping of the peer that delivered the block, from the same snapshot that
+ * credited it: the lowest round trip Core ever measured to it, which is nearer
+ * the line itself than the last one. With two credited, the shorter line -
+ * that is the one the block most plausibly came over. Null when none was
+ * credited or Core reported no ping.
+ */
+function firstPeerPingMs(peers, detectedAtMs) {
+  let best = null;
+  for (const p of peers) {
+    if (!isFirstPeer(p, detectedAtMs)) continue;
+    const s = typeof p.minping === 'number' ? p.minping : (typeof p.pingtime === 'number' ? p.pingtime : null);
+    if (s == null) continue;
+    const ms = s * 1000;
+    if (best == null || ms < best) best = ms;
+  }
+  return best;
+}
+
 function recordRace({ blockHash, detectedAtMs, peers }) {
   const database = db.instance;
 
   const insertRace = database.prepare(
-    `INSERT OR IGNORE INTO relay_race (block_hash, block_height, detected_at, first_count, nearest_delta_ms)
-     VALUES (?, NULL, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO relay_race (block_hash, block_height, detected_at, first_count, nearest_delta_ms, first_ping_ms)
+     VALUES (?, NULL, ?, ?, ?, ?)`,
   );
   const insertObservation = database.prepare(
     `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)`,
@@ -114,6 +133,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       detectedAtMs,
       firstCount,
       nearestDeltaMs === null ? null : Math.round(nearestDeltaMs),
+      firstPeerPingMs(peers, detectedAtMs),
     );
     if (info.changes === 0) {
       // Already recorded (duplicate ZMQ delivery / reconnect replay) - skip.
@@ -222,7 +242,32 @@ async function catchUpAttribution() {
   }
 }
 
+/**
+ * How long after the block announcement Core has a new block template ready -
+ * the thing every pool on this node waits for before it can send a job.
+ *
+ * Asked at the same moment a pool asks, straight off the ZMQ event, and timed
+ * to the last byte of the reply; the reply itself is dropped unread (see
+ * rpc.timeCall). Core serialises template building and keeps the result for
+ * a few seconds, so this can only ever make a pool that asks just after it
+ * faster, never slower - which is said where the number is shown.
+ *
+ * Running alongside getpeerinfo does not touch the First measurement: that
+ * compares each peer's last_block against the instant of the ZMQ event, both
+ * fixed before either call returns.
+ */
+function timeTemplate(detectedAtMs) {
+  return rpc
+    .timeCall('getblocktemplate', [{ rules: ['segwit'] }], { timeoutMs: 30000 })
+    .then(() => Date.now() - detectedAtMs)
+    .catch((err) => {
+      logger.warn('block template timing failed (non-critical)', { error: err.message });
+      return null;
+    });
+}
+
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
+  const template = timeTemplate(detectedAtMs);
   let peers;
   try {
     peers = await rpc.getPeerInfo();
@@ -265,6 +310,14 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   });
 
   backfillHeightAndPeerCounts(raceId, blockHash);
+  template.then((ms) => {
+    if (ms == null) return;
+    try {
+      db.instance.prepare(`UPDATE relay_race SET template_ms = ? WHERE id = ?`).run(ms, raceId);
+    } catch (err) {
+      logger.warn('could not store template time', { error: err.message });
+    }
+  });
   attributePool(raceId, blockHash).catch((err) =>
     logger.warn('pool attribution failed (non-critical)', { blockHash, error: err.message }),
   );
@@ -317,5 +370,5 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  recordRace, handleHashBlock, main, isFirstPeer, nearestLastBlockDeltaMs, FIRST_WINDOW_MS,
+  recordRace, handleHashBlock, main, isFirstPeer, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
 };

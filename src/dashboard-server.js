@@ -463,6 +463,14 @@ async function router(req, res, pathname, url) {
       // The same block seen from the mining side, when a race was recorded
       // for it. null is the normal answer with Stratum Race switched off.
       stratum: race.stratum,
+      // The route's two remaining stops: how long after the announcement
+      // Core had a new block template ready, and the delivering peer's ping
+      // from the snapshot that credited it. null on older blocks.
+      templateMs: race.templateMs ?? null,
+      firstPingMs: race.firstPingMs ?? null,
+      // The same route for the typical block - the median over the last
+      // hundred - so a change shows up as a shorter stretch.
+      routeMedian: queries.routeMedian(),
     });
   }
 

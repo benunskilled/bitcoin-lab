@@ -167,8 +167,76 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
   });
 }
 
+/**
+ * How long an RPC takes to answer completely, without keeping the answer.
+ *
+ * Made for getblocktemplate: its reply carries every transaction of the next
+ * block as hex, a few megabytes, and all that is wanted is how long Core took
+ * to produce it. The body is read to the end - the clock stops at the last
+ * byte - and dropped as it streams in, so nothing that size is ever held or
+ * parsed. Only a short reply is kept, because that is what an RPC error looks
+ * like, and an error must not be mistaken for a fast answer.
+ */
+const SHORT_REPLY_BYTES = 4096;
+function timeCall(method, params = [], { timeoutMs = 30000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(config.bitcoin.rpcUrl);
+    const body = JSON.stringify({ jsonrpc: '1.0', id: `bitcoinlab-${++idCounter}`, method, params });
+    const auth = Buffer.from(`${config.bitcoin.rpcUser}:${config.bitcoin.rpcPass}`).toString('base64');
+    const started = process.hrtime.bigint();
+    const req = http.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          Authorization: `Basic ${auth}`,
+        },
+        timeout: timeoutMs,
+        agent,
+      },
+      (res) => {
+        let bytes = 0;
+        let head = '';
+        res.on('data', (chunk) => {
+          if (bytes < SHORT_REPLY_BYTES) head += chunk.toString('utf8');
+          bytes += chunk.length;
+        });
+        res.on('end', () => {
+          const ms = Number(process.hrtime.bigint() - started) / 1e6;
+          if (bytes < SHORT_REPLY_BYTES) {
+            try {
+              const parsed = JSON.parse(head);
+              if (parsed.error) {
+                reject(new Error(`RPC ${method} failed: ${parsed.error.message} (code ${parsed.error.code})`));
+                return;
+              }
+            } catch {
+              reject(new Error(`RPC ${method}: invalid short reply (HTTP ${res.statusCode})`));
+              return;
+            }
+          }
+          if (res.statusCode !== 200) {
+            reject(new Error(`RPC ${method}: HTTP ${res.statusCode}`));
+            return;
+          }
+          resolve({ ms, bytes });
+        });
+      },
+    );
+    req.on('timeout', () => req.destroy(new Error(`RPC ${method}: timed out after ${timeoutMs}ms`)));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 module.exports = {
   call,
+  timeCall,
   agent,
   clockOffset,
   getPeerInfo: () => call('getpeerinfo'),
