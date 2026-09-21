@@ -487,6 +487,19 @@ function runMigrations() {
     // and 'none' means it looked and the block tells us nothing - without that
     // distinction every dashboard view would ask Core about the same
     // unattributable block again.
+    // The route of a block, as Peer Map draws it: how long after the block
+    // Core had a new block template ready, and the ping of the peer that
+    // delivered it, taken from the same getpeerinfo snapshot that credited
+    // it. Both NULL on blocks recorded before this - the route then simply
+    // has fewer stops for those.
+    migrate('relay_race_route_v1_22_0', 'recorded template time and the delivering peer\'s ping', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      if (!existing.has('template_ms')) db.prepare(`ALTER TABLE relay_race ADD COLUMN template_ms REAL`).run();
+      if (!existing.has('first_ping_ms')) db.prepare(`ALTER TABLE relay_race ADD COLUMN first_ping_ms REAL`).run();
+    });
+
     migrate('relay_race_pool_v1_20_0', 'recorded which pool mined each block', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
