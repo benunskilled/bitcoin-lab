@@ -145,3 +145,24 @@ test('no race recorded at all, no typical route', () => {
   db.instance.prepare(`INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)`).run('cd'.repeat(32), 1);
   assert.equal(blocks.routeMedian(), null);
 });
+
+// ---- who has ever delivered ------------------------------------------------
+
+test('the addresses that ever delivered first, and only those', () => {
+  const at = 1_700_000_000_000;
+  relay.recordRace({
+    blockHash: 'e1'.repeat(32), detectedAtMs: at,
+    peers: [
+      { addr: '1.1.1.1:8333', last_block: at / 1000, minping: 0.02 },
+      { addr: '2.2.2.2:8333', last_block: at / 1000 - 900, minping: 0.02 },
+    ],
+  });
+  relay.recordRace({
+    blockHash: 'e2'.repeat(32), detectedAtMs: at + 600_000,
+    peers: [
+      { addr: '2.2.2.2:8333', last_block: (at + 600_000) / 1000, minping: 0.02 },
+      { addr: '3.3.3.3:8333', last_block: at / 1000, minping: 0.02 },
+    ],
+  });
+  assert.deepEqual(blocks.deliveredEver(), ['1.1.1.1:8333', '2.2.2.2:8333']);
+});
