@@ -223,6 +223,34 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
   return value;
 }
 
+/**
+ * Every address that has ever been credited with delivering a block first.
+ *
+ * For Peer Map, which tints those rows: the question it answers is "is this
+ * one of the connections that has actually brought me a block", not how
+ * strong it is, so it is a list and not a ranking. An address, not a host:
+ * an inbound peer comes back on a new source port and is a new row here,
+ * which is exactly how Peer Map sees it too.
+ *
+ * Small - on a node with a fortnight of history 41 out of 18,858 addresses -
+ * and it only changes when a block is recorded, so it is cached against the
+ * newest block.
+ */
+let deliveredCache = { key: null, value: null };
+function deliveredEver() {
+  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
+  if (deliveredCache.key === newest && deliveredCache.value) return deliveredCache.value;
+  const value = db.instance
+    .prepare(
+      `SELECT p.address AS address FROM peer_relay_stats s JOIN peer p ON p.id = s.peer_id
+        WHERE s.first > 0 ORDER BY p.address`,
+    )
+    .all()
+    .map((r) => r.address);
+  deliveredCache = { key: newest, value };
+  return value;
+}
+
 // How many blocks in a row with nobody credited before this says anything.
 //
 // Across 2,206 blocks recorded on a live node, the number where no peer was
@@ -305,6 +333,6 @@ function attributionHealth() {
 }
 
 module.exports = {
-  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, firstTies, attributionHealth,
+  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, firstTies, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };

@@ -471,6 +471,9 @@ async function router(req, res, pathname, url) {
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
       routeMedian: queries.routeMedian(),
+      // Every address ever credited with a First, so Peer Map can tint the
+      // rows of the connections that have actually brought a block.
+      deliveredEver: queries.deliveredEver(),
     });
   }
 
