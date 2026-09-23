@@ -53,12 +53,45 @@ function formatAddress(addr, port) {
 // Best-effort host extraction from a Core-style "addr", so a live peer's
 // address (possibly carrying an ephemeral inbound port) can be turned back
 // into a bare host for re-probing. Falls back to the input unchanged.
+//
+// The port is optional in both forms. Core hands addresses back without one -
+// getaddednodeinfo echoes the `addednode` string as it was given, which for a
+// peer added on the default port is a bare host - and an address that carries
+// no port is still that host, not a nameless remainder.
 function hostFromAddress(address) {
-  const bracketed = address.match(/^\[(.+)\]:\d+$/);
+  const bracketed = address.match(/^\[(.+)\](?::\d+)?$/);
   if (bracketed) return bracketed[1];
   const simple = address.match(/^([^:]+):\d+$/);
   if (simple) return simple[1];
   return address;
+}
+
+/**
+ * The same rule as hostFromAddress, in SQL, for the callers that have to strip
+ * ports across a whole table at once rather than one address at a time.
+ *
+ * It lives here, beside its JavaScript twin, because the two have already
+ * drifted apart once: the rotation wrote `2001:db8::5` while a migration and
+ * the funnel query built `[2001:db8::5]`, and the same IPv6 host was then
+ * counted as two peers. One host must have exactly one spelling, so there is
+ * one place that decides what it is.
+ *
+ * Two details the obvious `instr(address, ':')` form gets wrong, and both of
+ * them turn an address into a bucket every portless peer falls into:
+ * `instr` returns 0 when there is no colon at all, so `substr(address, 1, -1)`
+ * is the empty string; and an unbracketed IPv6 literal is all colons, so the
+ * first one is a hextet separator rather than the port.
+ */
+function sqlHostFromAddress(column) {
+  return `CASE
+            WHEN instr(${column}, ']') > 0
+              THEN substr(${column}, 2, instr(${column}, ']') - 2)
+            WHEN length(${column}) - length(replace(${column}, ':', '')) = 1
+             AND instr(${column}, ':') < length(${column})
+             AND substr(${column}, instr(${column}, ':') + 1) NOT GLOB '*[^0-9]*'
+              THEN substr(${column}, 1, instr(${column}, ':') - 1)
+            ELSE ${column}
+          END`;
 }
 
 /**
@@ -117,6 +150,7 @@ module.exports = {
   unreachableNetwork,
   formatAddress,
   hostFromAddress,
+  sqlHostFromAddress,
   ipv4HostFromAddress,
   ipv4InCidr,
 };

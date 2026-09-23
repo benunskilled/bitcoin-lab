@@ -35,18 +35,35 @@ let peerRankingStmt = null;
  */
 let recentStatsCache = { raceId: null, byPeer: new Map() };
 
+/**
+ * INDEXED BY is the whole point of this statement, not decoration.
+ *
+ * The question is about the newest 500 races, so the only affordable plan is a
+ * range search down relay_observation's primary key, which begins with
+ * race_id. Left to itself SQLite preferred any index that started with peer_id
+ * - it groups by peer_id, so that index arrives pre-sorted and saves the temp
+ * b-tree - and paid for the saving by reading every row the table has ever
+ * held. Measured on two million observations: 3.7s against 32ms, with the gap
+ * widening for as long as the node runs, because that plan's cost is the
+ * history and this one's is the window.
+ *
+ * Naming the index pins the plan and, better, makes a future index that would
+ * tempt the planner again harmless. SQLite refuses to prepare the statement at
+ * all if the named index ever stops existing, so this cannot rot quietly.
+ */
+const RECENT_RELAY_STATS_SQL = `
+  SELECT peer_id AS peerId, COUNT(*) AS eligible, COALESCE(SUM(first), 0) AS first
+    FROM relay_observation INDEXED BY sqlite_autoindex_relay_observation_1
+   WHERE race_id >= (SELECT MIN(id) FROM (SELECT id FROM relay_race ORDER BY id DESC LIMIT ?))
+   GROUP BY peer_id`;
+
 function recentRelayStats() {
   const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
   if (newest == null) return new Map();
   if (recentStatsCache.raceId === newest) return recentStatsCache.byPeer;
 
   const rows = db.instance
-    .prepare(
-      `SELECT peer_id AS peerId, COUNT(*) AS eligible, COALESCE(SUM(first), 0) AS first
-         FROM relay_observation
-        WHERE race_id >= (SELECT MIN(id) FROM (SELECT id FROM relay_race ORDER BY id DESC LIMIT ?))
-        GROUP BY peer_id`,
-    )
+    .prepare(RECENT_RELAY_STATS_SQL)
     .all(config.recentScoreWindowBlocks);
 
   const byPeer = new Map(rows.map((r) => [r.peerId, r]));
@@ -206,4 +223,6 @@ function peerRankingSql() {
 // recentRelayStats is exported for the widget, which needs the same window
 // this ranking is built on but must not pay for the ranking itself - see
 // stats.js. The cache makes the second caller free.
-module.exports = { peerRanking, recentRelayStats };
+// RECENT_RELAY_STATS_SQL goes with it so the suite can assert the plan this
+// statement actually gets rather than a copy of it that has drifted.
+module.exports = { peerRanking, recentRelayStats, RECENT_RELAY_STATS_SQL };

@@ -65,6 +65,22 @@ test('a block with nobody credited is counted as a block, not as a tie', () => {
   assert.deepEqual(blocks.firstTies(), { races: 2, ties: 1 });
 });
 
+/**
+ * Both halves of this are counts over tables that only ever grow, and it is
+ * asked on every /api/status poll - but a tie is recorded with its block or not
+ * at all, so between two blocks there is nothing new to count.
+ */
+test('the count is worked out once per block, not once per poll', () => {
+  seedBlock(2);
+  const first = blocks.firstTies();
+  assert.deepEqual(first, { races: 1, ties: 1 });
+  // The same object, which is what says the two counts did not run again.
+  assert.equal(blocks.firstTies(), first);
+
+  seedBlock(1);
+  assert.deepEqual(blocks.firstTies(), { races: 2, ties: 1 }, 'and a block is what makes it count again');
+});
+
 // The query reads the partial index over the First rows. If that index were
 // dropped or its WHERE clause changed, the answer would still have to be the
 // same - so assert the plan uses it, which is what keeps this affordable on a

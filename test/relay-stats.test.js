@@ -13,6 +13,7 @@ process.env.LOG_LEVEL = 'error';
 
 const db = require('../src/lib/db');
 const queries = require('../src/lib/queries');
+const peerRanking = require('../src/lib/queries/peer-ranking');
 
 test.before(() => {
   db.open();
@@ -75,6 +76,32 @@ test('the rollup follows deletes and updates too', () => {
   assertRollupMatchesRawRows('after update');
   db.instance.prepare('DELETE FROM relay_observation WHERE race_id = ?').run(raceId);
   assertRollupMatchesRawRows('after delete');
+});
+
+/**
+ * The recent window has to cost the window, not the history.
+ *
+ * relay_observation is deliberately never pruned, so the only affordable plan
+ * for "the last five hundred races" is a range search down its primary key,
+ * which begins with race_id. SQLite will not pick that on its own while any
+ * index starts with peer_id: the GROUP BY arrives pre-sorted that way, which
+ * saves a temporary b-tree and pays for it by walking every row the node has
+ * ever recorded. Measured on two million observations, that preference was 3.7
+ * seconds against 32 milliseconds - several times a minute, and growing for as
+ * long as the node runs.
+ *
+ * So assert the plan, the way first-ties.test.js asserts its own. The answer is
+ * identical either way, which is exactly why nothing else would catch it.
+ */
+test('the recent window is a race_id range search, not a walk through every peer', () => {
+  const plan = db.instance
+    .prepare('EXPLAIN QUERY PLAN ' + peerRanking.RECENT_RELAY_STATS_SQL)
+    .all(500)
+    .map((r) => r.detail)
+    .join(' ');
+
+  assert.match(plan, /SEARCH relay_observation USING INDEX sqlite_autoindex_relay_observation_1 \(race_id>\?\)/);
+  assert.doesNotMatch(plan, /SCAN relay_observation/, 'a full pass over the table is the thing being ruled out');
 });
 
 test('rebuildRelayStats restores the invariant from the raw rows alone', () => {
