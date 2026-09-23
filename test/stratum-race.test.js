@@ -305,6 +305,71 @@ test('applyToggle acts only when the switch has actually moved', () => {
   assert.equal(race.active.size, 1, 'an unchanged switch is left alone');
 });
 
+// --- the job a pool sends the moment you connect ----------------------------
+//
+// A pool broadcasts whatever job it is currently on as soon as a subscriber
+// authorizes. That notify answers "what is current?", not "what just
+// happened?", and its arrival is timed from our own TCP handshake. Racing it
+// measured connect order and presented the result as which pool heard about a
+// block first - and charged a miss to any pool whose handshake took longer
+// than the race timeout.
+
+test('the first job after connect opens no race - it is the job the pool was already on', () => {
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  // Cold start: both pools hand over the current job within milliseconds of
+  // their handshakes, in whatever order those completed.
+  race.handleNotify(a, prevhash(80), hr(), Date.now(), true);
+  race.handleNotify(b, prevhash(80), hr(), Date.now(), true);
+
+  assert.equal(race.openRaces.size, 0, 'nothing was announced, so nothing is raced');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n, 0, 'and no race row is opened');
+  assert.equal(observationsFor(prevhash(80)).length, 0, 'nobody is timed and nobody is charged a miss');
+
+  // The hash is remembered all the same: it is old news, and a third pool
+  // connecting later must not be able to open a race for it either.
+  race.handleNotify(fakePool(3, 'C'), prevhash(80), hr());
+  assert.equal(race.openRaces.size, 0, 'a prevhash seen on connect is already spent');
+});
+
+test('the first real block after a cold start is raced normally', () => {
+  // The other half of the rule, so it cannot quietly become "never race
+  // anything". Once the connections are up, a job is news and is timed.
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  race.handleNotify(a, prevhash(81), hr(), Date.now(), true);
+  race.handleNotify(b, prevhash(81), hr(), Date.now(), true);
+
+  const t0 = hr();
+  race.handleNotify(a, prevhash(82), t0);
+  race.handleNotify(b, prevhash(82), t0 + 3_000_000n); // +3ms
+  race.finalizeRace(prevhash(82));
+
+  const rows = observationsFor(prevhash(82));
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.latencyMs), [0, 3]);
+  assert.deepEqual(rows.map((r) => r.rank), [1, 2]);
+});
+
+test('a pool that finishes connecting mid-race is neither timed nor charged a miss', () => {
+  // It plainly has the job - it just cannot be timed on it, because what its
+  // arrival measures is our socket. A miss would blame the pool for that.
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+
+  const t0 = hr();
+  race.handleNotify(a, prevhash(83), t0);
+  race.handleNotify(b, prevhash(83), t0 + 40_000_000n, Date.now(), true);
+  race.finalizeRace(prevhash(83));
+
+  const rows = observationsFor(prevhash(83));
+  assert.equal(rows.length, 1, 'only the pool that could be timed has a row');
+  assert.equal(rows[0].poolId, 1);
+  assert.equal(rows[0].latencyMs, 0);
+});
+
 test('a flood of made-up prevhashes cannot open unlimited races', () => {
   // The client only lets a well-formed 64-hex prevhash through, so this is the
   // second guard, for hashes that are shaped right and still invented. Without

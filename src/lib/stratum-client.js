@@ -209,7 +209,18 @@ class StratumPoolConnection extends EventEmitter {
         return;
       }
       this.notifyCount += 1;
-      this.emit('notify', { prevhash, cleanJobs: Boolean(cleanJobs), receivedAtHr, receivedAtMs });
+      this.emit('notify', {
+        prevhash,
+        cleanJobs: Boolean(cleanJobs),
+        receivedAtHr,
+        receivedAtMs,
+        // The first job of a connection is the one the pool is already working
+        // on - sent because somebody just subscribed, not because anything
+        // happened. Its arrival is timed from our own handshake, so it cannot
+        // be raced; stratum-race.js has the full argument. notifyCount is
+        // reset on every 'connect', so this is per connection, not per process.
+        firstAfterConnect: this.notifyCount === 1,
+      });
       return;
     }
     if (msg.id === 2) {

@@ -109,6 +109,77 @@ test('a session row from before core_peer_id was recorded still reconnect-detect
   assert.equal(sessions().length, 2, 'a much newer conntime is a new session even without an id to compare');
 });
 
+// --- what a poll is allowed to write ----------------------------------------
+//
+// Every open session used to be rewritten on every 15s poll - around 200 rows
+// on a well-connected node, near enough 100MB of WAL a day - almost all of it
+// to persist a ping reading that had moved by a fraction of a millisecond.
+
+const totalChanges = () => db.instance.prepare('SELECT total_changes() AS n').get().n;
+
+function ping(peer, { min, last }) {
+  return { ...peer, minping: min / 1000, pingtime: last / 1000 };
+}
+
+test('a poll that learns nothing writes nothing', () => {
+  const peer = ping(corePeer({ id: 11, conntimeSecondsAgo: 300 }), { min: 20, last: 30 });
+  upsertSessions([peer]);
+
+  const before = totalChanges();
+  upsertSessions([peer]);
+  assert.equal(totalChanges(), before, 'an identical snapshot must not touch the row');
+
+  // Nor does the ping wandering by the width of the measurement - a round trip
+  // that reads 30ms and then 31ms is the same connection, and nothing in the
+  // app renders last_ping_ms at all.
+  upsertSessions([ping(peer, { min: 20, last: 31.4 })]);
+  assert.equal(totalChanges(), before, 'jitter is not news');
+});
+
+test('a poll that learns something still writes it', () => {
+  const peer = ping(corePeer({ id: 12, conntimeSecondsAgo: 300 }), { min: 20, last: 30 });
+  upsertSessions([peer]);
+
+  const stored = () => db.instance.prepare('SELECT min_ping_ms AS min, last_ping_ms AS last, connection_type AS type FROM peer_session').get();
+
+  // A ping that really moved.
+  let before = totalChanges();
+  upsertSessions([ping(peer, { min: 20, last: 120 })]);
+  assert.ok(totalChanges() > before, 'a real change in latency is recorded');
+  assert.equal(stored().last, 120);
+
+  // Anything that is not a number at all: Core relabelling the connection.
+  before = totalChanges();
+  upsertSessions([ping({ ...peer, connection_type: 'manual' }, { min: 20, last: 120 })]);
+  assert.ok(totalChanges() > before);
+  assert.equal(stored().type, 'manual');
+});
+
+test('the minimum ping is a minimum - no threshold and no poll may lose it', () => {
+  const peer = ping(corePeer({ id: 13, conntimeSecondsAgo: 300 }), { min: 40, last: 40 });
+  upsertSessions([peer]);
+  const stored = () => db.instance.prepare('SELECT min_ping_ms AS min, last_ping_ms AS last FROM peer_session').get();
+
+  // A new low by less than the last_ping threshold is still the whole point of
+  // the column, so it is written even though nothing else moved.
+  const before = totalChanges();
+  upsertSessions([ping(peer, { min: 38, last: 40 })]);
+  assert.ok(totalChanges() > before, 'a new minimum is always worth a write');
+  assert.equal(stored().min, 38);
+
+  // A later poll reporting a higher minimum cannot raise it back.
+  upsertSessions([ping(peer, { min: 95, last: 95 })]);
+  assert.equal(stored().min, 38, 'the lowest reading this session ever saw is the one that stands');
+
+  // And a poll where Core reports no ping at all must not erase either value,
+  // even though the connection_type change forces the row to be written.
+  const noPing = { ...corePeer({ id: 13, conntimeSecondsAgo: 300, connectionType: 'manual' }) };
+  delete noPing.minping;
+  delete noPing.pingtime;
+  upsertSessions([noPing]);
+  assert.deepEqual(stored(), { min: 38, last: 95 }, 'a missing reading is not a reading of nothing');
+});
+
 // --- what a peer offers, and whether Core knows its chain -------------------
 //
 // Recorded so the question "can this peer deliver a block at all?" can be

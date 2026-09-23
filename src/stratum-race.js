@@ -65,6 +65,41 @@ const MAX_OPEN_RACES = 10;
 const RECENT_PREVHASH_LIMIT = 64;
 const recentPrevhashes = new Set();
 
+/**
+ * The three statements this worker runs, compiled once.
+ *
+ * They used to be built with db.instance.prepare(...) at the point of use -
+ * and two of those points sit on the timing-critical path: the open and the
+ * insert both happen inside the socket's own `data` handler, microseconds
+ * after the timestamp that the whole measurement is taken from. prepare() is
+ * a fresh compile every time - nothing behind it is keyed on the SQL text -
+ * so every notify paid for parsing and planning the same statement again
+ * before the race's own bookkeeping could finish. That work is not part of
+ * what is being measured, and it is very much part of what delays the next
+ * pool's chunk being read off the event loop.
+ *
+ * Lazily, not at module load: db.open() happens in main(), and the tests
+ * require this module before opening the database.
+ */
+let stmts = null;
+function statements() {
+  if (!stmts) {
+    stmts = {
+      openRace: db.instance.prepare(`INSERT OR IGNORE INTO stratum_race (prevhash, created_at) VALUES (?, ?)`),
+      recordReport: db.instance.prepare(
+        `INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(race_id, pool_id) DO UPDATE SET latency_ms = excluded.latency_ms, rank = excluded.rank
+         WHERE stratum_observation.latency_ms IS NULL`,
+      ),
+      recordMiss: db.instance.prepare(
+        `INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`,
+      ),
+    };
+  }
+  return stmts;
+}
+
 function rememberPrevhash(prevhash) {
   recentPrevhashes.add(prevhash);
   if (recentPrevhashes.size > RECENT_PREVHASH_LIMIT) {
@@ -132,7 +167,8 @@ function syncConnections() {
         idleTimeoutMs: config.stratumIdleTimeoutMs,
         authorizeAddress: config.stratumAuthorizeAddress,
       });
-      conn.on('notify', ({ prevhash, receivedAtHr, receivedAtMs }) => handleNotify(pool, prevhash, receivedAtHr, receivedAtMs));
+      conn.on('notify', ({ prevhash, receivedAtHr, receivedAtMs, firstAfterConnect }) =>
+        handleNotify(pool, prevhash, receivedAtHr, receivedAtMs, firstAfterConnect));
       conn.on('socketError', (err) => logger.debug('pool socket error', { label: pool.label, error: err.message }));
       conn.on('protocolError', (info) => logger.warn('pool sent something unusable', { label: pool.label, ...info }));
       conn.on('authorizeResult', ({ ok, error }) => {
@@ -184,11 +220,9 @@ function finalizeRace(prevhash) {
   // rows only for the pools that reported, which is precisely the Win%/Miss
   // bias the stratum_history_reset_v1_12_0 migration had to erase once
   // already. Per-row failure now costs exactly that row.
-  const insertMiss = db.instance.prepare(
-    `INSERT OR IGNORE INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, NULL, NULL)`,
-  );
+  const insertMiss = statements().recordMiss;
   for (const poolId of active.keys()) {
-    if (race.reported.has(poolId)) continue;
+    if (race.reported.has(poolId) || race.excused.has(poolId)) continue;
     try {
       insertMiss.run(race.id, poolId);
     } catch (err) {
@@ -208,10 +242,59 @@ function finalizeAllRaces() {
   for (const prevhash of [...openRaces.keys()]) finalizeRace(prevhash);
 }
 
-function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now()) {
+/**
+ * A pool's job has arrived.
+ *
+ * `firstAfterConnect` says this is the first mining.notify of a freshly opened
+ * connection (the client counts them, see stratum-client.js), and it is not
+ * timeable. A pool sends the job it is working on the moment a subscriber
+ * authorizes, so that notify is a state dump answering "what is current?", not
+ * an announcement answering "what just happened?" - its arrival is timed from
+ * our own TCP connect, not from the block.
+ *
+ * Left alone, that is the most misleading measurement this worker can make. On
+ * a fresh start every pool sends one within milliseconds of its handshake, the
+ * first socket to complete opens the race and is credited 0ms, everyone else
+ * is charged whatever their connect happened to cost - and any pool whose
+ * handshake takes longer than stratumRaceTimeoutMs is written down as a miss
+ * for a block it reported perfectly well. The figure produced is TCP connect
+ * order, presented as which pool heard about the block first.
+ *
+ * So a first-after-connect job opens no race and is recorded nowhere. It only
+ * marks its prevhash as seen, which is the honest thing to do with it: that
+ * hash IS old news, and remembering it keeps the next pool's catch-up job from
+ * opening a race for it either. Everything this worker then records is a job
+ * that arrived on a connection that was already open and already listening,
+ * where the difference between two pools is the pools.
+ *
+ * What it costs: if a block lands in the same instant a pool is reconnecting,
+ * that pool's catch-up job may carry a genuinely new prevhash, and the race
+ * for that block is then skipped entirely. That is a race lost, not a race
+ * mismeasured, and nobody is charged a miss for it - which is the right way
+ * round. The alternative is timing a socket handshake and calling it a pool.
+ */
+function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now(), firstAfterConnect = false) {
   if (!prevhash) return;
 
   let race = openRaces.get(prevhash);
+
+  if (!race && firstAfterConnect) {
+    rememberPrevhash(prevhash);
+    logger.debug('first job after connect is the current one, not news - not racing it', { prevhash, label: pool.label });
+    return;
+  }
+  // A catch-up job for a race that IS open comes from a pool that finished
+  // connecting in the middle of one. Its timing measures the handshake just
+  // the same, so it is not recorded - but it is excused rather than ignored:
+  // the pool plainly has the job, and charging it a miss at finalize would
+  // blame it for a socket of ours that happened to be down. It is not added
+  // to `reported` either, because that would take a rank off the pools that
+  // were actually timed.
+  if (race && firstAfterConnect) {
+    race.excused.add(pool.id);
+    logger.debug('pool connected mid-race - neither timed nor charged', { prevhash, label: pool.label });
+    return;
+  }
 
   if (!race) {
     // Not an open race. Either this is a genuinely new block, or it is a
@@ -241,15 +324,13 @@ function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now()) {
 
     let info;
     try {
-      info = db.instance
-        .prepare(`INSERT OR IGNORE INTO stratum_race (prevhash, created_at) VALUES (?, ?)`)
-        // When the first job ARRIVED, not when it had been parsed and got
-        // this far. The race's own offsets were always measured from the
-        // arrival (startHr below); created_at used to be taken here, a step
-        // later, which put the race's zero slightly late - and Peer Map lays
-        // this zero next to the moment Core announced the block, so a late
-        // zero made "Core to your pool" look longer than it was.
-        .run(prevhash, receivedAtMs);
+      // When the first job ARRIVED, not when it had been parsed and got this
+      // far. The race's own offsets were always measured from the arrival
+      // (startHr below); created_at used to be taken here, a step later, which
+      // put the race's zero slightly late - and Peer Map lays this zero next
+      // to the moment Core announced the block, so a late zero made "Core to
+      // your pool" look longer than it was.
+      info = statements().openRace.run(prevhash, receivedAtMs);
     } catch (err) {
       logger.warn('failed to open race', { prevhash, label: pool.label, error: err.message });
       return;
@@ -271,6 +352,9 @@ function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now()) {
       prevhash,
       startHr: receivedAtHr,
       reported: new Set(),
+      // Pools that turned up mid-race with a job they could not be timed on -
+      // see handleNotify's doc comment. No result, and no miss either.
+      excused: new Set(),
       timer: setTimeout(() => finalizeRace(prevhash), config.stratumRaceTimeoutMs),
     };
     openRaces.set(prevhash, race);
@@ -300,14 +384,7 @@ function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now()) {
     // clause. It is kept deliberately, not by accident - and the test named
     // for it asserts what actually happens now, which is that the miss
     // stands.
-    db.instance
-      .prepare(
-        `INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(race_id, pool_id) DO UPDATE SET latency_ms = excluded.latency_ms, rank = excluded.rank
-         WHERE stratum_observation.latency_ms IS NULL`,
-      )
-      .run(race.id, pool.id, elapsedMs, rank);
+    statements().recordReport.run(race.id, pool.id, elapsedMs, rank);
     logger.info('pool reported job', { label: pool.label, rank, elapsedMs: Number(elapsedMs.toFixed(1)) });
   } catch (err) {
     // Same reasoning as finalizeRace(): never let a DB hiccup crash this
