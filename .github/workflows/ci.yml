@@ -4,15 +4,45 @@ name: Tests
 # change is visible before it is tagged, rather than after it has already been
 # built and published.
 #
-# Tags are included as well, but only because the integration job below is
-# gated on them; the unit tests running twice on a tag is the price of that and
-# costs nothing worth saving.
+# Tags are no longer listed under `push:`. They are covered by `workflow_call:`
+# instead: release.yml calls this workflow as its first job and gates the
+# publish on it, so on a tag these checks run exactly once and a red one stops
+# the image from being pushed rather than being a second, independent workflow
+# that goes red beside a green release. The integration job below still keys
+# off the ref, which is the caller's tag when it is called that way.
 on:
   push:
     branches: ['**']
-    tags: ['v*.*.*']
   pull_request:
+  workflow_call: {}
   workflow_dispatch: {}
+
+# Least privilege, set at the workflow level so no job can inherit anything
+# wider: nothing here writes to the repository, publishes a package or touches
+# an issue. A checkout needs `contents: read` and that is the whole list. This
+# block previously did not exist, which meant these jobs ran with whatever the
+# repository default happened to be - a write token, in a default-permissive
+# repository, handed to `npm ci` running third-party install scripts.
+permissions:
+  contents: read
+
+# One run per ref. Two pushes in quick succession to the same branch no longer
+# race: the older run is cancelled, which only ever discards an answer nobody
+# is waiting for any more.
+#
+# A tag is never cancelled. On a tag this workflow is running as release.yml's
+# gate, and cancelling it would cancel the checks a publish is waiting on -
+# which reads as "cancelled", not "failed", and is exactly how a half-checked
+# release gets published.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+# Every `uses:` below is pinned to a full commit SHA with the released version
+# in the comment beside it. A tag - even `v4` - is a pointer the action's owner
+# can move, so `@v4` means "whatever that account publishes next", evaluated on
+# every run. The SHA is the artifact itself. Upgrading is now a deliberate
+# edit: read the release notes, change the SHA, change the comment.
 
 jobs:
   test:
@@ -30,8 +60,8 @@ jobs:
         node-version: ['22', '24']
     name: Node ${{ matrix.node-version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -64,8 +94,8 @@ jobs:
       # reason to bump it is a new Core release, not a schedule.
       CORE_VERSION: '31.1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
@@ -74,7 +104,7 @@ jobs:
       # 90 MB, and the same 90 MB every time until CORE_VERSION changes.
       - name: Cache Bitcoin Core
         id: core-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/bitcoin-core
           key: bitcoin-core-${{ env.CORE_VERSION }}-x86_64-linux-gnu
@@ -118,8 +148,8 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm

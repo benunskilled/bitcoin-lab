@@ -12,40 +12,66 @@ on:
       - 'v*.*.*'
   workflow_dispatch: {}
 
+# Least privilege, and `packages: write` is deliberately NOT here. At the
+# workflow level it hands a GHCR-write token to every job in the file,
+# including ones whose whole content is `npm ci` running third-party install
+# scripts. It is granted below, on the single job that pushes.
 permissions:
   contents: read
-  packages: write
+
+# A release never runs twice at once, and is never cancelled. cancel-in-progress
+# is false on purpose: the dangerous moment is between "the multi-arch image is
+# pushed" and "the smoke test says the arm64 half actually runs", and a run
+# cancelled there leaves a published image that nothing has checked. Re-pushing
+# a tag queues behind the run in flight instead of racing it to the registry.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Every `uses:` below is pinned to a full commit SHA with the released version
+# in the comment beside it. This is the file where it matters most: this job
+# holds `packages: write` and the GHCR token, and `@v3` is a promise by
+# somebody else's account that the code behind that tag will not change. A SHA
+# is the code. Upgrading is a deliberate edit: read the notes, change the SHA,
+# change the comment.
 
 jobs:
-  # The image published here is pinned by digest in the app store package, so
-  # whatever this job builds is exactly what users install. Before v1.12.0 a
-  # tag went straight to build-and-push without the test suite ever running.
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npm test
+  # The whole of Tests, run here as this release's gate rather than as a second
+  # workflow racing it. ci.yml and release.yml both used to start on a tag push
+  # with no edge between them, so "the tests failed" and "the image was pushed"
+  # were two independent answers - which is how peer-map v0.8.0 published while
+  # its own image-build job was red.
+  #
+  # `needs: ci` on the publish job below is that edge. It covers the unit tests
+  # on both Node versions and the regtest integration test: ci.yml gates that
+  # one on a tag ref, and a called workflow sees the caller's ref, which is the
+  # tag. Before v1.12.0 a tag went straight to build-and-push with no test run
+  # at all; this is the same fix carried the rest of the way.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
 
   build-and-push:
-    needs: test
+    needs: ci
     runs-on: ubuntu-latest
+    # The only job in either workflow that may write a package - and the only
+    # one that needs to.
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -57,7 +83,7 @@ jobs:
 
       - name: Build and push
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -70,6 +96,37 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/bitcoin-lab:${{ steps.vars.outputs.tag }}
             ${{ startsWith(github.ref, 'refs/tags/v') && format('ghcr.io/{0}/bitcoin-lab:latest', github.repository_owner) || '' }}
+          # Layer cache, and why it is a registry cache rather than type=gha.
+          #
+          # What this build spends its time on is the builder stage: the
+          # Dockerfile installs python3, make and g++ there because the two
+          # runtime dependencies are native modules. better-sqlite3 and zeromq
+          # normally install a prebuilt binary, but when none matches the
+          # target - which is exactly the arm64 leg, running under QEMU - npm
+          # falls back to compiling from source, and without a toolchain in the
+          # image that fallback fails instead of being slow. So the toolchain is
+          # not optional: it is the thing that makes the arm64 half buildable at
+          # all. It is also installed on every release, emulated, from Debian's
+          # mirrors, and none of that changes between v1.23.0 and v1.23.1.
+          #
+          # GitHub's Actions cache (type=gha, which peer-map's CI uses) would
+          # not help here: it is scoped per ref, so a run on refs/tags/v1.23.1
+          # cannot read what a run on refs/tags/v1.23.0 wrote, and this workflow
+          # only ever runs on tags. Every release would write a cache no release
+          # ever reads. A registry cache is one more tag in the same package, so
+          # consecutive releases genuinely share it.
+          #
+          # ignore-error=true: the cache is an optimisation and must never be
+          # able to fail a publish. image-manifest/oci-mediatypes are what GHCR
+          # needs to store a cache manifest at all.
+          #
+          # The cost of this, stated plainly: an apt layer stays cached until
+          # its cache key changes, so Debian security updates reach the image
+          # when the Dockerfile or the lockfile changes, not when Debian ships
+          # them. Deleting the `:buildcache` tag in the package forces a cold
+          # rebuild whenever that matters.
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/bitcoin-lab:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/bitcoin-lab:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
 
       # "The image built" is not the same statement as "the image runs". Both
       # runtime dependencies are native: better-sqlite3 and zeromq ship
