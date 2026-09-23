@@ -16,9 +16,18 @@ const vm = require('vm');
  *
  * This reads the real Go file rather than a copy of its patterns, so the two
  * cannot drift again without something failing here.
+ *
+ * That file lives in the other repository, so where it is depends on who is
+ * running the suite: beside this one on the machine where both are checked
+ * out, or nowhere at all on a CI runner that only cloned this app. Set
+ * PEER_MAP_DIR to say where it is; without it, the sibling checkout is the
+ * one place worth guessing. When it is not there these tests skip rather than
+ * fail - a missing neighbour is not a disagreement.
  */
 
-const KINDS_GO = '/root/work/audit/peer-map/kinds.go';
+const KINDS_GO = process.env.PEER_MAP_DIR
+  ? path.join(process.env.PEER_MAP_DIR, 'kinds.go')
+  : path.join(__dirname, '..', '..', 'peer-map', 'kinds.go');
 const APP_JS = path.join(__dirname, '..', 'src', 'dashboard', 'public', 'app.js');
 
 // {"Indexer", regexp.MustCompile(`(?i)electrs|...`), false},
@@ -79,7 +88,11 @@ const AGENTS = [
   '/Satoshi:29.0.0/', '/Satoshi:28.1.0/Knots:20250903/', '/btcwire:0.5.0/', '/Sat0shi:31.0.0/', '',
 ];
 
-test('the Lab and Peer Map judge every peer the same way', () => {
+const SKIP_WITHOUT_SIBLING = fs.existsSync(KINDS_GO)
+  ? false
+  : `no Peer Map checkout at ${KINDS_GO} - set PEER_MAP_DIR to compare the two apps`;
+
+test('the Lab and Peer Map judge every peer the same way', { skip: SKIP_WITHOUT_SIBLING }, () => {
   const rules = goRules();
   assert.ok(rules.length >= 8, 'the Go rules must actually have been parsed');
   const cannotRelayReason = labCannotRelayReason();
