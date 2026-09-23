@@ -24,13 +24,64 @@ const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 // periodic re-statement.
 const OFFLINE_REMINDER_INTERVAL_MS = 60 * 60 * 1000;
 
+// How far last_ping_ms may drift before the row it sits in is worth rewriting.
+//
+// The poll used to UPDATE every open session on every pass - around 200 rows
+// every 15 seconds on a well-connected node, near enough 100MB of WAL a day -
+// and almost none of those writes carried news. Core's pingtime is a float in
+// seconds, so it differs from the last reading essentially always, and the
+// difference is the jitter of a single round trip rather than a change in the
+// connection. Writing it down cost a page per row and told nobody anything:
+// nothing in the app renders last_ping_ms at all, and the ping the dashboard
+// shows and ranks by is min_ping_ms.
+//
+// 5ms is chosen to be below anything that would read as a change in the link
+// and above everything that is measurement noise: a peer on the far side of an
+// ocean answers in 150-300ms, one a few hops away in single digits, and
+// neither becomes a different peer because a reading moved by two. A peer
+// whose latency genuinely shifts - a route change, congestion, a move to
+// another continent - moves by far more than this and is still recorded on the
+// very next poll.
+//
+// min_ping_ms is deliberately NOT subject to it. That column is a minimum, so
+// a decrease is the entire information it carries, and it is written whenever
+// it drops by any amount at all.
+const PING_DRIFT_MS = 5;
+
+// Is any part of this row's stored state actually out of date?
+//
+// `stored` is the open session as it is in the database, `next` the values
+// this poll would write - already merged with what is stored, so a field Core
+// did not report this time compares equal instead of looking like a change to
+// null. The three COALESCE columns (services, relay_txes, synced_headers)
+// follow the statement's own rule: a null from Core is "not reported", which
+// changes nothing, so it is not a reason to write.
+function needsWrite(stored, next) {
+  if (stored.core_peer_id !== next.corePeerId) return true;
+  if (stored.direction !== next.direction) return true;
+  if (stored.connection_type !== next.connectionType) return true;
+  if (stored.network !== next.network) return true;
+  if (stored.subver !== next.subver) return true;
+  if (stored.min_ping_ms !== next.minPingMs) return true;
+  if (next.services !== null && stored.services !== next.services) return true;
+  if (next.relayTxes !== null && stored.relay_txes !== next.relayTxes) return true;
+  if (next.syncedHeaders !== null && stored.synced_headers !== next.syncedHeaders) return true;
+  if (stored.last_ping_ms == null || next.lastPingMs == null) return stored.last_ping_ms !== next.lastPingMs;
+  return Math.abs(next.lastPingMs - stored.last_ping_ms) >= PING_DRIFT_MS;
+}
+
 function upsertSessions(peers) {
   const database = db.instance;
   const nowMs = Date.now();
 
+  // Every column the update below can touch is read back here, not just the
+  // ones the session-matching needs: a row is only worth rewriting if one of
+  // them actually moved (see needsWrite).
   const openSessions = database
     .prepare(
-      `SELECT ps.id, ps.peer_id, ps.core_peer_id, ps.started_at, p.address
+      `SELECT ps.id, ps.peer_id, ps.core_peer_id, ps.started_at, ps.direction, ps.connection_type,
+              ps.network, ps.subver, ps.min_ping_ms, ps.last_ping_ms, ps.services, ps.relay_txes,
+              ps.synced_headers, p.address
        FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
        WHERE ps.ended_at IS NULL`,
     )
@@ -67,7 +118,7 @@ function upsertSessions(peers) {
         const endedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
         closeStmt.run(Math.max(s.started_at, Math.min(endedAt, nowMs)), s.id);
       } else {
-        openByAddress.set(s.address, s.id);
+        openByAddress.set(s.address, s);
       }
     }
   });
@@ -109,10 +160,36 @@ function upsertSessions(peers) {
       const relayTxes = typeof peer.relaytxes === 'boolean' ? (peer.relaytxes ? 1 : 0) : null;
       const syncedHeaders = typeof peer.synced_headers === 'number' ? peer.synced_headers : null;
 
-      const existingSessionId = openByAddress.get(peer.addr);
-      if (existingSessionId) {
-        updateSession.run(peer.id, direction, connectionType, network, peer.subver || null, minPingMs, lastPingMs,
-          services, relayTxes, syncedHeaders, existingSessionId);
+      const stored = openByAddress.get(peer.addr);
+      if (stored) {
+        // min_ping_ms and last_ping_ms are plain assignments in the statement,
+        // not COALESCE, so what is bound here has to be the merged value
+        // rather than this poll's reading.
+        //
+        // The minimum is kept as a minimum: Core reports minping per session
+        // and only ever lowers it, but a poll that omits it entirely (no ping
+        // round trip has completed since a reconnect) would otherwise write
+        // NULL over a real measurement, and a poll that reported a higher
+        // number would overwrite the lowest one this session ever saw. Both
+        // lose the one thing the column exists to hold.
+        const next = {
+          corePeerId: peer.id ?? null,
+          direction,
+          connectionType,
+          network,
+          subver: peer.subver || null,
+          minPingMs: minPingMs == null
+            ? stored.min_ping_ms
+            : Math.min(minPingMs, stored.min_ping_ms ?? minPingMs),
+          lastPingMs: lastPingMs == null ? stored.last_ping_ms : lastPingMs,
+          services,
+          relayTxes,
+          syncedHeaders,
+        };
+        if (needsWrite(stored, next)) {
+          updateSession.run(next.corePeerId, next.direction, next.connectionType, next.network, next.subver,
+            next.minPingMs, next.lastPingMs, next.services, next.relayTxes, next.syncedHeaders, stored.id);
+        }
       } else {
         // conntime is Core's own unix-second connection start - more
         // accurate than "now" for a connection we're only just noticing.

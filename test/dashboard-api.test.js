@@ -255,6 +255,149 @@ test('serveStatic refuses to walk out of the public directory', async () => {
   assert.equal((await fetch(`${baseUrl}/favicon.svg`)).status, 200, 'but real assets still serve');
 });
 
+// --- security headers -------------------------------------------------------
+//
+// The same four on every response, and the CSP the same string Peer Map serves
+// (its main.go) - the two apps show one node's peers in two windows, so a rule
+// that holds in one and not the other is a rule nobody can reason about.
+
+const EXPECTED_CSP =
+  "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'";
+
+function assertSecured(res, what) {
+  assert.equal(res.headers.get('content-security-policy'), EXPECTED_CSP, `${what} must carry the CSP`);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff', `${what} must refuse sniffing`);
+  assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN', `${what} must not be framable`);
+  assert.equal(res.headers.get('referrer-policy'), 'no-referrer', `${what} must not leak a referrer`);
+  // A self-hosted dashboard has no business being readable by another origin,
+  // and adding CORS here would hand back exactly what the CSP above refuses.
+  assert.equal(res.headers.get('access-control-allow-origin'), null, `${what} must not be CORS-open`);
+}
+
+test('every response carries the security headers, page and API alike', async () => {
+  assertSecured(await fetch(`${baseUrl}/`), 'the page');
+  assertSecured(await fetch(`${baseUrl}/app.js`), 'a static asset');
+  assertSecured(await fetch(`${baseUrl}/api/status`), 'an API reply');
+  assertSecured(await fetch(`${baseUrl}/api/nope`), 'a 404');
+  assertSecured(await fetch(`${baseUrl}/nope.html`), 'a missing file');
+  assertSecured(await fetch(`${baseUrl}/../package.json`), 'a refused path');
+});
+
+// The policy is only worth serving if the page it is served with satisfies it.
+// 'unsafe-inline' is not in that string, so a single inline handler or style
+// attribute would silently stop half the dashboard working - and it would work
+// perfectly in the developer's browser until the header was added.
+test('the frontend satisfies the policy it is served with', async () => {
+  const html = await (await fetch(`${baseUrl}/`)).text();
+  const js = await (await fetch(`${baseUrl}/app.js`)).text();
+
+  assert.equal(/<script(?![^>]*\bsrc=)/i.test(html), false, 'an inline <script> would need unsafe-inline');
+  assert.equal(/<style[\s>]/i.test(html), false, 'an inline <style> block would need unsafe-inline');
+  assert.equal(/\son[a-z]+\s*=\s*["']/i.test(html), false, 'an inline event handler would need unsafe-inline');
+  assert.equal(/\sstyle\s*=\s*["']/i.test(html), false, 'a style="" attribute would need unsafe-inline');
+  // Same three, written from JavaScript into innerHTML - the CSP does not care
+  // which file the string came from.
+  assert.equal(/<script|<style[\s>]|\sstyle="/i.test(js), false, 'app.js must not inject inline script or style either');
+  // connect-src 'self': every request the page makes has to be same-origin.
+  // The cross-origin knock on Peer Map's port is gone; /api/status answers
+  // that question from the server, which can actually see the container.
+  assert.equal(/fetch\(\s*(url|`\$\{location\.protocol\})/.test(js), false, 'a cross-origin fetch would be blocked');
+});
+
+// --- typed fields on the write endpoints ------------------------------------
+
+test('a non-string address is refused with 422 rather than acted on', async () => {
+  // A number here is not a bad address, it is a different instruction: Core's
+  // disconnectnode takes either an address or a numeric peer id and picks by
+  // JSON type, so this used to disconnect whatever session Core happened to
+  // call peer 3 - one nobody selected and the page may never have shown.
+  for (const route of ['/api/peers/untrust', '/api/peers/keep', '/api/peers/disconnect', '/api/peers/add-manual']) {
+    for (const address of [3, true, { host: '1.2.3.4' }, ['1.2.3.4:8333'], '   ']) {
+      // eslint-disable-next-line no-await-in-loop
+      const { status, body } = await api(route, { method: 'POST', body: JSON.stringify({ address }) });
+      assert.equal(status, 422, `${route} must refuse ${JSON.stringify(address)}`);
+      assert.match(body.error, /address must be a string/, 'and say what it wanted instead');
+    }
+  }
+});
+
+test('a real trusted peer is still removable, and a missing address still says so', async () => {
+  // The guard must reject the type, not the route: the string path is what the
+  // dashboard's Remove button uses on every manual peer.
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, created_at) VALUES (?, ?)`)
+    .run('203.0.113.77:8333', Date.now());
+  const { status } = await api('/api/peers/untrust', {
+    method: 'POST',
+    body: JSON.stringify({ address: '203.0.113.77:8333' }),
+  });
+  assert.equal(status, 200);
+  assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer WHERE address = '203.0.113.77:8333'`).get().n, 0);
+
+  const missing = await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({}) });
+  assert.equal(missing.status, 400, 'left out is still 400 - a different mistake from sent wrong');
+});
+
+// --- the range on /api/pools ------------------------------------------------
+
+test('a huge range is capped instead of compiling a statement SQLite refuses', async () => {
+  // "last N races" becomes one bound parameter per race, and SQLite will not
+  // compile a statement with more than 32,766 of them. Number(range) was taken
+  // as given, so the size of that list was the caller's to choose and grew with
+  // the history on its own: past the limit the panel stopped answering at all.
+  const rows = [];
+  for (let i = 0; i < 33_000; i += 1) rows.push(i.toString(16).padStart(64, '0'));
+  const insert = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, 1)');
+  db.instance.transaction((all) => { for (const h of all) insert.run(h); })(rows);
+
+  try {
+    const { status, body } = await api('/api/pools?range=100000');
+    assert.equal(status, 200, 'a range past the limit must still answer');
+    assert.ok(Array.isArray(body));
+    // And the ordinary windows are untouched by the cap.
+    assert.equal((await api('/api/pools?range=10')).status, 200);
+    assert.equal((await api('/api/pools?range=all')).status, 200, 'all-time binds no parameters at all');
+  } finally {
+    db.instance.prepare('DELETE FROM stratum_race').run();
+  }
+});
+
+// --- how many event streams may be open -------------------------------------
+
+test('the event stream is capped, and says so politely past the limit', async () => {
+  // Each stream is a response held open for as long as its tab plus a
+  // keepalive timer; nothing bounded the number, so a page anyone on the LAN
+  // can open in a loop was enough to exhaust this process's descriptors.
+  const open = [];
+  const connect = () => new Promise((resolve, reject) => {
+    const req = http.get(`${baseUrl}/api/events`, (res) => {
+      res.resume();
+      resolve({ req, status: res.statusCode });
+    });
+    req.on('error', (err) => { if (err.code !== 'ECONNRESET') reject(err); });
+  });
+
+  try {
+    for (let i = 0; i < 32; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const c = await connect();
+      open.push(c.req);
+      assert.equal(c.status, 200, `stream ${i + 1} is within the limit`);
+    }
+    const refused = await connect();
+    open.push(refused.req);
+    assert.equal(refused.status, 503, 'the 33rd is refused');
+  } finally {
+    for (const req of open) req.destroy();
+  }
+
+  // And the limit is a limit, not a latch: closing a tab frees its slot.
+  await new Promise((r) => setTimeout(r, 200));
+  const again = await connect();
+  again.req.destroy();
+  assert.equal(again.status, 200, 'a freed slot is usable again');
+});
+
 // The neighbour's endpoint. Peer Map polls this to mark the peer that
 // delivered the last block, so it must answer before any block has ever been
 // seen, and it must not hand out anything beyond the block itself.

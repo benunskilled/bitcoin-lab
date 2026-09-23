@@ -53,10 +53,84 @@ const SERVICE_STALE_MS = {
   'stratum-race': 120_000,
 };
 
+// Sent on every response this process makes - the JSON API, the static files
+// and the event stream alike.
+//
+// The policy is character for character the one Peer Map already serves next
+// door (its main.go), and that is the point rather than a coincidence: the two
+// apps are two windows onto the same node, and a rule that holds in one and
+// not the other is a rule nobody can reason about.
+//
+// The page satisfies it as it stands. index.html has no inline <script>, no
+// <style> block, no style="" attribute and no inline event handler - every
+// click goes through a delegated listener in app.js keyed on data-action - so
+// neither 'unsafe-inline' nor a nonce is needed for scripts or styles.
+// Everything it loads (app.js, style.css, favicon.svg) is same-origin, the
+// stylesheet references no url(), and every request the page makes - fetch to
+// /api/*, the EventSource on /api/events - is same-origin too. The one thing
+// that was not was a cross-origin knock on Peer Map's port from the browser;
+// that question is answered by this process now (/api/status peerMapInstalled,
+// via lib/sibling.js) and the browser-side probe is gone with it.
+//
+// No CORS headers: nothing reads this API from another origin. Peer Map polls
+// /api/blocks/latest from its own Go process, container to container, where
+// the browser's origin rules never enter into it.
+//
+// X-Frame-Options as well as frame-ancestors - the CSP directive is the one
+// that counts on anything current, the header covers whatever older proxy or
+// browser sits between this and the operator.
+const SECURITY_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'no-referrer',
+};
+
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(status, {
+    ...SECURITY_HEADERS,
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+  });
   res.end(body);
+}
+
+/**
+ * The `address` field the peer write endpoints act on.
+ *
+ * Truthiness was the whole check, and everything that got past it failed in a
+ * different way, none of them good.
+ *
+ * `{"address": 3}` on /api/peers/disconnect is the serious one. It is not a
+ * malformed address, it is a different command: rpc.disconnectNode routes a
+ * number as Core's numeric peer id (Core's disconnectnode takes either), so it
+ * disconnects whatever session Core currently calls peer 3 - a session nobody
+ * selected, which the page need never have shown, and which the reply then
+ * reports as `{"ok": true}`.
+ *
+ * On the other two the same number binds happily into a TEXT comparison,
+ * matches nothing, and untrust answers 200 for a peer it did not untrust. A
+ * boolean or an object does not bind at all: better-sqlite3 throws and the
+ * caller gets a bare 500 for what was only ever a badly typed field.
+ *
+ * Missing stays 400 ("you left it out"); present but not a string is 422
+ * ("you sent the wrong kind of thing"), which is the distinction the dashboard
+ * already makes for the probe/add routes.
+ */
+function readAddress(res, address) {
+  if (address === undefined || address === null || address === '') {
+    sendJson(res, 400, { error: 'address required' });
+    return null;
+  }
+  if (typeof address !== 'string' || address.trim() === '') {
+    sendJson(res, 422, {
+      error: `address must be a string like "203.0.113.50:8333", not ${typeof address}`,
+    });
+    return null;
+  }
+  return address;
 }
 
 function readBody(req) {
@@ -88,16 +162,17 @@ function serveStatic(req, res, pathname) {
   const rel = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!filePath.startsWith(PUBLIC_DIR)) {
-    res.writeHead(403).end();
+    res.writeHead(403, SECURITY_HEADERS).end();
     return;
   }
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' }).end('not found');
+      res.writeHead(404, { ...SECURITY_HEADERS, 'Content-Type': 'text/plain' }).end('not found');
       return;
     }
     const ext = path.extname(filePath);
     res.writeHead(200, {
+      ...SECURITY_HEADERS,
       'Content-Type': MIME[ext] || 'application/octet-stream',
       // Without an explicit directive, browsers apply heuristic caching to
       // these responses and can keep serving a stale index.html/app.js for
@@ -129,6 +204,19 @@ const sseClients = new Set();
 const BLOCK_SETTLE_MS = 750;
 const POOL_SETTLE_MS = 4000;
 const SSE_KEEPALIVE_MS = 25_000;
+// How many event streams may be held open at once.
+//
+// Every one of them costs a response object kept alive for as long as its tab
+// is, a keepalive timer firing every 25 seconds, and a share of the fan-out on
+// each block. Nothing bounded that: /api/events accepted connections until the
+// process ran out of file descriptors, and a page anyone on the LAN can open
+// in a loop is all it takes.
+//
+// Thirty-two because this is one household's dashboard on one node. A few tabs
+// on a few devices is the real maximum; thirty-two is already generous enough
+// that nobody reaches it by using the app, and small enough that the timers and
+// sockets behind it stay trivial.
+const MAX_SSE_CLIENTS = 32;
 // The pool a block was mined by arrives a moment after the race itself (the
 // relay profiler reads the coinbase once the race is written), so the same
 // race is worth sending twice: once when it lands, once when it has a name.
@@ -163,7 +251,18 @@ function broadcastLatestBlock({ force = false } = {}) {
 }
 
 function handleEventStream(req, res) {
+  // Full. Say so, and say when to come back, rather than accepting a
+  // connection this process cannot afford to keep - a stream that is opened
+  // and then starved looks to the page exactly like a node that stopped
+  // producing blocks.
+  if (sseClients.size >= MAX_SSE_CLIENTS) {
+    logger.warn('refused an event stream, too many are already open', { open: sseClients.size, limit: MAX_SSE_CLIENTS });
+    res.setHeader('Retry-After', '30');
+    sendJson(res, 503, { error: `too many event streams open (limit ${MAX_SSE_CLIENTS}) - close a dashboard tab and reload` });
+    return;
+  }
   res.writeHead(200, {
+    ...SECURITY_HEADERS,
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
@@ -307,6 +406,36 @@ function clockHealth() {
     samples: reading.samples,
     maxRttMs: reading.maxRttMs,
   };
+}
+
+// The largest "last N races" window /api/pools will answer.
+//
+// The range turns into one bound parameter per race in an IN() list
+// (queries/stratum.js builds it), and SQLite refuses to compile a statement
+// with more than SQLITE_MAX_VARIABLE_NUMBER of them - 32,766 on the build
+// better-sqlite3 ships. Number(range) was taken as given, so the size of that
+// list was set by the caller and bounded only by how much history the install
+// had accumulated: with a long enough race table, range=100000 stopped being a
+// slow query and became a prepare() that throws, i.e. a 500 on a panel that
+// used to work.
+//
+// A thousand because nothing legitimate wants more: the selector offers 10,
+// 100 and "all", and "all" takes the unfiltered path that binds no parameters
+// at all, so it is both the cheapest answer and the one somebody asking for
+// "everything" actually means. A hand-written range past this is clamped
+// rather than refused - there is no wrong answer to give them, only a smaller
+// window than they typed.
+const MAX_POOL_RANGE = 1000;
+
+function poolRange(raw) {
+  if (raw === null || raw === '') return '10';
+  if (raw === 'all') return 'all';
+  const n = Number(raw);
+  // Anything unrecognisable is passed through untouched: stratumRanking() has
+  // its own rule for that (fail open to all-time), and it is not this
+  // function's business to change it.
+  if (!Number.isFinite(n) || n <= 0) return raw;
+  return String(Math.min(Math.floor(n), MAX_POOL_RANGE));
 }
 
 async function handleWidgetStats(req, res) {
@@ -509,7 +638,7 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
     const { address } = await readBody(req);
-    if (!address) return sendJson(res, 400, { error: 'address required' });
+    if (!readAddress(res, address)) return true;
     await peerSync.removeTrustedPeer(address);
     return sendJson(res, 200, { ok: true });
   }
@@ -545,7 +674,7 @@ async function router(req, res, pathname, url) {
     // the rotation makes on merit - and the peers this button sits next to
     // are the pool the rotation promotes FROM.
     const { address, label } = await readBody(req);
-    if (!address) return sendJson(res, 400, { error: 'address required' });
+    if (!readAddress(res, address)) return true;
     const host = hostFromAddress(address);
     const result = await manualAddPeer(host, label);
     return sendJson(res, result.ok ? 200 : 422, result);
@@ -557,7 +686,7 @@ async function router(req, res, pathname, url) {
   // decision of its own, and it happens long after the peer was added.
   if (req.method === 'POST' && pathname === '/api/peers/keep') {
     const { address, kept } = await readBody(req);
-    if (!address) return sendJson(res, 400, { error: 'address required' });
+    if (!readAddress(res, address)) return true;
     const changed = peerSync.setKept(address, Boolean(kept));
     if (!changed) return sendJson(res, 404, { error: 'not a manual peer' });
     return sendJson(res, 200, { ok: true, address, kept: Boolean(kept) });
@@ -582,7 +711,7 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'POST' && pathname === '/api/peers/disconnect') {
     const { address } = await readBody(req);
-    if (!address) return sendJson(res, 400, { error: 'address required' });
+    if (!readAddress(res, address)) return true;
     try {
       await rpc.disconnectNode(address);
       return sendJson(res, 200, { ok: true });
@@ -600,8 +729,7 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'GET' && pathname === '/api/pools') {
-    const range = url.searchParams.get('range') || '10';
-    return sendJson(res, 200, queries.stratumRanking(range));
+    return sendJson(res, 200, queries.stratumRanking(poolRange(url.searchParams.get('range'))));
   }
 
   if (req.method === 'POST' && pathname === '/api/pools') {

@@ -32,6 +32,27 @@ test('a notify carries the wall-clock time of its arrival', () => {
   assert.equal(captured.receivedAtMs, 1789900000123);
 });
 
+// Which job is the pool's opening state dump and which one is an announcement
+// is something only this end can tell, from the connection it arrived on - so
+// the client says, and stratum-race.js decides what to do about it.
+test('a notify says whether it is the first of its connection', () => {
+  const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
+  const seen = [];
+  conn.on('notify', (payload) => seen.push(payload.firstAfterConnect));
+
+  const line = (hash) => `${JSON.stringify({ method: 'mining.notify', params: ['j', hash, '', '', [], '', '', '', true] })}\n`;
+  conn._handleChunk(Buffer.from(line('ab'.repeat(32))), process.hrtime.bigint());
+  conn._handleChunk(Buffer.from(line('cd'.repeat(32))), process.hrtime.bigint());
+
+  assert.deepEqual(seen, [true, false]);
+
+  // A reconnect starts the count over - 'connect' resets it - because the pool
+  // dumps its current job to the new session exactly as it did to the first.
+  conn.notifyCount = 0;
+  conn._handleChunk(Buffer.from(line('ef'.repeat(32))), process.hrtime.bigint());
+  assert.deepEqual(seen, [true, false, true]);
+});
+
 test('ignores malformed JSON lines without throwing', () => {
   const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
   assert.doesNotThrow(() => conn._handleChunk(Buffer.from('{not json\n'), process.hrtime.bigint()));

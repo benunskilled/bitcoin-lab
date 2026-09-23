@@ -110,18 +110,38 @@ function statusPillClass(status) {
 //
 // Deliberately NOT in here: block-relay-only peers. They refuse transactions
 // and pass blocks on, which is the opposite of this list.
-const CANNOT_RELAY = [
+//
+// This is Peer Map's kindRules (peer-map/kinds.go), same patterns in the same
+// order, and it has to stay that way. The two apps show the same node's peers
+// in two windows, and a peer that is struck through in one and not the other
+// is worse than no marking at all. The Go side names each family; here only
+// the answer to "can this thing pass a block on" is needed, so a family that
+// relays carries a null reason and is simply a stop.
+//
+// Order is load-bearing, exactly as it is there: first match wins, so a pool
+// node is recognised before anything else gets to read its user agent. A
+// solo-pool operator who puts the pool's name in the bracketed comment -
+// "/Satoshi:29.1.0(mempool-pool)/" and the like - is running a relaying node,
+// and without that rule first the word inside the brackets would have it
+// painted as an indexer.
+const KIND_RULES = [
+  // Mining pool software speaking p2p, or a node whose operator says in the
+  // bracketed comment that it belongs to a pool. Relays.
+  [/ckp2p|ckpool|\([^)]*pool[^)]*\)/i, null],
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT/i, 'a client of another chain'],
+  // Scanners run as a service and scanners run by universities - the second
+  // kind announces itself with its department's domain.
+  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],
+  [/bitnodes|metrika|nodemap|crawler|scanner/i, 'a network crawler'],
+  // Address indexers for wallets: they follow the chain and relay nothing.
+  [/electrs|electrum|esplora|mempool/i, 'an address indexer'],
   [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
   [/neutrino/i, 'a light client'],
-  [/electrs|electrum|esplora/i, 'an address indexer'],
-  [/bitnodes|metrika|nodemap|crawler|scanner/i, 'a network crawler'],
-  [/kit\.edu|dsn\.tm|dsn\.kastel/i, 'a research scanner'],
-  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited/i, 'a client of another chain'],
 ];
 
 function cannotRelayReason(client) {
   if (!client) return null;
-  for (const [re, what] of CANNOT_RELAY) if (re.test(client)) return what;
+  for (const [re, what] of KIND_RULES) if (re.test(client)) return what;
   return null;
 }
 
@@ -1385,25 +1405,17 @@ wireReset('peers');
 wireReset('pools');
 
 
-// The other half of this pair is a separate app: installed on its own, running
-// in its own container, on its own port. If it is there, it sits on port 8791
-// of the same host - a fixed number, because the app store's manifest assigns
-// it, and the browser already knows the host.
+// The link to Peer Map used to be decided here, by knocking on port 8791 from
+// the browser with a no-cors fetch and showing the link if anything answered.
+// That knock is gone: refreshStatus() above already reads peerMapInstalled
+// from /api/status, where this app's own process asks the question properly -
+// it can see whether the container exists, which a browser never could, and it
+// is not guessing from a request whose reply it is not allowed to read.
 //
-// Knock before showing the link. A link to an app nobody installed is worse
-// than no link at all, and this is the only way to tell from here: nothing on
-// that port refuses the connection, and the fetch fails. The reply itself is
-// unreadable across origins and does not need to be read - that it answered at
-// all is the whole answer.
-function showSiblingLink() {
-  const a = document.getElementById('sibling-link');
-  if (!a) return;
-  const url = `${location.protocol}//${location.hostname}:8791/`;
-  fetch(url + 'api/health', { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(2500) })
-    .then(() => { a.href = url; a.hidden = false; })
-    .catch(() => { /* not installed, or not reachable: stay quiet */ });
-}
-
-showSiblingLink();
+// It also had to go for the dashboard to be servable under a
+// Content-Security-Policy with connect-src 'self' (see SECURITY_HEADERS in
+// dashboard-server.js): a cross-origin fetch is exactly what that forbids, and
+// the policy is worth more than a second way of answering a question already
+// answered.
 startRefreshLoop();
 startEventStream();
