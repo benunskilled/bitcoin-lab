@@ -915,12 +915,102 @@ test('the backfill counts peers that were kept before the record existed', () =>
   // Same host as the first manual peer, under the port an inbound peer dials
   // from: must not become a second row.
   db.instance.prepare(`INSERT OR REPLACE INTO parked_peer (address, first_pct, eligible, parked_at, probe_failures) VALUES (?, ?, ?, ?, 0)`).run('203.0.113.41:51234', 1.0, 200, now);
+  // No port at all, which is how Core echoes back a peer added on the default
+  // one. The old expression stripped from the first colon, found none, and
+  // produced the empty string - so every portless peer landed in a single
+  // nameless row and the count of them was one.
+  db.instance.prepare(`INSERT OR REPLACE INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`).run('192.0.2.7', null, now);
+  db.instance.prepare(`INSERT OR REPLACE INTO trusted_peer (address, label, created_at) VALUES (?, ?, ?)`).run('192.0.2.8', null, now);
 
   db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:promoted_peer_backfill_v1_15_10');
   db.runMigrations();
 
   const ips = db.instance.prepare(`SELECT ip FROM promoted_peer ORDER BY ip`).all().map(r => r.ip);
-  assert.deepEqual(ips, ['198.51.100.41', '203.0.113.41', '[2001:db8::5]']);
+  // The IPv6 host bare, not bracketed: one spelling, the one the rotation also
+  // writes, or the same host is two peers.
+  assert.deepEqual(ips, ['192.0.2.7', '192.0.2.8', '198.51.100.41', '2001:db8::5', '203.0.113.41']);
+});
+
+/**
+ * The two halves of "what is the host part of this address" have to give the
+ * same answer, because one of them runs at promotion time and the other over a
+ * whole table in a migration, and their answers are compared by a primary key.
+ *
+ * They disagreed for eight versions - brackets in SQL, bare in JavaScript - and
+ * an IPv6 peer was silently counted twice.
+ */
+test('the SQL and JavaScript host rules agree on every shape of address', () => {
+  const { hostFromAddress, sqlHostFromAddress } = require('../src/lib/address');
+  // A named parameter, because the expression mentions its column repeatedly.
+  const inSql = db.instance.prepare(`SELECT ${sqlHostFromAddress('@address')} AS host`);
+  const cases = [
+    ['203.0.113.5:8333', '203.0.113.5'],
+    ['[2001:db8::5]:8333', '2001:db8::5'],
+    ['[2001:db8::5]', '2001:db8::5'],
+    // Bare IPv6: the colons are hextet separators, never a port.
+    ['2001:db8::5', '2001:db8::5'],
+    ['::1', '::1'],
+    // No port - getaddednodeinfo echoes the address as it was typed.
+    ['203.0.113.5', '203.0.113.5'],
+    ['node.example.com', 'node.example.com'],
+    ['node.example.com:9333', 'node.example.com'],
+  ];
+  for (const [address, host] of cases) {
+    assert.equal(hostFromAddress(address), host, `hostFromAddress(${address})`);
+    assert.equal(inSql.get({ address }).host, host, `SQL host of ${address}`);
+  }
+});
+
+/**
+ * The same host under two spellings is two rows, and the funnel then reports
+ * one peer as two. Folding them is not optional on an installed node: it has
+ * been writing both forms since the table existed.
+ */
+test('the canonical-IP migration folds a bracketed duplicate into the bare host', () => {
+  db.instance.prepare(`DELETE FROM promoted_peer`).run();
+  const insert = db.instance.prepare(`INSERT INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`);
+  // Written by the old backfill, on the day the node was updated...
+  insert.run('[2001:db8::5]', 5000);
+  // ...and by the rotation, back when it first kept this host.
+  insert.run('2001:db8::5', 1000);
+  // A bracketed host with no bare twin still has to lose its brackets.
+  insert.run('[2001:db8::9]', 7000);
+  insert.run('203.0.113.41', 2000);
+
+  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:promoted_peer_canonical_ip_v1_23_1');
+  db.runMigrations();
+
+  const rows = db.instance.prepare(`SELECT ip, first_promoted_at AS at FROM promoted_peer ORDER BY ip`).all();
+  assert.deepEqual(rows, [
+    { ip: '2001:db8::5', at: 1000 },
+    { ip: '2001:db8::9', at: 7000 },
+    { ip: '203.0.113.41', at: 2000 },
+  ]);
+});
+
+/**
+ * An index CREATE INDEX IF NOT EXISTS can only add, so removing one from the
+ * schema does nothing for a database that already has it - and this one is
+ * worth being rid of: nothing filters relay_observation by peer alone, but
+ * SQLite preferred it for recentRelayStats() and read the node's whole history
+ * to answer a question about the last five hundred blocks.
+ */
+test('the peer-only index on relay_observation is dropped on an existing install', () => {
+  const exists = (name) =>
+    db.instance.prepare(`SELECT COUNT(*) AS n FROM sqlite_schema WHERE type = 'index' AND name = ?`).get(name).n > 0;
+
+  assert.equal(exists('idx_relay_obs_peer'), false, 'a fresh database never gets it in the first place');
+
+  // An installed node, which does.
+  db.instance.prepare(`CREATE INDEX idx_relay_obs_peer ON relay_observation(peer_id)`).run();
+  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:drop_relay_obs_peer_index_v1_23_1');
+  db.runMigrations();
+
+  assert.equal(exists('idx_relay_obs_peer'), false);
+  // And what replaces it stays: the foreign key from relay_observation to peer
+  // needs an index starting with peer_id, or every peer the daily prune deletes
+  // costs a full scan of the observation table to prove nothing points at it.
+  assert.equal(exists('idx_relay_obs_peer_race'), true);
 });
 
 test('the network migration adds the column once and is safe to run again', () => {

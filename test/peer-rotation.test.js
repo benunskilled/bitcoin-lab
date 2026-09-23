@@ -896,9 +896,104 @@ test('promotions are remembered after the rotation log has been trimmed away', a
 });
 
 test('the same host promoted twice counts once', () => {
+  seedLivePeer({ address: '203.0.113.30:8333', eligible: 300, first: 9 });
   db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 1);
   db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 2);
   assert.equal(queries.outboundFunnel().promoted, 1);
+});
+
+/**
+ * One host, one spelling. The rotation wrote the bare host that
+ * hostFromAddress returns; the backfill kept the brackets an IPv6 address
+ * arrives in. Both meant "this host was kept", the primary key could not see
+ * that they were the same, and the funnel counted one peer as two.
+ */
+test('a host added by hand and promoted by the rotation is one kept peer, not two', () => {
+  const address = '[2001:db8::5]:8333';
+
+  // Added by hand before the promotion record existed - the backfill is what
+  // writes such a peer down.
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, NULL, 0, ?)`)
+    .run(address, 1000);
+  db.instance.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:promoted_peer_backfill_v1_15_10');
+  db.runMigrations();
+
+  // ...and then promoted by the rotation, which writes the same host its way.
+  peerRotation.logAction({ action: 'promote', address, firstPct: 12.5, eligible: 300 });
+
+  const ips = db.instance.prepare(`SELECT ip FROM promoted_peer ORDER BY ip`).all().map((r) => r.ip);
+  assert.deepEqual(ips, ['2001:db8::5']);
+});
+
+/**
+ * An address with no port is not a nameless peer.
+ *
+ * Core echoes an added node back through getaddednodeinfo exactly as it was
+ * given, so a peer added on the default port carries no port at all. Stripping
+ * everything from the first colon found none and returned the empty string, so
+ * every portless peer on the node shared one bucket and any number of them
+ * counted as one.
+ */
+test('the funnel counts a peer whose address carries no port as itself', () => {
+  seedLivePeer({ address: '192.0.2.31', eligible: 300, first: 4 });
+  seedLivePeer({ address: '192.0.2.32', eligible: 300, first: 4 });
+
+  const f = queries.outboundFunnel();
+  assert.equal(f.seen, 2);
+  assert.equal(f.tested, 2);
+  assert.equal(f.delivered, 2);
+});
+
+/**
+ * All four numbers over one population, or it is not a funnel.
+ *
+ * "Kept" was a bare count of promoted_peer, which is also backfilled from the
+ * manual set - and a hand-added peer need never have been an outbound peer at
+ * all, including the case the rotation exists to notice: an address Core never
+ * manages to connect. A node with eight of those read "3 seen, 2 tested, 1
+ * delivered, 9 kept", where the last stage is larger than the first. That is
+ * not a surprising statistic, it is a contradiction, and it is read as one.
+ */
+test('the funnel counts kept peers from the same population as the other three', () => {
+  seedLivePeer({ address: '203.0.113.40:8333', eligible: 300, first: 9 });
+  const insert = db.instance.prepare(`INSERT INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`);
+  insert.run('203.0.113.40', 1);   // the outbound peer above: belongs in the funnel
+  insert.run('198.51.100.40', 2);  // added by hand, no outbound session ever
+  insert.run('2001:db8::40', 3);   // likewise
+
+  const f = queries.outboundFunnel();
+  assert.equal(f.seen, 1);
+  assert.equal(f.promoted, 1);
+  assert.ok(f.promoted <= f.seen, 'a funnel whose last stage exceeds its first is reporting nonsense');
+
+  // The record itself keeps all three: it is the durable answer to "how many
+  // peers has this node ever kept", which rotation_log cannot give. Only the
+  // funnel narrows it.
+  assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM promoted_peer`).get().n, 3);
+});
+
+/**
+ * The funnel runs on every /api/status poll, several times a minute, and it is
+ * a scan of the peer table - which is deliberately never pruned for any peer
+ * that has ever been around when a block landed. Cached against the newest
+ * block, like routeMedian(), because that is the only thing that can change
+ * three of its four numbers.
+ */
+test('the funnel is worked out once per block, not once per poll', () => {
+  seedLivePeer({ address: '203.0.113.50:8333', eligible: 300, first: 9 });
+  const first = queries.outboundFunnel();
+  assert.equal(first.seen, 1);
+
+  // A second outbound peer and no new block: the same answer, and the same
+  // object, which is what says the scan did not run again.
+  seedLivePeer({ address: '203.0.113.51:8333' });
+  assert.equal(queries.outboundFunnel(), first);
+
+  db.instance
+    .prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)')
+    .run('funnel-cache-block', Date.now());
+  assert.equal(queries.outboundFunnel().seen, 2, 'a block is what makes it look again');
 });
 
 // ---------------------------------------------------------------------------

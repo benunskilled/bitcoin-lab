@@ -5,6 +5,7 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 const config = require('./config');
 const logger = require('./logger').make('db');
+const { sqlHostFromAddress } = require('./address');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS peer (
@@ -123,7 +124,24 @@ CREATE TABLE IF NOT EXISTS relay_observation (
   first INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (race_id, peer_id)
 );
-CREATE INDEX IF NOT EXISTS idx_relay_obs_peer ON relay_observation(peer_id);
+-- peer_id first, but never for a query: nothing reads relay_observation by
+-- peer alone, and an index that only said (peer_id) was actively harmful -
+-- SQLite preferred it for recentRelayStats()'s GROUP BY and walked the entire
+-- history to answer a question about the last 500 blocks. Measured on two
+-- million observations: 3.7s that way, 32ms as a race_id range search.
+--
+-- What does need it is the foreign key. relay_observation.peer_id REFERENCES
+-- peer(id), so every row DELETE FROM peer removes has to prove no observation
+-- points at it, and without an index whose leftmost column is peer_id that
+-- proof is a full scan of this table - per deleted peer. The daily prune drops
+-- the feeler peers Core churns through by the hundred, which at two million
+-- rows took 25 seconds of exclusive write lock, well past the 10s busy_timeout
+-- every other process is waiting on, and growing with the history.
+--
+-- race_id and first ride along so the index can answer the window aggregate on
+-- its own if the planner ever reaches for it again; recentRelayStats() pins
+-- itself to the primary key regardless (see queries/peer-ranking.js).
+CREATE INDEX IF NOT EXISTS idx_relay_obs_peer_race ON relay_observation(peer_id, race_id, first);
 -- Partial on purpose: one row per block rather than one per peer per block,
 -- which is the difference between 2,208 rows and 415,490 on a node with a
 -- fortnight of history. Counting the blocks that credited more than one peer
@@ -247,7 +265,10 @@ CREATE INDEX IF NOT EXISTS idx_rotation_log_at ON rotation_log(at DESC);
 -- under its listening port, so the same host appears once as 203.0.113.5:51234
 -- and again as 203.0.113.5:8333; counting addresses would count it twice. The
 -- primary key makes the de-duplication a property of the schema rather than
--- something every reader has to remember.
+-- something every reader has to remember - but only as far as every writer
+-- spells a host the same way. There is exactly one spelling, the bare host
+-- that address.js's hostFromAddress and sqlHostFromAddress both return, so an
+-- IPv6 peer is 2001:db8::5 here and never [2001:db8::5].
 CREATE TABLE IF NOT EXISTS promoted_peer (
   ip TEXT PRIMARY KEY,
   first_promoted_at INTEGER NOT NULL
@@ -351,6 +372,16 @@ function runMigrations() {
       db.prepare(`DROP INDEX IF EXISTS idx_stratum_obs_pool`).run();
     });
 
+    // Same story one table over, and this one was not merely redundant but
+    // wrong: no query filters relay_observation by peer alone, yet SQLite
+    // chose (peer_id) for recentRelayStats()'s GROUP BY and read the whole
+    // history for an answer about the last 500 blocks. It is replaced by
+    // (peer_id, race_id, first), which still satisfies the foreign key the
+    // daily prune depends on - see the schema above for both halves.
+    migrate('drop_relay_obs_peer_index_v1_23_1', 'dropped the peer-only index on relay_observation', () => {
+      db.prepare(`DROP INDEX IF EXISTS idx_relay_obs_peer`).run();
+    });
+
     // peerRanking() is driven FROM peer, so a manual peer with no row there is
     // invisible to it - and therefore to every rotation pass. It can never be
     // retired however long it has been gone, is never a candidate for the
@@ -378,27 +409,42 @@ function runMigrations() {
     // parked list, which is where a peer that lost its slot while offline
     // waits. Both were kept at some point, which is what the count says.
     //
-    // The address is stripped to its IP by the same rule the query uses -
-    // brackets kept for IPv6, everything from the first colon dropped
-    // otherwise - so a host that appears in both lists, or twice under
-    // different ports, still counts once. INSERT OR IGNORE plus the primary
-    // key does the rest. A fresh install finds nothing to copy and the flag
-    // is set anyway, so this never runs twice.
+    // The address is stripped to its host by sqlHostFromAddress - the same
+    // rule, to the character, that hostFromAddress applies to the addresses
+    // the rotation writes - so a host that appears in both lists, or twice
+    // under different ports, still counts once. INSERT OR IGNORE plus the
+    // primary key does the rest. A fresh install finds nothing to copy and the
+    // flag is set anyway, so this never runs twice.
     migrate('promoted_peer_backfill_v1_15_10', 'counted the peers already kept before the record existed', () => {
       db.prepare(
         `INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at)
-         SELECT CASE WHEN instr(address, ']') > 0
-                     THEN substr(address, 1, instr(address, ']'))
-                     ELSE substr(address, 1, instr(address, ':') - 1) END,
-                created_at
-           FROM trusted_peer
+         SELECT ${sqlHostFromAddress('address')}, created_at FROM trusted_peer
          UNION ALL
-         SELECT CASE WHEN instr(address, ']') > 0
-                     THEN substr(address, 1, instr(address, ']'))
-                     ELSE substr(address, 1, instr(address, ':') - 1) END,
-                parked_at
-           FROM parked_peer`,
+         SELECT ${sqlHostFromAddress('address')}, parked_at FROM parked_peer`,
       ).run();
+    });
+
+    // The spelling above used to keep the brackets an IPv6 address arrives in,
+    // while peer-rotation/log.js wrote the same host bare. Both were writing
+    // "the host", so `[2001:db8::5]` and `2001:db8::5` sat in the table as two
+    // separate peers, and the funnel counted one host twice - the exact
+    // double-count the primary key is there to make impossible.
+    //
+    // Bare wins, because that is what hostFromAddress has always returned and
+    // what every other host comparison in the app comes from. The earliest
+    // timestamp of the pair survives: the row records when a host was FIRST
+    // kept, and the duplicate is the same fact written twice, not a later one.
+    migrate('promoted_peer_canonical_ip_v1_23_1', 'folded bracketed IPv6 duplicates in the promotion record', () => {
+      db.prepare(
+        `INSERT INTO promoted_peer (ip, first_promoted_at)
+         SELECT substr(ip, 2, instr(ip, ']') - 2), MIN(first_promoted_at)
+           FROM promoted_peer
+          WHERE instr(ip, ']') > 0
+          GROUP BY 1
+         ON CONFLICT(ip) DO UPDATE
+            SET first_promoted_at = MIN(promoted_peer.first_promoted_at, excluded.first_promoted_at)`,
+      ).run();
+      db.prepare(`DELETE FROM promoted_peer WHERE instr(ip, ']') > 0`).run();
     });
 
     // The first column this schema has ever added to an existing table. The

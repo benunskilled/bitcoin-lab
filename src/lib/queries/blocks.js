@@ -147,10 +147,20 @@ function stratumForBlock(blockHash) {
  *
  * Returns null before the first block is recorded - a fresh install has
  * nothing to report and should not show "0 in 0".
+ *
+ * Cached against the newest block like routeMedian() below, because it is
+ * asked on every /api/status poll and both halves of it are counts over tables
+ * that only ever grow - and a tie is recorded with the block or not at all, so
+ * between two blocks there is nothing new to count.
  */
+let tiesCache = { raceId: null, value: null };
+
 function firstTies() {
+  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
+  if (newest == null) return null;
+  if (tiesCache.raceId === newest) return tiesCache.value;
+
   const races = db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_race`).get().n;
-  if (!races) return null;
   const ties = db.instance
     .prepare(
       `SELECT COUNT(*) AS n FROM (
@@ -159,7 +169,9 @@ function firstTies() {
        )`,
     )
     .get().n;
-  return { races, ties };
+  const value = { races, ties };
+  tiesCache = { raceId: newest, value };
+  return value;
 }
 
 /**
