@@ -64,6 +64,8 @@ function trafficPeers(days = 7, limit = 15, nowMs = Date.now()) {
     const p = known.get(r.host);
     return {
       host: r.host,
+      // The full address (with port) is what Peer Map's ?peer= matches on.
+      address: p ? p.address : null,
       recv: r.recv,
       sent: r.sent,
       live: p ? p.live : false,
