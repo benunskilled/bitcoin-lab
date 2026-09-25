@@ -863,6 +863,76 @@ function renderPools(pools) {
   `).join('');
 }
 
+// ---------------------------------------------------------------------------
+// Traffic
+
+function trafficConnCell(p) {
+  if (!p.live) return '<td><span class="pill offline">not connected</span></td>';
+  const kind = p.trusted ? 'manual' : p.connectionType === 'inbound' ? 'inbound' : 'outbound';
+  return `<td><span class="pill ${kind}">${kind}</span></td>`;
+}
+
+// Grid labels are round numbers, so they get no decimals: "15 GB", not "15.00 GB".
+function axisBytes(v, unit) {
+  if (v === 0) return '0';
+  const name = { 1: 'B', 1024: 'KB', [1024 ** 2]: 'MB', [1024 ** 3]: 'GB', [1024 ** 4]: 'TB' }[unit] || 'B';
+  const n = v / unit;
+  return `${Number.isInteger(n) ? n : n.toFixed(1)} ${name}`;
+}
+
+// Bars per UTC day: sent in the accent, received beside it in grey. One scale
+// for both, so the two can be compared by eye.
+function trafficChartSvg(days) {
+  const W = 720, H = 180, top = 10, bottom = 22, left = 54, right = 8;
+  const max = Math.max(1, ...days.map((d) => Math.max(d.sent || 0, d.recv || 0)));
+  // A round step for the grid: 1, 2 or 5 times a power of 1024-based units.
+  const unit = 1024 ** Math.max(0, Math.floor(Math.log(max) / Math.log(1024)));
+  const raw = max / unit / 3;
+  const pow = 10 ** Math.floor(Math.log10(raw || 1));
+  const step = [1, 2, 5, 10].map((m) => m * pow).find((m) => m >= raw) * unit;
+  const top_ = Math.ceil(max / step) * step;
+  const y = (v) => top + (H - top - bottom) * (1 - v / top_);
+  const slot = (W - left - right) / days.length;
+  const bw = Math.max(2, slot * 0.36);
+  let g = '';
+  for (let v = 0; v <= top_ + 1; v += step) {
+    g += `<line class="grid" x1="${left}" x2="${W - right}" y1="${y(v)}" y2="${y(v)}"/>`;
+    g += `<text class="axis" x="${left - 6}" y="${y(v) + 3}" text-anchor="end">${escapeHtml(axisBytes(v, unit))}</text>`;
+  }
+  days.forEach((d, i) => {
+    const x = left + i * slot + slot / 2;
+    if (d.sent != null) {
+      g += `<rect class="sent" x="${x - bw}" y="${y(d.sent)}" width="${bw}" height="${y(0) - y(d.sent)}"><title>${escapeHtml(`${d.day}: sent ${fmtBytes(d.sent)}`)}</title></rect>`;
+      g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${y(0) - y(d.recv)}"><title>${escapeHtml(`${d.day}: received ${fmtBytes(d.recv)}`)}</title></rect>`;
+    }
+    if (i % 5 === 0 || i === days.length - 1) {
+      g += `<text class="axis" x="${x}" y="${H - 6}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
+    }
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+}
+
+async function refreshTraffic() {
+  const t = await api('/api/traffic');
+  const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
+  document.getElementById('traffic-today').textContent = t.since ? `today ${both(t.today)}` : '';
+  document.getElementById('traffic-totals').innerHTML = t.since
+    ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
+      .map(([l, v]) => `<div class="t"><span class="l">${l}</span><span class="v">${escapeHtml(both(v))}</span></div>`)
+      .join('') + '<span class="traffic-legend"><span><i class="sent"></i>sent</span><span><i class="recv"></i>received</span></span>'
+    : '<p class="hint">Nothing recorded yet - the first numbers appear within an hour of the app starting.</p>';
+  document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
+  document.querySelector('#traffic-peer-table tbody').innerHTML = t.peers.map((p) => `
+    <tr>
+      ${truncatedCell(p.host)}
+      ${trafficConnCell(p)}
+      <td class="num">${fmtBytes(p.sent)}</td>
+      <td class="num">${fmtBytes(p.recv)}</td>
+      <td class="num" title="${escapeHtml(p.first == null ? 'no record' : `${p.first} blocks first`)}">${fmtPct(p.firstPct)}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="hint">No traffic recorded yet.</td></tr>';
+}
+
 async function refreshAll() {
   // Block updates are not in here: they arrive on their own via the
   // /api/events stream, not by polling. Rotation is not in here either - it
@@ -1309,9 +1379,10 @@ function startRefreshLoop() {
   const runRotation = async () => {
     if (document.hidden) return;
     try {
-      await refreshRotation();
+      // Traffic is written once an hour, so it rides on this slow round too.
+      await Promise.all([refreshRotation(), refreshTraffic()]);
     } catch (err) {
-      console.warn('rotation refresh failed', err);
+      console.warn('rotation or traffic refresh failed', err);
     } finally {
       clearTimeout(rotationTimer);
       if (!document.hidden) rotationTimer = setTimeout(runRotation, ROTATION_REFRESH_MS);

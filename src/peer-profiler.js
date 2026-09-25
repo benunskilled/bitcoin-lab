@@ -15,6 +15,7 @@ const processGuard = require('./lib/process-guard');
 const logger = require('./lib/logger').make('peer-profiler');
 const { syncTrustedToAddnode, adoptExternalManualPeers } = require('./lib/peer-sync');
 const queries = require('./lib/queries');
+const traffic = require('./lib/traffic');
 const peerRotation = require('./lib/peer-rotation');
 
 const PEER_SYNC_INTERVAL_MS = 10 * 60 * 1000;
@@ -252,6 +253,13 @@ async function pollOnce() {
     logger.warn('getpeerinfo failed', { error: err.message });
     return;
   }
+  // Traffic rides on the same poll: getnettotals is one small call, and
+  // the per-connection counters are already in the reply above.
+  try {
+    traffic.record({ totals: await rpc.call('getnettotals'), peers });
+  } catch (err) {
+    logger.debug('traffic reading failed', { error: err.message });
+  }
   try {
     upsertSessions(peers);
   } catch (err) {
@@ -309,9 +317,23 @@ function runMaintenance() {
   }
 }
 
+function flushTraffic() {
+  try {
+    traffic.flush();
+  } catch (err) {
+    logger.warn('could not write traffic', { error: err.message });
+  }
+}
+
 async function main() {
   let stopPolling = null;
-  processGuard.install(logger, { onShutdown: () => stopPolling && stopPolling() });
+  processGuard.install(logger, {
+    onShutdown: () => {
+      if (stopPolling) stopPolling();
+      flushTraffic();
+    },
+  });
+  setInterval(flushTraffic, config.trafficFlushMs).unref?.();
 
   db.open();
   logger.info('starting', { intervalMs: config.peerPollIntervalMs });
