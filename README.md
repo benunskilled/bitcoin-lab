@@ -74,6 +74,14 @@ coinbase against a bundled pool list
 on your node, without asking any service. A miner that is not on the list is
 shown by the text it wrote into the coinbase.
 
+## What it costs in traffic
+
+The Traffic card shows what your node sent and received today, over 7 and over
+30 days, with a chart of the last 30 days. Below it are the hosts that cost the
+most this week, next to how often they delivered a block first, so you can see
+whether a peer earns its bandwidth. With Peer Map installed, each host opens in
+Peer Map. A second Umbrel widget shows today's traffic on the home screen.
+
 ## Compare your pool with Stratum Race
 
 Enable Stratum Race to compare new mining jobs as they arrive from your own pool and eight preconfigured public solo pools. Templates help with adding your local GoBrrr, Bassin or Public Pool.
