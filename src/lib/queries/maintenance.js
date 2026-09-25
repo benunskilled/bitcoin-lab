@@ -68,13 +68,7 @@ function pruneOldData({
     // silently resurrect a stale row under a recycled id.
     db.instance.prepare(`DELETE FROM peer_relay_stats WHERE peer_id NOT IN (SELECT id FROM peer)`).run();
 
-    // Traffic per peer ages out; the node's own daily totals stay.
-    const trafficCutoffDay = new Date(Date.now() - config.trafficPeerRetentionDays * 24 * 60 * 60 * 1000)
-      .toISOString().slice(0, 10);
-    const peerTrafficDaysDeleted = db.instance
-      .prepare(`DELETE FROM peer_traffic_day WHERE day < ?`).run(trafficCutoffDay).changes;
-
-    return { stratumRacesDeleted, feelerSessionsDeleted, peersDeleted, peerTrafficDaysDeleted };
+    return { stratumRacesDeleted, feelerSessionsDeleted, peersDeleted };
   });
   return tx();
 }

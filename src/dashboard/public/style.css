@@ -625,4 +625,3 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 .traffic-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .traffic-legend .sent { background: var(--accent); }
 .traffic-legend .recv { background: var(--muted); opacity: .55; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }

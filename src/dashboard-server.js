@@ -791,10 +791,9 @@ async function router(req, res, pathname, url) {
     return handleWidgetStats(req, res);
   }
 
-  // The node's traffic: the chart and totals, and the hosts that cost the
-  // most this week next to what they deliver.
+  // The node's traffic: the chart and totals.
   if (req.method === 'GET' && pathname === '/api/traffic') {
-    return sendJson(res, 200, { ...queries.trafficDays(30), peers: queries.trafficPeers(7, 15) });
+    return sendJson(res, 200, queries.trafficDays(30));
   }
 
   // The second home-screen widget: today up, today down, the last 30 days.

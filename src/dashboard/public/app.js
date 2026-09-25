@@ -866,12 +866,6 @@ function renderPools(pools) {
 // ---------------------------------------------------------------------------
 // Traffic
 
-function trafficConnCell(p) {
-  if (!p.live) return '<td><span class="pill offline">not connected</span></td>';
-  const kind = p.trusted ? 'manual' : p.connectionType === 'inbound' ? 'inbound' : 'outbound';
-  return `<td><span class="pill ${kind}">${kind}</span></td>`;
-}
-
 // Grid labels are round numbers, so they get no decimals: "15 GB", not "15.00 GB".
 function axisBytes(v, unit) {
   if (v === 0) return '0';
@@ -912,15 +906,6 @@ function trafficChartSvg(days) {
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
-// The same way over to Peer Map as addressCell gives the other tables. The row
-// is a host, but Peer Map finds a peer by its full address, so the link uses
-// the one the ranking knows; a host the ranking has never seen stays plain.
-function trafficHostCell(p) {
-  if (!PEER_MAP_INSTALLED || !p.address) return truncatedCell(p.host);
-  const safe = escapeHtml(p.host);
-  return `<td class="cell-truncate" title="${escapeHtml(p.address)}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" title="Show this peer in Peer Map">${safe}</a></td>`;
-}
-
 async function refreshTraffic() {
   const t = await api('/api/traffic');
   const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
@@ -931,15 +916,6 @@ async function refreshTraffic() {
       .join('') + '<span class="traffic-legend"><span><i class="sent"></i>sent</span><span><i class="recv"></i>received</span></span>'
     : '<p class="hint">Nothing recorded yet - the first numbers appear within an hour of the app starting.</p>';
   document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
-  document.querySelector('#traffic-peer-table tbody').innerHTML = t.peers.map((p) => `
-    <tr>
-      ${trafficHostCell(p)}
-      ${trafficConnCell(p)}
-      <td class="num">${fmtBytes(p.sent)}</td>
-      <td class="num">${fmtBytes(p.recv)}</td>
-      <td class="num" title="${escapeHtml(p.first == null ? 'no record' : `${p.first} blocks first`)}">${fmtPct(p.firstPct)}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" class="hint">No traffic recorded yet.</td></tr>';
 }
 
 async function refreshAll() {

@@ -30,7 +30,7 @@ const { stratumRanking, deletePool } = require('./stratum');
 const { latestBlock, blockDetail, routeMedian, deliveredEver, firstTies, attributionHealth } = require('./blocks');
 const { widgetStats, outboundFunnel } = require('./stats');
 const { pruneOldData } = require('./maintenance');
-const { trafficDays, trafficPeers } = require('./traffic');
+const { trafficDays } = require('./traffic');
 
 module.exports = {
   peerRanking,
@@ -49,5 +49,4 @@ module.exports = {
   widgetStats,
   outboundFunnel,
   trafficDays,
-  trafficPeers,
 };

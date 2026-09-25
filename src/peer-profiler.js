@@ -253,10 +253,9 @@ async function pollOnce() {
     logger.warn('getpeerinfo failed', { error: err.message });
     return;
   }
-  // Traffic rides on the same poll: getnettotals is one small call, and
-  // the per-connection counters are already in the reply above.
+  // Traffic rides on the same poll: getnettotals is one small call.
   try {
-    traffic.record({ totals: await rpc.call('getnettotals'), peers });
+    traffic.record({ totals: await rpc.call('getnettotals') });
   } catch (err) {
     logger.debug('traffic reading failed', { error: err.message });
   }
