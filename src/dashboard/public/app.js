@@ -912,6 +912,15 @@ function trafficChartSvg(days) {
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
+// The same way over to Peer Map as addressCell gives the other tables. The row
+// is a host, but Peer Map finds a peer by its full address, so the link uses
+// the one the ranking knows; a host the ranking has never seen stays plain.
+function trafficHostCell(p) {
+  if (!PEER_MAP_INSTALLED || !p.address) return truncatedCell(p.host);
+  const safe = escapeHtml(p.host);
+  return `<td class="cell-truncate" title="${escapeHtml(p.address)}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" title="Show this peer in Peer Map">${safe}</a></td>`;
+}
+
 async function refreshTraffic() {
   const t = await api('/api/traffic');
   const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
@@ -924,7 +933,7 @@ async function refreshTraffic() {
   document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
   document.querySelector('#traffic-peer-table tbody').innerHTML = t.peers.map((p) => `
     <tr>
-      ${truncatedCell(p.host)}
+      ${trafficHostCell(p)}
       ${trafficConnCell(p)}
       <td class="num">${fmtBytes(p.sent)}</td>
       <td class="num">${fmtBytes(p.recv)}</td>
