@@ -14,7 +14,7 @@ function latestBlock() {
     .prepare(
       `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
               pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
-              template_ms AS templateMs, first_ping_ms AS firstPingMs
+              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs
        FROM relay_race ORDER BY id DESC LIMIT 1`,
     )
     .get();
@@ -55,7 +55,7 @@ function blockDetail(raceId = null) {
         .prepare(
           `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
                   pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
-              template_ms AS templateMs, first_ping_ms AS firstPingMs
+              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs
            FROM relay_race WHERE id = ?`,
         )
         .get(raceId);
@@ -207,12 +207,12 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
   const races = db.instance
     .prepare(
       `SELECT block_hash AS blockHash, detected_at AS detectedAt,
-              template_ms AS templateMs, first_ping_ms AS firstPingMs
+              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs
          FROM relay_race ORDER BY id DESC LIMIT ?`,
     )
     .all(limit);
 
-  const core = [], peer = [], template = [], own = [];
+  const core = [], peer = [], template = [], own = [], tx = [];
   let ownLabel = null;
   for (const r of races) {
     const race = stratumForBlock(r.blockHash);
@@ -221,6 +221,7 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
     core.push(c);
     if (r.firstPingMs != null) peer.push(c - r.firstPingMs);
     if (r.templateMs != null) template.push(c + r.templateMs);
+    if (r.templateTx != null) tx.push(r.templateTx);
     const mine = race.entries.find((e) => e.own && e.latencyMs != null);
     if (mine) {
       own.push(mine.latencyMs);
@@ -229,7 +230,7 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
   }
   const stop = (xs) => (xs.length ? { ms: median(xs), n: xs.length } : null);
   const value = core.length
-    ? { blocks: core.length, core: stop(core), peer: stop(peer), template: stop(template), own: stop(own), ownLabel }
+    ? { blocks: core.length, core: stop(core), peer: stop(peer), template: stop(template), own: stop(own), tx: stop(tx), ownLabel }
     : null;
   routeCache = { key, value };
   return value;

@@ -258,8 +258,10 @@ async function catchUpAttribution() {
  */
 function timeTemplate(detectedAtMs) {
   return rpc
-    .timeCall('getblocktemplate', [{ rules: ['segwit'] }], { timeoutMs: 30000 })
-    .then(() => Date.now() - detectedAtMs)
+    .timeCall('getblocktemplate', [{ rules: ['segwit'] }], { timeoutMs: 30000, count: '"txid"' })
+    // How many transactions went into it: a pool spends time on every one, so
+    // this is what makes one block's job slower than the next.
+    .then(({ count }) => ({ ms: Date.now() - detectedAtMs, tx: count }))
     .catch((err) => {
       logger.warn('block template timing failed (non-critical)', { error: err.message });
       return null;
@@ -310,10 +312,10 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   });
 
   backfillHeightAndPeerCounts(raceId, blockHash);
-  template.then((ms) => {
-    if (ms == null) return;
+  template.then((t) => {
+    if (t == null) return;
     try {
-      db.instance.prepare(`UPDATE relay_race SET template_ms = ? WHERE id = ?`).run(ms, raceId);
+      db.instance.prepare(`UPDATE relay_race SET template_ms = ?, template_tx = ? WHERE id = ?`).run(t.ms, t.tx, raceId);
     } catch (err) {
       logger.warn('could not store template time', { error: err.message });
     }

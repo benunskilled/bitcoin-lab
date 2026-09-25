@@ -596,6 +596,9 @@ async function router(req, res, pathname, url) {
       // Core had a new block template ready, and the delivering peer's ping
       // from the snapshot that credited it. null on older blocks.
       templateMs: race.templateMs ?? null,
+      // How many transactions that template carried - why one block's job
+      // takes longer than the next.
+      templateTx: race.templateTx ?? null,
       firstPingMs: race.firstPingMs ?? null,
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
