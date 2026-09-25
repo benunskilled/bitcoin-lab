@@ -17,15 +17,11 @@ out and seeing what makes a difference on their own node.
 
 ## Why it exists
 
-For solo miners using their own node, early block delivery matters: your pool
-needs to learn about the new chain tip before it can give miners work on top of
-it. Your choice of peers is one part of that path you can influence.
-
-Connection count and ping only tell part of the story. Bitcoin Lab shows you which peers actually deliver each new block first.
-
-There is plenty to explore even if you do not mine: discover your regular block
-deliverers, watch new candidates earn their place and see how your peer set
-changes over time. [What changed on my node](docs/measured.md) shares the experience behind the project, from choosing peers to solo mining.
+A solo pool can only hand out new work once your node has the new block, and
+your peers decide how soon that is. Connection count and ping do not show which
+peers deliver first; Bitcoin Lab does. You do not need to mine to find that
+interesting. [What changed on my node](docs/measured.md) tells the story behind
+the project.
 
 ## From random connections to a chosen set
 
@@ -45,42 +41,38 @@ The ranking favours recent performance and discounts small samples. By default, 
 
 **Rotation only manages outgoing connections.** Inbound peers are measured and ranked, but left untouched.
 
-For the best results, configure Bitcoin Core to use only clearnet for outgoing connections. Bitcoin Lab cannot keep Tor or I2P peers as manual connections, so outbound slots occupied by them reduce the number of candidates it can find and keep, slowing the optimisation.
-
-On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming Tor and I2P connections are fine.
+Bitcoin Lab can only keep clearnet peers as manual connections. If Core makes
+its outgoing connections over clearnet only, every one of its ten automatic
+outbound slots holds a possible candidate, and the rotation finds good peers
+faster. On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**.
+Incoming Tor and I2P connections are fine.
 
 See [how peers are judged](docs/how-a-peer-is-judged.md) and [why the rotation works this way](docs/peer-rotation.md).
 
 ## What one node recorded
 
-In a documented 500-block window on the author's node:
+After a fresh start of the measurement on the author's node, inbound
+connections delivered almost every block first. Rotation then filled the manual
+slots with peers that had proved themselves:
 
-| Connection group | Share of recorded first deliveries |
-|---|---:|
-| Eight selected manual peers | 90% |
-| Core's ten automatic outbound connections | 3% |
-| Around 190 inbound connections | 7% |
+![Who delivered each block first, per day](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/delivery.png)
 
-Eight chosen peers accounted for nine out of ten first deliveries in that
-window. That is the discovery behind the project: a small set of connections
-can contribute far more than its size suggests.
-
-The figures describe who delivered first on one node, rather than an absolute
-speed improvement. Your location, routing and peers make your own results worth
-exploring. [Read the full story and measurements.](docs/measured.md)
+In the 495 blocks from 22 September on, those few manual peers delivered 75% of
+blocks first. Inbound connections, which had brought 98% of blocks first before
+rotation, fell to 21%: rotation picked the manual peers for how often they
+delivered first, and now they usually get there before the inbound ones. That
+is the discovery behind the project: a small set of
+connections can matter far more than its size suggests. The share moves from
+day to day as peers come and go, and the figures show who delivered first on
+one node, not a speed-up you can expect. [The full story and measurements.](docs/measured.md)
 
 ## Who mined it
 
-Every block names its miner, if you look. The coinbase transaction carries the
-address the reward is paid to and a short text the miner writes into it. Bitcoin
-Lab matches both against a pool list that ships with the app
+Under the newest block, Bitcoin Lab names the pool that mined it. It matches the
+coinbase against a bundled pool list
 ([bitcoin-data/mining-pools](https://github.com/bitcoin-data/mining-pools), MIT)
-and puts the pool's name under the height of the newest block.
-
-The lookup happens on your node, from the block Core just handed it — no service
-is asked. A miner nobody has listed stays unnamed: Bitcoin Lab then shows the
-text out of the coinbase in quotes rather than putting a name on it. That is the
-normal answer for a solo finder, and for a pool the list has not caught up with.
+on your node, without asking any service. A miner that is not on the list is
+shown by the text it wrote into the coinbase.
 
 ## Compare your pool with Stratum Race
 
@@ -101,9 +93,20 @@ Start by watching a few blocks arrive and getting to know the ranking. It grows 
 
 Bitcoin Lab communicates with Core through RPC and ZMQ. Peer-management actions change live connections and the runtime `addnode` list. It does not edit `bitcoin.conf` or access wallet files, private keys or Core's block files. Remove the app and Core continues running on its own, with its configuration untouched.
 
+It is light on the node: on the author's Umbrel its four processes use about
+80 MB of RAM together and less than 1% of one CPU core, and its database grows
+by about 3 MB a day.
+
 ## See the other half with Peer Map
 
-[Peer Map](https://github.com/benunskilled/peer-map) puts your peers on a world map and shows their locations, hosting providers, software and advertised services. See at a glance how your peers are spread across regions and providers. Use it alongside Bitcoin Lab to see who delivers your blocks and how your chosen peers are distributed. Both apps work independently. With both installed, Peer Map follows the newest block across your node: who mined it, which peers delivered it and where they sit.
+[Peer Map](https://github.com/benunskilled/peer-map) shows the same peers on a
+world map, with their hosting providers and software. With both apps installed,
+it follows each new block across your node: who mined it, which peers delivered
+it and where they sit. If Stratum Race includes your own pool, it also takes the
+block's whole route apart — from the first pool's job through your peer, Core and
+the block template to your own pool's job — with the time each stretch takes. The last stretch also shows how many
+transactions the template carried, because that is what your own pool's time
+mostly depends on.
 
 ## Documentation
 
