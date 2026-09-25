@@ -546,11 +546,13 @@ function runMigrations() {
       if (!existing.has('first_ping_ms')) db.prepare(`ALTER TABLE relay_race ADD COLUMN first_ping_ms REAL`).run();
     });
 
-    // How many transactions the timed template carried - the size of the job
-    // a pool has to build from it. NULL on blocks recorded before this.
-    // Traffic per UTC day, for the node and per peer host. The per-host table
-    // has no foreign key on purpose: peer rows of short-lived peers are
-    // pruned, the traffic they caused is kept (see lib/traffic.js).
+    // 1.25.0 also kept traffic per peer host. The dashboard no longer shows
+    // it, so it is no longer gathered, and what was gathered goes.
+    migrate('drop_peer_traffic_v1_25_1', 'stopped keeping traffic per peer', () => {
+      db.exec(`DROP TABLE IF EXISTS peer_traffic_day`);
+    });
+
+    // Traffic per UTC day for the node (see lib/traffic.js).
     migrate('traffic_v1_25_0', 'recorded the node\'s traffic per day', () => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS traffic_day (
@@ -558,16 +560,11 @@ function runMigrations() {
           recv INTEGER NOT NULL DEFAULT 0,
           sent INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE IF NOT EXISTS peer_traffic_day (
-          day  TEXT NOT NULL,
-          host TEXT NOT NULL,
-          recv INTEGER NOT NULL DEFAULT 0,
-          sent INTEGER NOT NULL DEFAULT 0,
-          PRIMARY KEY (day, host)
-        ) WITHOUT ROWID;
       `);
     });
 
+    // How many transactions the timed template carried - the size of the job
+    // a pool has to build from it. NULL on blocks recorded before this.
     migrate('relay_race_template_tx_v1_24_0', 'recorded how many transactions the block template carried', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),

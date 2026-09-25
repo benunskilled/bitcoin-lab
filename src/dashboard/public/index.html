@@ -299,21 +299,11 @@
       </div>
     </section>
 
-    <!-- What the node sends and receives, per UTC day, and which hosts cost
-         the most next to what they deliver. -->
+    <!-- What the node sends and receives, per UTC day. -->
     <details class="card" id="traffic-card" open>
       <summary><h2>Traffic <span id="traffic-today" class="hint"></span></h2></summary>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
-      <h3>Most traffic, last 7 days</h3>
-      <div class="table-wrap">
-        <table id="traffic-peer-table">
-          <thead>
-            <tr><th>Host</th><th>Connection</th><th class="num">Sent to it</th><th class="num">Received</th><th class="num">First %</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
       <p class="hint" id="traffic-note">Days are UTC days, updated hourly. Counted from Core's own byte counters while Bitcoin Lab runs; a day with no bar was not measured.</p>
     </details>
 

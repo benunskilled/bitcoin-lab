@@ -74,9 +74,9 @@ coinbase against a bundled pool list
 on your node, without asking any service. A miner that is not on the list is
 shown by the text it wrote into the coinbase.
 
-## Traffic, per day and per peer
+## Traffic per day
 
-What your node sent and received per day, and which peers used the most.
+What your node sent and received per day.
 
 ## Compare your pool with Stratum Race
 

@@ -104,7 +104,6 @@ Stratum Race is controlled from the dashboard. While it is off, no pool connecti
 | Variable | Purpose | Default |
 |---|---|---|
 | `FEELER_PEER_RETENTION_DAYS` | Retention for inactive, non-manual peers with no recorded relay observations, in days | `14` |
-| `TRAFFIC_PEER_RETENTION_DAYS` | How long traffic per peer is kept, in days. The node's daily totals are kept for good | `7` |
 | `TRAFFIC_FLUSH_MS` | How often gathered traffic is written to the database, in milliseconds | `3600000` |
 
 Peers with recorded relay observations retain their delivery and session history. The shorter retention period removes inactive peers that never appeared in a block observation; manually selected peers are also retained.
