@@ -438,6 +438,15 @@ function poolRange(raw) {
   return String(Math.min(Math.floor(n), MAX_POOL_RANGE));
 }
 
+// "12.3 GB" - the widget has room for a number and a unit, nothing more.
+function fmtBytesShort(bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = bytes || 0;
+  let i = 0;
+  while (v >= 1000 && i < units.length - 1) { v /= 1024; i += 1; }  // 1024-based, like the dashboard
+  return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(v < 1 ? 2 : 1)} ${units[i]}`;
+}
+
 async function handleWidgetStats(req, res) {
   const { live, bestPeer, bestPool, trustedTotal, trustedOnline } = queries.widgetStats();
 
@@ -780,6 +789,27 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'GET' && pathname === '/api/widget/stats') {
     return handleWidgetStats(req, res);
+  }
+
+  // The node's traffic: the chart and totals, and the hosts that cost the
+  // most this week next to what they deliver.
+  if (req.method === 'GET' && pathname === '/api/traffic') {
+    return sendJson(res, 200, { ...queries.trafficDays(30), peers: queries.trafficPeers(7, 15) });
+  }
+
+  // The second home-screen widget: today up, today down, the last 30 days.
+  if (req.method === 'GET' && pathname === '/api/widget/traffic') {
+    const t = queries.trafficDays(30);
+    return sendJson(res, 200, {
+      type: 'three-stats',
+      refresh: '3600s',
+      link: '',
+      items: [
+        { text: fmtBytesShort(t.today.sent), subtext: 'sent today' },
+        { text: fmtBytesShort(t.today.recv), subtext: 'received today' },
+        { text: fmtBytesShort(t.month.sent + t.month.recv), subtext: 'last 30 days' },
+      ],
+    });
   }
 
   return null; // not an API route

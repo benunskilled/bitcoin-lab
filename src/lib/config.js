@@ -276,6 +276,12 @@ module.exports = {
   // actual source of unbounded growth, not the real ranking data, so they
   // get a much shorter window.
   feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
+  // Traffic per peer is kept this many days - as long as the dashboard shows
+  // it; the node's daily totals are kept for good, one row a day. See lib/traffic.js.
+  trafficPeerRetentionDays: Number(pick(process.env.TRAFFIC_PEER_RETENTION_DAYS, '7')),
+  // How often gathered traffic is written: hourly, 24 small writes a day.
+  // A crash loses at most this much traffic, and nothing else.
+  trafficFlushMs: Number(pick(process.env.TRAFFIC_FLUSH_MS, '3600000')),
 
   // How many rotation-log entries exist at all. Not a retention window: the
   // table is trimmed to this on every write, so what is stored is exactly what
