@@ -170,3 +170,22 @@ test('one bad reading does not move the verdict', async () => {
   await rpc.call('getblockcount');
   assert.ok(Math.abs(rpc.clockOffset().offsetMs) < 700, 'a single wild sample is outvoted');
 });
+
+test('a template is counted by its transactions, even where a chunk splits one', async () => {
+  const txs = Array.from({ length: 3000 }, (_, i) => ({ data: 'ab'.repeat(40), txid: String(i).padStart(64, '0'), fee: 150 }));
+  const body = JSON.stringify({ result: { version: 1, transactions: txs }, error: null });
+  handler = (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    // Seven-byte pieces: '"txid"' is six, so plenty of them straddle a boundary.
+    let i = 0;
+    const next = () => {
+      if (i >= body.length) return res.end();
+      res.write(body.slice(i, i + 7));
+      i += 7;
+      setImmediate(next);
+    };
+    next();
+  };
+  const r = await rpc.timeCall('getblocktemplate', [], { count: '"txid"' });
+  assert.equal(r.count, 3000);
+});

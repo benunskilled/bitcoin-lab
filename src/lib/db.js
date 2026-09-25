@@ -546,6 +546,15 @@ function runMigrations() {
       if (!existing.has('first_ping_ms')) db.prepare(`ALTER TABLE relay_race ADD COLUMN first_ping_ms REAL`).run();
     });
 
+    // How many transactions the timed template carried - the size of the job
+    // a pool has to build from it. NULL on blocks recorded before this.
+    migrate('relay_race_template_tx_v1_24_0', 'recorded how many transactions the block template carried', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      if (!existing.has('template_tx')) db.prepare(`ALTER TABLE relay_race ADD COLUMN template_tx INTEGER`).run();
+    });
+
     migrate('relay_race_pool_v1_20_0', 'recorded which pool mined each block', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),

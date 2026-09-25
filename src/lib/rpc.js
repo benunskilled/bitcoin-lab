@@ -178,7 +178,11 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
  * like, and an error must not be mistaken for a fast answer.
  */
 const SHORT_REPLY_BYTES = 4096;
-function timeCall(method, params = [], { timeoutMs = 30000 } = {}) {
+function timeCall(method, params = [], { timeoutMs = 30000, count = null } = {}) {
+  // `count`: a string to count in the reply while it streams past - for the
+  // template, '"txid"', once per transaction. The tail of each chunk is kept
+  // so a match split across two chunks is still found exactly once.
+  const needle = count ? Buffer.from(count) : null;
   return new Promise((resolve, reject) => {
     const url = new URL(config.bitcoin.rpcUrl);
     const body = JSON.stringify({ jsonrpc: '1.0', id: `bitcoinlab-${++idCounter}`, method, params });
@@ -201,9 +205,15 @@ function timeCall(method, params = [], { timeoutMs = 30000 } = {}) {
       (res) => {
         let bytes = 0;
         let head = '';
+        let hits = 0;
+        let tail = Buffer.alloc(0);
         res.on('data', (chunk) => {
           if (bytes < SHORT_REPLY_BYTES) head += chunk.toString('utf8');
           bytes += chunk.length;
+          if (!needle) return;
+          const buf = tail.length ? Buffer.concat([tail, chunk]) : chunk;
+          for (let i = buf.indexOf(needle); i !== -1; i = buf.indexOf(needle, i + needle.length)) hits += 1;
+          tail = buf.subarray(Math.max(0, buf.length - (needle.length - 1)));
         });
         res.on('end', () => {
           const ms = Number(process.hrtime.bigint() - started) / 1e6;
@@ -223,7 +233,7 @@ function timeCall(method, params = [], { timeoutMs = 30000 } = {}) {
             reject(new Error(`RPC ${method}: HTTP ${res.statusCode}`));
             return;
           }
-          resolve({ ms, bytes });
+          resolve(needle ? { ms, bytes, count: hits } : { ms, bytes });
         });
       },
     );
