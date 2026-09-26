@@ -1,5 +1,3 @@
-
-
 # Bitcoin Lab
 
 **Find the peers that bring you new blocks first. Keep the ones that earn their place.**
