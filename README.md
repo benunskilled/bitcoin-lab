@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/72281912-4d8e-4498-bece-fb6cc5080155
+
 # Bitcoin Lab
 
 **Find the peers that bring you new blocks first. Keep the ones that earn their place.**
