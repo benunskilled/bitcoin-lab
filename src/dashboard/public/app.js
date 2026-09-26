@@ -368,15 +368,15 @@ function highlightClassFor(address) {
 // missing its first slot (e.g. a source-obscured peer with no "Add as
 // Manual") would have Disconnect visually collapse into the first slot's
 // position instead of staying put, making the column misalign row to row.
-// The star: lit means the rotation leaves this peer alone - it is not swapped
+// The lock: closed means the rotation leaves this peer alone - it is not swapped
 // out for a better-scoring candidate, and not parked when it goes offline.
 // Both the state and the control, because they are the same thing to the
-// person looking at it. A star on its own explains nothing, so the title says
+// person looking at it. A lock on its own explains nothing, so the title says
 // in words what it does and what clicking will do next.
 function keepStar(p) {
   const on = Boolean(p.kept);
   const title = on ? 'Kept - click to release' : 'Click to keep';
-  return `<button class="keep-star${on ? ' on' : ''}" data-action="keep" data-address="${escapeHtml(p.address)}" data-kept="${on ? '1' : '0'}" title="${title}" aria-pressed="${on}"><span aria-hidden="true">★</span><span class="sr-only">Keep this peer</span></button>`;
+  return `<button class="keep-star${on ? ' on' : ''}" data-action="keep" data-address="${escapeHtml(p.address)}" data-kept="${on ? '1' : '0'}" title="${title}" aria-pressed="${on}"><span aria-hidden="true">🔒</span><span class="sr-only">Keep this peer</span></button>`;
 }
 
 function actionsCell(p, options = {}) {
@@ -591,7 +591,7 @@ document.addEventListener('focusout', () => {
  *   status   the Outbound panel shows the connection type alone, because
  *            "MANUAL LIVE" in a table of live outbound peers is noise.
  *   actions  what may be done to this peer here - the live table alone offers
- *            Disconnect, and only the manual table carries the star.
+ *            Disconnect, and only the manual table carries the lock.
  */
 // The pill is struck through when the peer runs software that does not relay
 // blocks. The explanation lives in the tooltip, not in the table: a dashboard is
@@ -696,7 +696,7 @@ function renderPeerTables(peers, options = {}) {
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
-    // With the star set by default on anything added by hand, every slot
+    // With the lock set by default on anything added by hand, every slot
     // being kept is the likely end state rather than an oddity - and it is
     // worth saying, because it means the rotation has nothing left to promote
     // into. Said as one more number, not as a warning: nothing is wrong.
@@ -1119,7 +1119,7 @@ document.body.addEventListener('click', async (e) => {
   const originalLabel = btn.textContent;
   if (isPeerOrPoolAction) {
     btn.disabled = true;
-    // The star is an icon, not a label - replacing its text with an ellipsis
+    // The lock is an icon, not a label - replacing its text with an ellipsis
     // would leave an empty-looking cell for the moment the request takes.
     if (action !== 'keep') btn.textContent = '…';
     // Hold off the periodic re-render for the duration. Without this a poll
