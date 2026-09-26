@@ -35,6 +35,10 @@ The loop is straightforward:
 2. **Keep good candidates.** Add proven peers to your manual selection so Core maintains connections to them. Bitcoin Lab remembers your selection across restarts and restores it when Core comes back online, so it can reconnect to your chosen peers straight away.
 3. **Keep looking.** Disconnect an automatic outbound peer that has had enough opportunities but has never been first. Core will immediately look for another candidate to take its place.
 
+[![Peer rotation: from one kept peer to a full manual set](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/rotation.gif)](https://github.com/user-attachments/assets/db726e3b-142c-476b-9e9a-b98bb292c967)
+
+*Rotation as an animation, from a single kept peer to a full manual set. Simulated peers, the real rules. [Watch the full video](https://github.com/user-attachments/assets/db726e3b-142c-476b-9e9a-b98bb292c967).*
+
 You can manage peers yourself or enable rotation to run this loop automatically. **Rotation is off by default.** Peers you type in are protected from automatic replacement; the star lets you change that protection.
 
 The ranking favours recent performance and discounts small samples. By default, rotation waits for 50 block observations before judging a candidate, and newly promoted peers get their own grace period. With rotation enabled, good peers that go offline will be parked and checked again later, with their history preserved.
