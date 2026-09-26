@@ -566,10 +566,10 @@ tr.row-first-block td {
 }
 tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 
-/* The keep star in the Manual Peers table. Both the state and the switch: lit
-   means the rotation leaves this peer alone. Unlit is drawn as an outline
-   rather than a dimmed fill, so "off" reads as a choice not yet made rather
-   than as a disabled control. */
+/* The keep lock in the Manual Peers table. Both the state and the switch:
+   the padlock means the rotation leaves this peer alone. Off shows nothing -
+   an open padlock looked too much like the closed one - and the lock only
+   appears, faded, under the pointer or keyboard focus, to be clicked. */
 .keep-star {
   background: none;
   border: 0;
@@ -577,18 +577,16 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
-  color: var(--muted);
-  opacity: .45;
-  transition: opacity .15s ease, color .15s ease;
+  opacity: 0;
+  transition: opacity .15s ease;
 }
 
 .keep-star:hover,
 .keep-star:focus-visible {
-  opacity: 1;
+  opacity: .4;
 }
 
 .keep-star.on {
-  color: var(--accent);
   opacity: 1;
 }
 
@@ -596,7 +594,7 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
   cursor: default;
 }
 
-/* Visible to screen readers only - the star needs a real name, and the title
+/* Visible to screen readers only - the lock needs a real name, and the title
    attribute alone is not reliably announced. */
 .sr-only {
   position: absolute;
