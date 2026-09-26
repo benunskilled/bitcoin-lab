@@ -136,7 +136,9 @@ const KIND_RULES = [
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|mempool/i, 'an address indexer'],
   [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
-  [/neutrino/i, 'a light client'],
+  // BIP157 light clients: neutrino (Lightning wallets on lnd) and Kyoto,
+  // which says "Rust BIP-157".
+  [/neutrino|BIP-157|kyoto/i, 'a light client'],
 ];
 
 function cannotRelayReason(client) {
