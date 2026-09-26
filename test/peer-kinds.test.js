@@ -83,7 +83,9 @@ const AGENTS = [
   // Indexers and wallets.
   '/electrs:0.10.0/', '/electrumx:1.16/', '/esplora/',
   '/bitcoinj:0.15/', '/breadwallet:1.0/', '/bither/', '/MultiBit:0.5/', '/wasabi:2.0/', '/Bitcoin Wallet:9.0/',
-  '/neutrino:0.2.0/',
+  '/neutrino:0.2.0/', '/Rust BIP-157:0.6.0/rust-bitcoin:0.32.8/',
+  // A Utreexo node: named in Peer Map, relaying in both.
+  '/Floresta:0.9.1/', '/Floresta:0.9.1/mandacaru:0.15.2/',
   // Software that does relay, and software nobody here has heard of.
   '/Satoshi:29.0.0/', '/Satoshi:28.1.0/Knots:20250903/', '/btcwire:0.5.0/', '/Sat0shi:31.0.0/', '',
 ];
