@@ -132,7 +132,9 @@ const KIND_RULES = [
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
   [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],
-  [/bitnodes|metrika|nodemap|crawler|scanner/i, 'a network crawler'],
+  // Crawlers, seeders and node counters, including the ones that only say
+  // "scan", "seeder", "census" or "monitor".
+  [/bitnodes|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|mempool/i, 'an address indexer'],
   [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
