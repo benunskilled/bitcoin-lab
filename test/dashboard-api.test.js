@@ -162,6 +162,30 @@ test('GET /api/peers/ranking answers with an array the tables can render', async
   assert.ok(Array.isArray(body));
 });
 
+test('a peer offering no services is flagged, whatever it calls itself', async () => {
+  // The table strikes it through like a wallet: it has no blocks to pass on.
+  // Same rule as Peer Map. An empty services list is the peer saying so;
+  // NULL is Core not saying, and proves nothing.
+  const now = Date.now();
+  const add = db.instance.prepare('INSERT INTO peer (address, first_seen_at) VALUES (?, ?)');
+  const live = db.instance.prepare(
+    `INSERT INTO peer_session (peer_id, direction, connection_type, network, subver, started_at, services)
+     VALUES (?, 'inbound', 'inbound', 'ipv4', ?, ?, ?)`,
+  );
+  const cases = [['198.51.100.7:50001', '/Satoshi:31.0.0/', '', true],
+    ['198.51.100.8:50002', '/Satoshi:31.0.0/', 'NETWORK,WITNESS', false],
+    ['198.51.100.9:50003', '/Satoshi:31.0.0/', null, false]];
+  for (const [address, subver, services] of cases) {
+    live.run(add.run(address, now).lastInsertRowid, subver, now, services);
+  }
+  const { body } = await api('/api/peers/ranking');
+  for (const [address, , , nothing] of cases) {
+    const row = body.find((p) => p.address === address);
+    assert.ok(row, `${address} is live and must be ranked`);
+    assert.equal(row.offersNothing, nothing, address);
+  }
+});
+
 test('the peer routes say what is missing rather than failing obscurely', async () => {
   for (const route of ['/api/peers/untrust', '/api/peers/add-manual', '/api/peers/disconnect']) {
     // eslint-disable-next-line no-await-in-loop

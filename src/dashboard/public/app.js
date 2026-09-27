@@ -599,11 +599,12 @@ document.addEventListener('focusout', () => {
  *   actions  what may be done to this peer here - the live table alone offers
  *            Disconnect, and only the manual table carries the lock.
  */
-// The pill is struck through when the peer runs software that does not relay
-// blocks. The explanation lives in the tooltip, not in the table: a dashboard is
-// not the place for a paragraph.
+// The pill is struck through when the peer cannot deliver a block: software
+// that does not relay, or a peer that offers no services at all - whatever it
+// calls itself. Peer Map strikes the same peers. The explanation lives in the
+// tooltip, not in the table: a dashboard is not the place for a paragraph.
 function statusPill(p, status) {
-  const reason = cannotRelayReason(p.client);
+  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The type colour stays; the strike is what says "never in the running".
