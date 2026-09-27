@@ -164,6 +164,7 @@ function peerRankingSql() {
          (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
             FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
          latest.subver AS client,
+         latest.services AS services,
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
@@ -181,7 +182,7 @@ function peerRankingSql() {
          -- session actually still live, in which case there's nothing to
          -- report here - offline duration only ever comes from a peer's
          -- most recent CLOSED session).
-         SELECT ps.peer_id, ps.subver, ps.network, ps.ended_at AS latestEndedAt
+         SELECT ps.peer_id, ps.subver, ps.network, ps.services, ps.ended_at AS latestEndedAt
          FROM peer_session ps
          WHERE ps.id = (
            SELECT id FROM peer_session ps2

@@ -157,6 +157,9 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
       direction: r.liveDirection,
       connectionType: r.liveConnectionType,
       client: r.client || null,
+      // An empty list is the peer saying it offers nothing - no blocks to pass
+      // on, whatever its user agent says. NULL is Core saying nothing.
+      offersNothing: r.services === '',
       currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
       // How long a trusted-but-not-currently-live peer has been offline -
       // Core reconnects manuals on its own, but that can fail silently
