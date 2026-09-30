@@ -63,6 +63,12 @@ async function promoteBestCandidate(ranking) {
       // Adding one by hand still works and always did: that is a person
       // deciding, having seen the number, and it is their slot to spend.
       p.direction === 'outbound' &&
+      // Block-relay-only peers are Core's anchors against eclipse attacks (see
+      // kick.js). Promoting one drops that session before the addnode
+      // (peer-sync's disconnectIfLiveNonManual), so Core loses the anchor and
+      // fills the place with a random peer. Same as inbound: measured, ranked,
+      // left alone, and a person can still add one by hand.
+      p.connectionType !== 'block-relay-only' &&
       p.eligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
       p.first > 0,
   );

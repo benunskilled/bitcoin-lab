@@ -13,9 +13,14 @@ const { MIN_ELIGIBLE_FOR_JUDGEMENT } = require('./rules');
  * feature rides on, so kicking dead weight is what actually turns the crank
  * on finding better peers over time, not just cleanup for its own sake.
  *
- * Deliberately scoped to outbound-full-relay / block-relay-only only:
+ * Deliberately scoped to outbound-full-relay only:
  *   - trusted peers are never touched here no matter how they perform -
  *     they were promoted (or added by hand) on purpose.
+ *   - block-relay-only peers are Core's eclipse protection. Core keeps two,
+ *     writes them to anchors.dat on a clean shutdown and reconnects to them
+ *     first on the next start (net.cpp, MAX_BLOCK_RELAY_ONLY_ANCHORS). Kicking
+ *     one throws an anchor away, and Core already rotates the temporary
+ *     extra block-relay-only peer itself (EvictExtraOutboundPeers).
  *   - inbound peers aren't ours to disconnect-and-replace this way: we
  *     don't control who connects to us, and Core does not backfill a
  *     dropped inbound slot with a fresh random peer the way it does for
@@ -29,7 +34,7 @@ async function kickDeadWeight(ranking) {
     (p) =>
       p.live &&
       !p.trusted &&
-      (p.connectionType === 'outbound-full-relay' || p.connectionType === 'block-relay-only') &&
+      p.connectionType === 'outbound-full-relay' &&
       p.eligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
       p.first === 0,
   );
