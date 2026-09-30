@@ -33,7 +33,7 @@ The loop is straightforward:
 
 1. **Observe.** See which peers deliver each new block first.
 2. **Keep good candidates.** Add proven peers to your manual selection so Core maintains connections to them. Bitcoin Lab remembers your selection across restarts and restores it when Core comes back online, so it can reconnect to your chosen peers straight away.
-3. **Keep looking.** Disconnect an automatic outbound peer that has had enough opportunities but has never been first. Core will immediately look for another candidate to take its place.
+3. **Keep looking.** Disconnect an automatic full-relay outbound peer that has had enough opportunities but has never been first. Core will immediately look for another candidate to take its place.
 
 [![Peer rotation: from one kept peer to a full manual set](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/rotation.gif)](https://github.com/user-attachments/assets/72281912-4d8e-4498-bece-fb6cc5080155)
 
@@ -43,7 +43,7 @@ You can manage peers yourself or enable rotation to run this loop automatically.
 
 The ranking favours recent performance and discounts small samples. By default, rotation waits for 50 block observations before judging a candidate, and newly promoted peers get their own grace period. With rotation enabled, good peers that go offline will be parked and checked again later, with their history preserved.
 
-**Rotation only manages outgoing connections.** Inbound peers are measured and ranked, but left untouched.
+**Rotation only manages outgoing connections.** Inbound peers are measured and ranked, but left untouched. Wondering whether this makes an eclipse attack easier? [It does not.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
 
 Bitcoin Lab can only keep clearnet peers as manual connections. If Core makes
 its outgoing connections over clearnet only, every one of its ten automatic

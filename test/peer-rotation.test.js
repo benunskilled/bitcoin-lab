@@ -178,6 +178,17 @@ test('ignores a feeler even if it somehow racked up enough eligible blocks', asy
   assert.deepEqual(disconnected, []);
 });
 
+test('never kicks a block-relay-only peer: those are Core\'s anchors against eclipse attacks', async () => {
+  seedLivePeer({ connectionType: 'block-relay-only', eligible: 200, first: 0 });
+  const disconnected = [];
+  rpc.disconnectNode.mock.mockImplementation(async (addr) => { disconnected.push(addr); });
+
+  const kicked = await peerRotation.kickDeadWeight(ranking());
+
+  assert.equal(kicked, 0);
+  assert.deepEqual(disconnected, []);
+});
+
 test('does not kick a peer that has not reached the eligibility threshold yet', async () => {
   seedLivePeer({ eligible: config.minEligibleForJudgement - 1, first: 0 });
   const kicked = await peerRotation.kickDeadWeight(ranking());
@@ -208,6 +219,19 @@ test('promotes the best candidate into a free manual slot', async () => {
   const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('promote');
   assert.equal(logRow.address, address);
   assert.ok(logRow.first_pct > 0);
+});
+
+test('does not promote a block-relay-only peer: promoting it would drop one of Core\'s anchors', async () => {
+  const anchor = seedLivePeer({ connectionType: 'block-relay-only', eligible: 144, first: 50 });
+  const disconnected = [];
+  rpc.disconnectNode.mock.mockImplementation(async (addr) => { disconnected.push(addr); });
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0);
+  assert.deepEqual(disconnected, []);
+  const row = db.instance.prepare('SELECT address FROM trusted_peer WHERE address = ?').get(anchor);
+  assert.equal(row, undefined);
 });
 
 test('does not promote a candidate that has not reached the eligibility threshold', async () => {

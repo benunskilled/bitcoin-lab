@@ -6,7 +6,7 @@ Bitcoin Core provides eight manual connection slots in addition to its usual ten
 
 **Your strongest peers are remembered across restarts.** When Core comes back online, Bitcoin Lab restores your saved manual selection so Core can reconnect to those peers straight away. You keep the set you have built instead of starting the search from scratch.
 
-The automatic outbound connections keep the search moving. Once a candidate has been observed for at least 50 blocks without delivering any of them first, rotation disconnects it and Core immediately looks for a replacement. A peer that has delivered first at least once is spared by this rule.
+The automatic outbound connections keep the search moving. Once a candidate has been observed for at least 50 blocks without delivering any of them first, rotation disconnects it and Core immediately looks for a replacement. A peer that has delivered first at least once is spared by this rule. Only automatic full-relay peers are replaced this way. The two block-relay-only connections that Core keeps as anchors against eclipse attacks are left alone.
 
 This gives the two groups different jobs: the manual set holds on to proven peers, while the automatic connections keep introducing new candidates.
 
@@ -73,6 +73,12 @@ That experience shaped the rule: rotation measures inbound peers but leaves thei
 For the best results, configure Core to use only clearnet for outgoing connections. Bitcoin Lab cannot keep Tor or I2P peers as manual connections. Slots occupied by those peers leave fewer places to discover candidates it can keep, slowing the optimisation.
 
 On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming Tor and I2P connections are fine.
+
+## Does choosing peers make an eclipse attack easier?
+
+No. An eclipse attack needs every one of your node's connections. Bitcoin Lab's manual peers come on top of Core's ten automatic outbound connections, which Core keeps choosing on its own, with the same protections as without Bitcoin Lab. Candidates are only ever peers Core connected to by itself; Bitcoin Lab adds no address you did not type in. Inbound connections are never touched. Rotation only replaces automatic full-relay peers; the two block-relay-only connections Core keeps as anchors are left alone.
+
+Your node still checks every block it receives. A bad peer can hold a block back, but it cannot make your node accept an invalid one. At worst, a weak manual set brings you blocks later, not a different chain.
 
 ## Follow the changes
 
