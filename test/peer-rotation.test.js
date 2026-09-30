@@ -1149,17 +1149,17 @@ test('the rotation drops an inbound session to a host it already holds as manual
   assert.deepEqual(disconnects, [11], 'only the twin of a manual peer - not other inbound peers, not Tor');
 });
 
-test('a displaced peer keeps its connection and is not parked', async () => {
-  // The loop this closes, seen on a real node: a peer displaced at 5h43m was
-  // back in its slot ten minutes later. Displacing used to disconnect the
-  // peer and park it, and the parked table revives on the LIFETIME record -
-  // which is precisely the number the peer had just been displaced despite,
-  // because displacement goes by the recent window. Out on one measure, back
-  // in on the other, every ten minutes.
+test('a displaced peer is disconnected but not parked', async () => {
+  // Not parked: the loop this closes, seen on a real node, was a peer displaced
+  // at 5h43m back in its slot ten minutes later - parked peers are revived on
+  // their LIFETIME record, the number the peer had just been displaced
+  // despite. Out on one measure, back in on the other, every ten minutes.
   //
-  // A displaced peer has done nothing wrong. It drops back to being an
-  // ordinary outbound peer, stays connected, keeps being measured, and has to
-  // win a slot again the same way as everyone else.
+  // Disconnected: keeping the connection up does not make it an ordinary
+  // outbound peer. Core keeps it MANUAL, holding one of the eight addnode
+  // grants, and with every slot in use the challenger can then never be
+  // dialled - seen on a real node, the promoted peer stayed offline until the
+  // displaced one was dropped.
   const weak = seedLivePeer({ eligible: 500, first: 5, trusted: true });   // 1%
   seedLivePeer({ eligible: 500, first: 150, trusted: true });              // 30%, safe
   const challenger = seedLivePeer({ eligible: 500, first: 100 });          // 20%
@@ -1175,12 +1175,13 @@ test('a displaced peer keeps its connection and is not parked', async () => {
     0,
     'the displaced peer loses its manual slot',
   );
-  assert.ok(!disconnects.includes(weak), `the displaced peer must not be disconnected (got ${JSON.stringify(disconnects)})`);
+  assert.ok(disconnects.includes(weak), `the displaced peer must be disconnected so its addnode slot frees (got ${JSON.stringify(disconnects)})`);
   assert.equal(
     db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n,
     0,
-    'and it must not be parked: parking is for a peer that is gone',
+    'and it must not be parked: parking would hand it the slot straight back on its lifetime record',
   );
+  assert.ok(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(challenger), 'the challenger is trusted');
 });
 
 test('the new-slot grace runs from the promotion, not from the peer\'s lifetime block count', async () => {

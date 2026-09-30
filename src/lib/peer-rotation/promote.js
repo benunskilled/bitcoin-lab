@@ -105,10 +105,16 @@ async function promoteBestCandidate(ranking) {
     // each has done lately above what it did over its life.
     if (!beatsHolder(candidate.score, weakest.score)) continue;
 
-    // Displacement leaves the connection up (see removeTrustedPeer): the peer
-    // drops back to being an ordinary outbound one, still measured, still
-    // ranked, and free to earn a slot back through the normal promotion path.
-    await peerSync.removeTrustedPeer(weakest.address, { disconnect: false });
+    // Displacement closes the connection. Leaving it up looked harmless - the
+    // idea was that the peer would drop back to an ordinary outbound one - but
+    // Core never changes a connection's type: it stays MANUAL and keeps its
+    // addnode grant until it closes (net.cpp, grantOutbound; eight grants,
+    // MAX_ADDNODE_CONNECTIONS). With all eight slots in use the challenger then
+    // cannot be dialled at all: seen on a real node, the promoted peer sat
+    // offline until the displaced one was disconnected, then connected within
+    // a minute. The peer keeps its record and can come back as an automatic
+    // outbound peer and win a slot again like anyone else.
+    await peerSync.removeTrustedPeer(weakest.address);
     // Parking is for a peer that is GONE. One that is still connected does not
     // need it and must not have it: parked peers are revived on their lifetime
     // record, so parking a peer that was just displaced on its recent one
