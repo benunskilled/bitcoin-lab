@@ -54,9 +54,9 @@ Checks become less frequent after repeated failures. Strong performers are check
 
 ## Protected peers stay your choice
 
-Use the star to keep a peer in your manual selection regardless of its ranking. Rotation will neither replace it with a stronger candidate nor park it when it goes offline. Peers you type in are protected automatically.
+Use the padlock to keep a peer in your manual selection regardless of its ranking. Rotation will neither replace it with a stronger candidate nor park it when it goes offline. Peers you type in are protected automatically.
 
-Protection does not affect measurement or ranking. Click the star again whenever you want rotation to manage that peer's place.
+Protection does not affect measurement or ranking. Click the padlock again whenever you want rotation to manage that peer's place.
 
 If all eight manual peers are protected, rotation continues searching among automatic outbound connections, but cannot promote a candidate until you release a place.
 
