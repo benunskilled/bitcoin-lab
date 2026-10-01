@@ -189,6 +189,26 @@ test('never kicks a block-relay-only peer: those are Core\'s anchors against ecl
   assert.deepEqual(disconnected, []);
 });
 
+test('judges on the recent window: an old first does not spare a peer that has gone quiet', async () => {
+  // 600 chances, its 3 firsts on the oldest blocks - outside the newest 500.
+  // On a real node this was a former manual peer that Core kept redialling as
+  // ordinary outbound and that sat at 0 of 238 recent blocks for a week.
+  const quiet = seedLivePeer({ eligible: 600, first: 3 });
+  const disconnected = [];
+  rpc.disconnectNode.mock.mockImplementation(async (addr) => { disconnected.push(addr); });
+
+  const row = ranking().find((p) => p.address === quiet);
+  assert.equal(row.first, 3, 'lifetime record has firsts');
+  assert.equal(row.recentFirst, 0, 'none of them in the recent window');
+
+  const kicked = await peerRotation.kickDeadWeight(ranking());
+
+  assert.equal(kicked, 1);
+  assert.deepEqual(disconnected, [quiet]);
+  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('kick');
+  assert.match(logRow.note, /recent blocks first/);
+});
+
 test('does not kick a peer that has not reached the eligibility threshold yet', async () => {
   seedLivePeer({ eligible: config.minEligibleForJudgement - 1, first: 0 });
   const kicked = await peerRotation.kickDeadWeight(ranking());

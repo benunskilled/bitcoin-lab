@@ -58,8 +58,16 @@ const RECENT_RELAY_STATS_SQL = `
    GROUP BY peer_id`;
 
 function recentRelayStats() {
-  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
-  if (newest == null) return new Map();
+  // Keyed on the newest race AND how many observations it holds: a block's
+  // observations can land after its race row, and a key on the race alone kept
+  // the window stale until the next block. The count is a range on
+  // relay_observation's primary key (race_id first), so it costs nothing.
+  const head = db.instance
+    .prepare(`SELECT r.id AS id, (SELECT COUNT(*) FROM relay_observation o WHERE o.race_id = r.id) AS n
+                FROM relay_race r ORDER BY r.id DESC LIMIT 1`)
+    .get();
+  if (!head) return new Map();
+  const newest = `${head.id}:${head.n}`;
   if (recentStatsCache.raceId === newest) return recentStatsCache.byPeer;
 
   const rows = db.instance
