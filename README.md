@@ -57,18 +57,28 @@ See [how peers are judged](docs/how-a-peer-is-judged.md) and [why the rotation w
 
 After a fresh start of the measurement on the author's node, inbound
 connections delivered almost every block first. Rotation then filled the manual
-slots with peers that had proved themselves:
+slots with peers that had proved themselves. On 25 September the node was
+restarted with the eight manual peers it had found:
 
-![Who delivered each block first, per day](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/delivery.png)
+![Who delivered each block first, per day](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/delivery.png?v=2)
 
-In the 495 blocks from 22 September on, those few manual peers delivered 75% of
-blocks first. Inbound connections, which had brought 98% of blocks first before
-rotation, fell to 21%: rotation picked the manual peers for how often they
+| Period | Blocks | Manual peers | Core's outbound | Inbound |
+|---|---:|---:|---:|---:|
+| Before rotation, 16–18 Sep | 331 | 0% | 2% | 98% |
+| Rotation on, 19 Sep to the restart on 25 Sep | 930 | 61% | 6% | 33% |
+| Restart with 8 manual peers, 25 Sep – 1 Oct | 907 | 82% | 1% | 16% |
+
+Before rotation, inbound connections brought 98% of blocks first. With rotation,
+the few manual peers took over: from 22 September on they delivered 75% of
+blocks first, and after the restart with eight manual peers 82%. A restart does
+not throw that away: Bitcoin Lab puts the saved manual peers straight back, so
+the node started strong right away – 42 of the first 43 blocks after the restart
+came first through a manual peer. Rotation picked these peers for how often they
 delivered first, and now they usually get there before the inbound ones. That
-is the discovery behind the project: a small set of
-connections can matter far more than its size suggests. The share moves from
-day to day as peers come and go, and the figures show who delivered first on
-one node, not a speed-up you can expect. [The full story and measurements.](docs/measured.md)
+is the discovery behind the project: a small set of connections can matter far
+more than its size suggests. The share moves from day to day as peers come and
+go, and the figures show who delivered first on one node, not a speed-up you can
+expect. [The full story and measurements.](docs/measured.md)
 
 ## Who mined it
 
