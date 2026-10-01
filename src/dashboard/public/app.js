@@ -646,7 +646,13 @@ function renderPeerTables(peers, options = {}) {
   // top LIVE_PEER_LIMIT (already sorted best-first by the API) by default,
   // with a toggle to see the rest on demand rather than always scrolling a
   // huge table.
-  scrollToFocusOnce();
+  // A peer Peer Map pointed at may rank below the top ten - inbound peers
+  // appear in no other table, so without this their row never existed and the
+  // link landed on an unmarked page. Open the full list once for it.
+  if (FOCUS_ADDRESS && !focusDone && !showAllLivePeers
+      && livePeers.slice(LIVE_PEER_LIMIT).some((p) => p.address === FOCUS_ADDRESS)) {
+    showAllLivePeers = true;
+  }
   const visibleLivePeers = showAllLivePeers ? livePeers : livePeers.slice(0, LIVE_PEER_LIMIT);
   const limitToggle = document.getElementById('live-peer-limit-toggle');
   const countLabel = document.getElementById('live-peer-count');
@@ -700,6 +706,9 @@ function renderPeerTables(peers, options = {}) {
     ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
+  // Only now are the rows in the page; looking earlier found nothing on the
+  // first render and moved the jump to the next refresh, twenty seconds on.
+  scrollToFocusOnce();
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
