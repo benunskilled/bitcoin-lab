@@ -70,17 +70,15 @@ restarted with the eight manual peers it had found:
 
 ¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation leaves inbound peers alone.
 
-Before rotation, inbound connections brought 98% of blocks first. With rotation,
-the few manual peers took over: from 22 September on they delivered 75% of
-blocks first, and after the restart with eight manual peers 82%. A restart does
-not throw that away: Bitcoin Lab puts the saved manual peers straight back, so
-the node started strong right away – 42 of the first 43 blocks after the restart
-came first through a manual peer. Rotation picked these peers for how often they
-delivered first, and now they usually get there before the inbound ones. That
-is the discovery behind the project: a small set of connections can matter far
-more than its size suggests. The share moves from day to day as peers come and
-go, and the figures show who delivered first on one node, not a speed-up you can
-expect. [The full story and measurements.](docs/measured.md)
+Before rotation, inbound connections brought 98% of blocks first. Bitcoin Lab
+never touches them – it only picks manual peers from Core's own outbound
+connections. With eight such peers, the inbound share fell to 16%, and the
+manual peers delivered 82% of blocks first. A restart does not throw that away:
+Bitcoin Lab puts the saved manual peers straight back, so the node started
+strong right away – 42 of the first 43 blocks after the restart came first
+through a manual peer. That is the discovery behind the project: a small set of
+connections can matter far more than its size suggests.
+[The full story and measurements.](docs/measured.md)
 
 ## Who mined it
 
