@@ -356,6 +356,83 @@ async function main() {
     );
   });
 
+  // ---- rotation against real Core: the slot a swap frees, and the anchors --
+  // Both bugs these guard against passed every unit test, because the unit
+  // tests mock rpc and the mock agreed with a wrong idea of Core:
+  //  - a displaced manual peer left connected keeps one of Core's eight
+  //    addnode grants, so the swapped-in peer could not be dialled at all;
+  //  - block-relay-only connections are Core's anchors and must never be kicked.
+  const peerRotation = require('../../src/lib/peer-rotation');
+  const helpers = [];
+  for (let i = 0; i < 10; i += 1) {
+    const node = { p2p: 19575 + i * 10, rpc: 19576 + i * 10, zmq: null };
+    startNode(`helper${i}`, node);
+    helpers.push(node);
+  }
+  await waitFor('the helper nodes to answer RPC', () => {
+    for (const h of helpers) cli(h, 'getblockchaininfo');
+    return true;
+  });
+  const hostOf = (h) => `127.0.0.1:${h.p2p}`;
+  const connected = async (h) => (await rpc.getPeerInfo()).find((p) => p.addr === hostOf(h));
+
+  await check('with all eight manual slots taken, a displaced peer that stays connected blocks the next one', async () => {
+    // The miner is manual already (above); seven helpers fill the other seven slots.
+    for (const h of helpers.slice(0, 7)) await peerSync.addTrustedPeer(hostOf(h), null);
+    await waitFor('eight manual connections', async () =>
+      (await rpc.getPeerInfo()).filter((p) => p.connection_type === 'manual').length === 8, { timeoutMs: 90000 });
+    // Core's own behaviour, not the app's: off the addnode list, still connected.
+    await peerSync.removeTrustedPeer(hostOf(helpers[0]), { disconnect: false });
+    await peerSync.addTrustedPeer(hostOf(helpers[7]), null);
+    await new Promise((r) => setTimeout(r, 70000)); // Core retries added nodes every 60 s
+    const stale = await connected(helpers[0]);
+    assert.equal(stale && stale.connection_type, 'manual', 'the displaced connection is still MANUAL');
+    assert.equal(await connected(helpers[7]), undefined, 'and the newly added peer was not dialled');
+  });
+
+  await check('the swap path frees the slot: the swapped-in peer connects', async () => {
+    // What promote.js now does on a swap: removeTrustedPeer with its default,
+    // which disconnects. (The previous check left helper0 connected.)
+    await rpc.addNode(hostOf(helpers[0]), 'add').catch(() => {});
+    await peerSync.addTrustedPeer(hostOf(helpers[0]), null).catch(() => {});
+    await peerSync.removeTrustedPeer(hostOf(helpers[0]));
+    const now = await waitFor('the swapped-in peer to connect', () => connected(helpers[7]), { timeoutMs: 90000 });
+    assert.equal(now.connection_type, 'manual');
+    assert.equal(await connected(helpers[0]), undefined, 'the displaced peer is gone');
+  });
+
+  await check('the kick takes a quiet full-relay peer and leaves a block-relay-only anchor alone', async () => {
+    // addconnection is regtest's way to make Core open exactly these types.
+    const anchor = helpers[8];
+    const fullRelay = helpers[9];
+    cli(NODES.watched, 'addconnection', hostOf(anchor), 'block-relay-only', 'false');
+    cli(NODES.watched, 'addconnection', hostOf(fullRelay), 'outbound-full-relay', 'false');
+    await waitFor('both connections', async () => {
+      const a = await connected(anchor);
+      const f = await connected(fullRelay);
+      return a && a.connection_type === 'block-relay-only' && f && f.connection_type === 'outbound-full-relay';
+    }, { timeoutMs: 30000 });
+    await peerProfiler.pollOnce();
+    // Enough blocks for a judgement. Every one comes from the miner, so neither
+    // helper is ever first - both are "0 of N".
+    const minEligible = config.minEligibleForJudgement;
+    for (let i = 0; i < minEligible + 5; i += 1) {
+      const h = cli(NODES.miner, 'generatetoaddress', '1', minerAddress);
+      const hash = Array.isArray(h) ? h[0] : h;
+      await waitFor('the race row', () => db.instance.prepare('SELECT 1 FROM relay_race WHERE block_hash = ?').get(hash),
+        { timeoutMs: 20000, everyMs: 50 });
+    }
+    const ranking = queries.peerRanking();
+    const rowOf = (h) => ranking.find((p) => p.address === hostOf(h));
+    assert.ok(rowOf(fullRelay).recentEligible >= minEligible && rowOf(fullRelay).recentFirst === 0,
+      `the full-relay helper qualifies: ${JSON.stringify(rowOf(fullRelay) && { e: rowOf(fullRelay).recentEligible, f: rowOf(fullRelay).recentFirst })}`);
+    assert.ok(rowOf(anchor).recentEligible >= minEligible && rowOf(anchor).recentFirst === 0, 'so would the anchor, by the numbers');
+    await peerRotation.kickDeadWeight(ranking);
+    await waitFor('the full-relay helper to be gone', async () => !(await connected(fullRelay)), { timeoutMs: 15000 });
+    const stillThere = await connected(anchor);
+    assert.equal(stillThere && stillThere.connection_type, 'block-relay-only', 'the anchor is still connected');
+  });
+
   sub.stop();
   // db has no close() of its own; the underlying better-sqlite3 handle does,
   // and leaving it open holds the process past the last assertion.
