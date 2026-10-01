@@ -62,11 +62,13 @@ restarted with the eight manual peers it had found:
 
 ![Who delivered each block first, per day](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/delivery.png?v=2)
 
-| Period | Blocks | Manual peers | Core's outbound | Inbound |
+| Period | Blocks | Manual peers¹ | Core's outbound | Inbound |
 |---|---:|---:|---:|---:|
 | Before rotation, 16–18 Sep | 331 | 0% | 2% | 98% |
 | Rotation on, 19 Sep to the restart on 25 Sep | 930 | 61% | 6% | 33% |
 | Restart with 8 manual peers, 25 Sep – 1 Oct | 907 | 82% | 1% | 16% |
+
+¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation leaves inbound peers alone.
 
 Before rotation, inbound connections brought 98% of blocks first. With rotation,
 the few manual peers took over: from 22 September on they delivered 75% of
