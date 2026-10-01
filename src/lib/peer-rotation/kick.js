@@ -6,8 +6,16 @@ const { logAction } = require('./log');
 const { MIN_ELIGIBLE_FOR_JUDGEMENT } = require('./rules');
 
 /**
- * Pass 1: disconnect live, non-trusted outbound peers that have had a full
- * day of eligibility and never once delivered a block first. Core
+ * Pass 1: disconnect live, non-trusted outbound peers that have had enough
+ * chances in the recent window and never once delivered a block first there.
+ *
+ * The recent window, not the lifetime record: the same last 500 blocks the
+ * dashboard shows. Judged on the lifetime record, a peer that delivered first
+ * once, long ago, was spared for good - and the peers that collect such a
+ * record are exactly the former manual peers, which Core keeps dialling again
+ * as ordinary outbound connections. Seen on a real node: three of them held
+ * three of Core's eight full-relay slots for over a week at 0 of 107, 128 and
+ * 238 recent blocks, slowing the search for new candidates. Core
  * automatically replaces a dropped outbound connection with a fresh,
  * randomly-selected one - that replacement is the whole mechanism this
  * feature rides on, so kicking dead weight is what actually turns the crank
@@ -35,8 +43,8 @@ async function kickDeadWeight(ranking) {
       p.live &&
       !p.trusted &&
       p.connectionType === 'outbound-full-relay' &&
-      p.eligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
-      p.first === 0,
+      p.recentEligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
+      p.recentFirst === 0,
   );
 
   let kicked = 0;
@@ -48,8 +56,8 @@ async function kickDeadWeight(ranking) {
         action: 'kick',
         address: peer.address,
         firstPct: peer.firstPct,
-        eligible: peer.eligible,
-        note: `${peer.connectionType}, 0/${peer.eligible} blocks first`,
+        eligible: peer.recentEligible,
+        note: `${peer.connectionType}, 0/${peer.recentEligible} recent blocks first`,
       });
       logger.info('rotation: kicked a dead-weight outbound peer', {
         address: peer.address,
