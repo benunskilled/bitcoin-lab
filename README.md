@@ -21,9 +21,8 @@ has the block.
 
 ## Records from my node
 
-When I started measuring, inbound connections delivered almost every block
-first. Then I switched on rotation, which keeps proven outbound peers in the
-manual slots. On 25 September I restarted the node with the eight manual peers
+When I started measuring, I ran Core as it comes; then I switched on rotation,
+which keeps proven outbound peers in the manual slots. On 25 September I restarted the node with the eight manual peers
 it had found:
 
 ![Who delivered each block first, per day](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/delivery.png?v=2)
@@ -36,9 +35,8 @@ it had found:
 
 ¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation leaves inbound peers alone.
 
-Before rotation, inbound connections brought 98% of blocks first. Bitcoin Lab
-never touches them – it only picks manual peers from Core's own outbound
-connections. With eight such peers, the inbound share fell to 16%, and the
+Before rotation, inbound connections brought 98% of blocks first. With eight
+manual peers, the inbound share fell to 16%, and the
 manual peers delivered 82% of blocks first. A restart does not throw that away:
 Bitcoin Lab puts the saved manual peers straight back, so the node started
 strong right away – 42 of the first 43 blocks after the restart came first
@@ -50,7 +48,7 @@ connections can matter far more than its size suggests.
 
 Bitcoin Core chooses automatic outbound peers from its address book. Bitcoin Lab
 uses those connections to discover candidates for the eight manual connections
-available through Core's `addnode` interface. Core never fills these eight slots on its
+available through Core's `addnode` interface. Core never fills these slots on its
 own, so on most nodes they sit empty. Filled, your node has 18 outbound
 connections, eight of them chosen by you.
 
@@ -66,7 +64,7 @@ The loop is straightforward:
 
 You can manage peers yourself or enable rotation to run this loop automatically. **Rotation is off by default.** Peers you type in are protected from automatic replacement; the padlock lets you change that protection.
 
-The ranking favours recent blocks and discounts small samples. Rotation judges a peer only after 50 blocks, and a newly promoted peer gets a grace period. Good peers that go offline are parked and tested again later, with their history kept.
+The ranking favours recent blocks and discounts small samples. A newly promoted peer gets a grace period. Good peers that go offline are parked and tested again later, with their history kept.
 
 **Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and all inbound peers are measured and ranked, but left untouched. Wondering whether this makes an eclipse attack easier? [It does not.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
 
