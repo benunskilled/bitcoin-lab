@@ -14,7 +14,7 @@ This gives the two groups different jobs: the manual set holds on to proven peer
 
 A peer needs enough observations to show what it can do. But waiting too long means a strong candidate may disappear before Bitcoin Lab gets the chance to keep it.
 
-The threshold used to be 144 blocks, roughly a day. On the author's node, a peer delivering 15% of blocks was observed for twenty hours, then dropped by Core before it became eligible for promotion.
+The threshold used to be 144 blocks, roughly a day. On my node, a peer delivering 15% of blocks was observed for twenty hours, then dropped by Core before it became eligible for promotion.
 
 The default is now 50 blocks, roughly eight hours. This gives promising peers an earlier chance to earn a manual slot and keeps the search moving when a candidate never delivers first.
 
@@ -24,7 +24,7 @@ An unlucky peer may occasionally be dropped despite having potential. Its histor
 
 A newly promoted peer gets a grace period of 50 blocks in its manual slot. During that time, rotation will not replace it with a stronger candidate.
 
-The count starts at promotion. Without this fresh grace period, two closely ranked peers could repeatedly replace each other before either had time to establish its performance in the slot. That happened on the author's node: two peers traded the same place for hours.
+The count starts at promotion. Without this fresh grace period, two closely ranked peers could repeatedly replace each other before either had time to establish its performance in the slot. That happened on my node: two peers traded the same place for hours.
 
 The grace period prevents those unnecessary swaps. If the peer goes offline, the separate offline rules determine how long its slot stays reserved.
 
@@ -64,7 +64,7 @@ If all eight manual peers are protected, rotation continues searching among auto
 
 A strong inbound peer has already opened a connection that works well for your node. Adding that host as a manual peer means opening an outgoing connection to its listening port. It does not preserve the original session.
 
-On the author's node, a peer delivered blocks first through its inbound connection, using a temporary source port. A manual connection to the same host on port 8333 or 9333 never delivered first, even while both connections were active.
+On my node, a peer delivered blocks first through its inbound connection, using a temporary source port. A manual connection to the same host on port 8333 or 9333 never delivered first, even while both connections were active.
 
 That experience shaped the rule: rotation measures inbound peers but leaves their connections alone. You can still add one manually if you choose.
 
@@ -76,7 +76,7 @@ On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming
 
 ## Does choosing peers make an eclipse attack easier?
 
-No. An eclipse attack needs every one of your node's connections. Bitcoin Lab's manual peers come on top of Core's ten automatic outbound connections, which Core keeps choosing on its own, with the same protections as without Bitcoin Lab. Candidates are only ever peers Core connected to by itself; Bitcoin Lab adds no address you did not type in. Inbound connections are never touched. Rotation only replaces automatic full-relay peers; the two block-relay-only connections Core keeps as anchors are left alone.
+No. An eclipse attack needs every one of your node's connections. If anything, it gets harder: an attacker would also need your manual peers. Bitcoin Lab's manual peers come on top of Core's ten automatic outbound connections, which Core keeps choosing on its own, with the same protections as without Bitcoin Lab. Candidates are only ever peers Core connected to by itself; Bitcoin Lab adds no address you did not type in. Inbound connections are never touched. Rotation only replaces automatic full-relay peers; the two block-relay-only connections Core keeps as anchors are left alone.
 
 Your node still checks every block it receives. A bad peer can hold a block back, but it cannot make your node accept an invalid one. At worst, a weak manual set brings you blocks later, not a different chain.
 

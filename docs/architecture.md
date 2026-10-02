@@ -37,7 +37,7 @@ A pool that does not report the matching job within the race window receives a m
 
 ## Resource use
 
-Measured on the author's Umbrel in September 2026, with peer rotation and Stratum Race enabled and around 200 peers connected to Bitcoin Core: the four processes used about 80 MB of memory together, and Umbrel's app proxy in front of them about as much again. Averaged since start, they used less than 1% of one CPU core.
+Measured on my Umbrel in October 2026, with peer rotation and Stratum Race enabled and around 200 peers connected to Bitcoin Core: the four processes used about 310 MB of memory together. They used almost no CPU.
 
 Historical data is stored in SQLite, with disk usage shown in the dashboard.
 
