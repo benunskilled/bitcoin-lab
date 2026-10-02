@@ -27,19 +27,9 @@ Bitcoin Lab listens for new blocks through Core's ZMQ interface and records the 
 
 Core updates a peer's `last_block` timestamp when it processes a newly accepted block from that peer. Later copies of the same block from other peers do not update their timestamps. Bitcoin Lab matches this signal to the block event to record First.
 
-Two peers can both be credited. `last_block` is a Unix timestamp in whole
-seconds, so two connections that hand over the same block within the same
-second cannot be told apart, and each is credited with a First. Both keep the
-credit rather than sharing half of one, which is why First counts across a
-whole peer set can add up to slightly more than the number of blocks observed.
+Two peers can both be credited: Core notes each peer's last new block only to the second, so Bitcoin Lab credits every peer whose time falls within a short window around the arrival – if another peer's falls there too, both get a First. On my node that happened once in 2,328 blocks (0.04%), and no block was left uncredited. Your own count stands in the dashboard's status line.
 
-How often this happens is a property of your node rather than of this app, and
-it has been measured on one: across 2,206 blocks over sixteen days, twice —
-0.09% — with no block left uncredited. A node sitting closer to the middle of
-the network, or with more well-connected peers, may see it more often, which is
-why your own count stands in the dashboard's status line rather than this
-number. Peer Map's block card names the credited peers for every block, so a
-node where it is common shows it block by block.
+Blocks your node fetches while catching up after being offline are not counted: they arrive several a second from many peers and say nothing about who relays a new block quickly.
 
 This builds a record of which connections actually bring new blocks to your node first.
 
