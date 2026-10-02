@@ -1,5 +1,7 @@
 # Bitcoin Lab
 
+[![Tests](https://github.com/benunskilled/bitcoin-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/benunskilled/bitcoin-lab/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/benunskilled/bitcoin-lab)](https://github.com/benunskilled/bitcoin-lab/releases)
+
 **Ever wondered which of your peers actually brings you new blocks first? Bitcoin Lab measures it on your node.**
 
 Your node may have hundreds of connections. Bitcoin Lab notes for every new
@@ -102,6 +104,7 @@ Stratum Race is off by default on a fresh install. It subscribes to the pools wi
 On **Umbrel**, add the
 [Bitcoin Peer Lab community store](https://github.com/benunskilled/bitcoin-lab-community-store)
 and install **Bitcoin Lab**. It requires the official **Bitcoin Node** app.
+Tested with Bitcoin Core 31.1.
 Open it from Umbrel or at `<your-umbrel>:8790`.
 
 Let Bitcoin Lab just measure for a day or so first: you'll see who delivers blocks to your node as it is, so you can better judge improvements later. Once you switch rotation on, it judges a peer after 50 blocks – roughly eight hours.
