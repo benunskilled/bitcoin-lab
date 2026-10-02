@@ -268,15 +268,66 @@ function timeTemplate(detectedAtMs) {
     });
 }
 
+/**
+ * Is Core catching up rather than following the tip?
+ *
+ * A node that was offline, or whose chain fell behind, fetches the missing
+ * blocks in parallel from many peers, several a second. Every one of them
+ * still fires a hashblock, and every one would be scored as a race - but none
+ * of them was a race. Which peer Core happened to ask for block N says nothing
+ * about who relays a new block quickly, and with whole seconds in last_block
+ * many peers end up "first" together. Noticed on a friend's node after a
+ * resync: a burst of shared Firsts, and a ranking skewed towards whoever had
+ * served the backlog.
+ *
+ * Core knows, three ways. The block itself: by the time this asks, a
+ * catch-up block already has more blocks on top of it (confirmations > 1) -
+ * Core connects a backlog faster than these calls return, which is why the
+ * chain-wide numbers alone were not enough (tried against a real node: 29 of
+ * 30 catch-up blocks still counted). The chain: headers run ahead of blocks
+ * while Core downloads, and initialblockdownload is set while the tip is old.
+ * A block at the tip has one confirmation and headers equal to blocks.
+ */
+function isCatchingUp(info, header) {
+  if (header && Number.isFinite(header.confirmations) && header.confirmations > 1) return true;
+  if (!info) return false;
+  if (info.initialblockdownload === true) return true;
+  return Number.isFinite(info.headers) && Number.isFinite(info.blocks) && info.headers > info.blocks;
+}
+
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   const template = timeTemplate(detectedAtMs);
   let peers;
+  let chain;
+  let header;
   try {
-    peers = await rpc.getPeerInfo();
+    // Side by side: the chain questions must not delay the snapshot, and the
+    // snapshot is what First is read from. If they fail, they only cannot be
+    // asked - the block is then counted as before.
+    const quiet = (what) => (err) => {
+      logger.warn(`${what} failed - counting the block as usual`, { error: err.message });
+      return null;
+    };
+    [peers, chain, header] = await Promise.all([
+      rpc.getPeerInfo(),
+      rpc.getBlockchainInfo().catch(quiet('getblockchaininfo')),
+      rpc.getBlockHeader(blockHash).catch(quiet('getblockheader')),
+    ]);
   } catch (err) {
     logger.error('getpeerinfo failed right after ZMQ hashblock - race lost for this block', {
       blockHash,
       error: err.message,
+    });
+    return;
+  }
+
+  if (isCatchingUp(chain, header)) {
+    logger.info('block not counted - Core is catching up', {
+      blockHash,
+      confirmations: header && header.confirmations,
+      blocks: chain && chain.blocks,
+      headers: chain && chain.headers,
+      initialBlockDownload: !!(chain && chain.initialblockdownload),
     });
     return;
   }
@@ -372,5 +423,5 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  recordRace, handleHashBlock, main, isFirstPeer, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
+  recordRace, handleHashBlock, main, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
 };
