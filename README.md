@@ -60,9 +60,9 @@ The loop is straightforward:
 2. **Keep good candidates.** Add proven peers to your manual selection so Core maintains connections to them. Bitcoin Lab remembers your selection across restarts and restores it when Core comes back online, so it can reconnect to your chosen peers straight away.
 3. **Keep looking.** Disconnect an automatic full-relay outbound peer that has been connected through 50 blocks without delivering one first. Core immediately looks for another candidate to take its place.
 
-https://github.com/user-attachments/assets/72281912-4d8e-4498-bece-fb6cc5080155
+![Peer rotation: from one kept peer to a full manual set](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/rotation.gif)
 
-*Rotation, from a single kept peer to a full manual set. Simulated peers, the real rules.*
+*Rotation as an animation, from a single kept peer to a full manual set. Simulated peers, the real rules. [Watch the full video](https://github.com/user-attachments/assets/72281912-4d8e-4498-bece-fb6cc5080155).*
 
 You can manage peers yourself or enable rotation to run this loop automatically. **Rotation is off by default.** Peers you type in are protected from automatic replacement; the padlock lets you change that protection.
 
