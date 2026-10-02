@@ -325,6 +325,26 @@ async function main() {
       `one machine, so the offset should be ~0, got ${reading.offsetMs}ms`);
   });
 
+  // A node that fell behind fetches the gap in a burst; those blocks are not
+  // races. Taken off the network, the watched node misses 30 blocks, then
+  // catches up from the miner - and only the block at the tip may be scored.
+  await check('blocks fetched while catching up are not scored as races', async () => {
+    const before = db.instance.prepare('SELECT COUNT(*) AS n FROM relay_race').get().n;
+    const startHeight = cli(NODES.watched, 'getblockcount');
+    cli(NODES.watched, 'setnetworkactive', 'false');
+    await waitFor('the watched node offline', () => cli(NODES.watched, 'getconnectioncount') === 0, { timeoutMs: 20000 });
+    const burst = cli(NODES.miner, 'generatetoaddress', '30', minerAddress);
+    const tip = burst[burst.length - 1];
+    cli(NODES.watched, 'setnetworkactive', 'true');
+    await waitFor('the watched node caught up', () => cli(NODES.watched, 'getbestblockhash') === tip, { timeoutMs: 60000 });
+    await new Promise((r) => setTimeout(r, 3000));
+    const scored = db.instance.prepare('SELECT COUNT(*) AS n FROM relay_race').get().n - before;
+    const caughtUp = cli(NODES.watched, 'getblockcount') - startHeight;
+    assert.equal(caughtUp, 30, `the node caught up 30 blocks, got ${caughtUp}`);
+    assert.ok(scored <= 1, `at most the tip block is scored, got ${scored} of 30`);
+    log(`       (${scored} of 30 scored)`);
+  });
+
   // ---- sessions ----------------------------------------------------------
   await check('the peer profiler records a session for the live peer', async () => {
     await peerProfiler.pollOnce();

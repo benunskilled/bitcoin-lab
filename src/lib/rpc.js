@@ -262,6 +262,7 @@ module.exports = {
   getRawTransaction: (txid, blockHash) =>
     call('getrawtransaction', [txid, true, blockHash], { timeoutMs: 20000 }),
   getBlockCount: () => call('getblockcount'),
+  getBlockchainInfo: () => call('getblockchaininfo'),
   addNode: (nodeAddr, command = 'add') => call('addnode', [nodeAddr, command]),
   disconnectNode: (addressOrId) => {
     // addnode-style address string vs numeric peer id
