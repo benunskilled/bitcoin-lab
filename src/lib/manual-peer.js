@@ -156,7 +156,9 @@ function evictionNote(result) {
   return {
     warning:
       `all ${result.max} manual slots were taken, so ${result.evicted.address} (${pct}) ` +
-      `was removed to make room - it will be re-tested and can come back on its own.`,
+      (result.evicted.parked
+        ? 'was removed to make room - it will be re-tested and can come back on its own.'
+        : 'was removed to make room. It had no record yet, so it is not kept for re-testing.'),
   };
 }
 
