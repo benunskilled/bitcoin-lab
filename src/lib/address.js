@@ -145,7 +145,37 @@ function ipv4InCidr(ip, cidr) {
   return (ipv4ToInt(ip) & mask) === (ipv4ToInt(rangeIp) & mask);
 }
 
+// The port Core fills in for an address given without one - the network's
+// default P2P port, the same rule CService uses.
+const DEFAULT_PORTS = { mainnet: 8333, main: 8333, testnet: 18333, test: 18333, testnet4: 48333, signet: 38333, regtest: 18444 };
+
+/**
+ * One spelling per peer, for comparing addresses - never for storing or for
+ * an RPC, which keep the address as it was given.
+ *
+ * Core treats `[2a01:4f8::1]:8333` and `[2a01:4f8:0:0::1]:8333` as the same
+ * node, and a bare host as that host on the default port: an `addnode` of
+ * the second spelling answers "Node already added". Comparing strings, the
+ * app saw two peers - adopted the one Core echoed back as a second row,
+ * counted it against the eight, and could evict a real peer to make room.
+ * The key lower-cases, compresses IPv6 the way URL does, and fills in the
+ * default port.
+ */
+function addressKey(address, network = 'mainnet') {
+  const { addr, port } = resolveHostPort(String(address || '').trim());
+  let host = addr.toLowerCase();
+  if (host.includes(':')) {
+    try {
+      host = new URL(`http://[${host}]/`).hostname.slice(1, -1);
+    } catch {
+      // not an IPv6 literal after all - compare it as written
+    }
+  }
+  return formatAddress(host, port || DEFAULT_PORTS[network] || 8333);
+}
+
 module.exports = {
+  addressKey,
   resolveHostPort,
   unreachableNetwork,
   formatAddress,
