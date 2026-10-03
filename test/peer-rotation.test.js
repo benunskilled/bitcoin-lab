@@ -1354,3 +1354,18 @@ test('in a swap the challenger is added before the weakest is removed', async ()
   // Still connected when it lost the slot, so not parked - as before.
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
 });
+
+test('dead parked peers that are not due yet do not crowd out one that is', async () => {
+  // Three per tick were picked by "longest unchecked" and only then filtered
+  // for being due, so three long-dead addresses waiting out their backoff
+  // took every place and a good peer due now was never knocked on.
+  for (let i = 0; i < 3; i++) seedParked({ firstPct: 0, probeFailures: 10, lastProbeAt: Date.now() - 20 * HOUR });
+  const good = seedParked({ firstPct: 30, lastProbeAt: Date.now() - HOUR });
+  const probed = [];
+  mock.method(manualPeer, 'probePort', async (host, port) => { probed.push(`${host}:${port}`); return true; });
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.deepEqual(probed, [good]);
+  assert.equal(revived, 1);
+});
