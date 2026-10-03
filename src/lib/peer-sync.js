@@ -317,6 +317,7 @@ async function addTrustedPeer(address, label, options = {}) {
   await disconnectIfLiveNonManual(address);
 
   // The one step that can be refused.
+  let alreadyInCore = false;
   try {
     await rpc.addNode(address, 'add');
   } catch (err) {
@@ -330,20 +331,53 @@ async function addTrustedPeer(address, label, options = {}) {
       return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: err.message };
     }
     logger.debug('addnode call while trusting peer', { address, error: err.message });
+    alreadyInCore = true;
   }
 
-  db.instance
-    .prepare(
-      `INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(address) DO UPDATE SET label = excluded.label,
-       -- Re-adding by hand can set the star, but re-adding must never CLEAR
-       -- one: the rotation calls this too (adopting a peer Core already knows,
-       -- reviving a parked one), and those calls pass kept=false. Taking the
-       -- star off is the star's own control, not a side effect of something
-       -- else touching the row.
-       kept = CASE WHEN excluded.kept = 1 THEN 1 ELSE trusted_peer.kept END`,
-    )
-    .run(address, label || null, kept ? 1 : 0, Date.now());
+  // The count again, in the same write transaction as the row. The one above
+  // was read before two RPCs; another add - from the dashboard, from the
+  // rotation in the other process - can have taken the last slot in the
+  // meantime, and both used to write their row. IMMEDIATE takes the write
+  // lock first, so no other writer can slip between this count and the
+  // insert. A slot being freed by our own eviction below still counts as
+  // taken here, which is why the limit is one higher when there is one.
+  const limit = config.maxManualPeers + (toEvict ? 1 : 0);
+  const written = db.instance.transaction(() => {
+    const exists = db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address);
+    if (!exists && countTrusted() >= limit) return false;
+    db.instance
+      .prepare(
+        `INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(address) DO UPDATE SET label = excluded.label,
+         -- Re-adding by hand can set the star, but re-adding must never CLEAR
+         -- one: the rotation calls this too (adopting a peer Core already knows,
+         -- reviving a parked one), and those calls pass kept=false. Taking the
+         -- star off is the star's own control, not a side effect of something
+         -- else touching the row.
+         kept = CASE WHEN excluded.kept = 1 THEN 1 ELSE trusted_peer.kept END`,
+      )
+      .run(address, label || null, kept ? 1 : 0, Date.now());
+    return true;
+  }).immediate();
+
+  if (!written) {
+    // Lost the race for the last slot. Core was already told to add it, so it
+    // is told to drop it again - unless the entry was Core's before we came.
+    if (!alreadyInCore) {
+      try {
+        await rpc.addNode(address, 'remove');
+      } catch (err) {
+        logger.debug('addnode remove after losing the last slot', { address, error: err.message });
+      }
+    }
+    logger.warn('manual slot taken while adding, nothing written', { address, max: config.maxManualPeers });
+    return {
+      ok: false,
+      count: countTrusted(),
+      max: config.maxManualPeers,
+      error: `all ${config.maxManualPeers} manual slots are taken`,
+    };
+  }
 
   // A manual peer must exist in `peer` too, even if Core has never reported a
   // session for it. peerRanking() is driven FROM peer, so without this row the
