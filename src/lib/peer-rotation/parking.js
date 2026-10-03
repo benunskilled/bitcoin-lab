@@ -20,7 +20,8 @@ const config = require('../config');
 const queries = require('../queries');
 const peerSync = require('../peer-sync');
 const manualPeer = require('../manual-peer');
-const { wilsonLowerBound } = require('../score');
+const { wilsonLowerBound, peerScore } = require('../score');
+const { recentRelayStats } = require('../queries/peer-ranking');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
 const {
@@ -199,28 +200,15 @@ async function reviveParkedPeers(ranking) {
     let replaced = null;
     if (trusted.length >= config.maxManualPeers) {
       const weakest = queries.weakestTrustedPeer(evictableTrusted(trusted));
-      // Lifetime against lifetime here, on both sides, rather than the peer
-      // score either side would otherwise be judged by.
+      // The same score on both sides - the one promote.js swaps on.
       //
-      // A parked peer has been offline by definition, so it has no recent
-      // window at all - and a peer with an empty window scores exactly its
-      // lifetime figure (see score.js). The parked side is therefore already a
-      // lifetime figure whatever we choose to call it. The holder is the side
-      // that has to be converted: it is live, its window is full, so its score
-      // is what it has done in the last few days and nothing else. Comparing
-      // those two as they stand would not be one peer against another, it
-      // would be one peer's whole life against another's last three days -
-      // and which of the two that flattered would depend on nothing but which
-      // one happened to be parked.
-      //
-      // The counts are reconstructed from what parking stored (a percentage
-      // and a sample size). That loses a fraction of a block to rounding and
-      // decides nothing at this margin.
-      const parkedLifetime = wilsonLowerBound(
-        Math.round(((parked.firstPct || 0) / 100) * (parked.eligible || 0)),
-        parked.eligible || 0,
-      );
-      if (!weakest || !beatsHolder(parkedLifetime, wilsonLowerBound(weakest.first, weakest.eligible))) {
+      // This compared lifetime against lifetime, on the argument that a
+      // parked peer has no recent window. It usually does: a peer is parked
+      // the moment it stops being a manual one, and its observations up to
+      // then are still in relay_observation. Reading only its lifetime let an
+      // old record win the slot back from a holder delivering 15% right now
+      // with a peer delivering 1% - see parkedScore below.
+      if (!weakest || !beatsHolder(parkedScore(parked), weakest.score)) {
         // Reachable but not worth a slot right now - leave it parked for a
         // better moment. Also lands here when every slot is still inside its
         // new-peer grace.
@@ -228,7 +216,10 @@ async function reviveParkedPeers(ranking) {
         continue;
       }
       await peerSync.removeTrustedPeer(weakest.address);
-      peerSync.parkPeer(weakest);
+      // Parking is for a peer that is gone, as in promote.js. A displaced peer
+      // that is still connected keeps being measured as an ordinary one and
+      // has to earn a slot again; parked, it would come back on its record.
+      if (!weakest.live) peerSync.parkPeer(weakest);
       trusted.splice(trusted.indexOf(weakest), 1);
       replaced = weakest;
     }
@@ -276,6 +267,36 @@ async function reviveParkedPeers(ranking) {
   }
 
   return revived;
+}
+
+/**
+ * A parked peer's score, computed the way peerRanking() computes every live
+ * one: its whole record and its share of the recent window, from the rows its
+ * address still has. Only a peer whose rows are gone - a reset since, or
+ * history pruned - falls back to the lifetime figure parking stored, which is
+ * also what peerScore gives a peer with an empty window.
+ */
+function parkedScore(parked) {
+  const row = db.instance
+    .prepare(
+      `SELECT p.id, s.first, s.eligible FROM peer p
+         JOIN peer_relay_stats s ON s.peer_id = p.id
+        WHERE p.address = ? AND s.eligible > 0`,
+    )
+    .get(parked.address);
+  if (!row) {
+    return wilsonLowerBound(
+      Math.round(((parked.firstPct || 0) / 100) * (parked.eligible || 0)),
+      parked.eligible || 0,
+    );
+  }
+  const recent = recentRelayStats().get(row.id);
+  return peerScore({
+    first: row.first,
+    eligible: row.eligible,
+    recentFirst: recent ? recent.first : 0,
+    recentEligible: recent ? recent.eligible : 0,
+  });
 }
 
 function parkedPeers() {
