@@ -257,16 +257,19 @@ async function dropDuplicateInboundSessions(peers) {
  * capacity was still done up front, so a refused addnode left the manual set
  * one peer smaller than it started, with no mention of it anywhere.
  *
- * So `addnode add` now goes FIRST, before any of our own state moves. Core's
+ * So `addnode add` now comes before any of our own state moves - with one
+ * exception, which goes before it: a live non-manual session to the same host
+ * is disconnected first, because Core will not dial a host it is already
+ * connected to (see the comment at that call for what that costs). Core's
  * addnode list holds more entries than the eight connections it will maintain
  * (MAX_ADDNODE_CONNECTIONS caps concurrent connections, not list length), so a
- * momentary ninth entry is harmless and is resolved by the eviction two lines
- * later. If the call is refused, we return having touched nothing at all:
- * no row, no eviction, no dropped connection.
+ * momentary ninth entry is harmless and is resolved by the eviction below. If
+ * the call is refused, we return with no row written and nothing evicted.
  *
- * Only then, in order: record the peer, take the slot back from the weakest
- * current manual peer if one was needed, and finally disconnect whatever stale
- * non-manual session the new peer still has so Core redials it as a manual one.
+ * Only then, in order: count the slots again and record the peer in one
+ * IMMEDIATE transaction - another add may have taken the last slot during the
+ * RPCs, and then nothing is written and the addnode is taken back - and
+ * finally take the slot back from the peer being replaced, if there is one.
  *
  * `evictToFit` is off by default because the rotation loop does its own,
  * stricter capacity arithmetic (a promotion must beat the peer it replaces);
