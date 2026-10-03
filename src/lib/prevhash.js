@@ -50,4 +50,19 @@ function encodings(hex) {
   return [...new Set(out)];
 }
 
-module.exports = { encodings };
+/**
+ * One spelling for all of them: the lowest of the encodings, lower case.
+ *
+ * The race worker keys a race on this, so a pool that sends the hash in upper
+ * case, or in another of the orders above, joins the race the others opened
+ * instead of opening a second one for the same block - where it would always
+ * come first. Being one of the encodings, it is still found by every lookup
+ * that tries them all. Anything that is not a 64-digit hex string is returned
+ * as it came.
+ */
+function canonical(hex) {
+  const all = encodings(hex);
+  return all.length ? all.sort()[0] : hex;
+}
+
+module.exports = { encodings, canonical };
