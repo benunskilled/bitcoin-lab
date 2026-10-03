@@ -245,14 +245,58 @@ function logOfflineTrustedPeers() {
   }
 }
 
+/**
+ * Did Core restart since the last poll?
+ *
+ * Core forgets every addnode when it restarts, and the manual peers used to
+ * come back only with the next 10-minute sync - up to ten minutes in which a
+ * node that had just restarted sat on random connections, the opposite of
+ * what the saved set is for. Two signs, checked on every 15-second poll:
+ * Core's uptime went down, or Core answers again after not answering. The
+ * very first poll after this process starts says nothing - main() has just
+ * synced.
+ */
+const coreState = { uptime: null, down: false };
+
+function coreRestarted({ ok, uptime = null }) {
+  if (!ok) {
+    coreState.down = true;
+    return false;
+  }
+  const restarted = coreState.down || (coreState.uptime != null && uptime != null && uptime < coreState.uptime);
+  coreState.down = false;
+  if (uptime != null) coreState.uptime = uptime;
+  return restarted;
+}
+
+let restoring = null;
+function restoreAfterCoreRestart() {
+  if (restoring) return restoring;
+  logger.info('Bitcoin Core restarted - restoring the manual peers now');
+  restoring = adoptExternalManualPeers()
+    .then((adoptResult) => syncTrustedToAddnode(adoptResult.addedNodes))
+    .then((result) => logger.info('restored manual peers after Core restart', result))
+    .catch((err) => logger.warn('restoring manual peers after Core restart failed', { error: err.message }))
+    .finally(() => { restoring = null; });
+  return restoring;
+}
+
 async function pollOnce() {
   let peers;
   try {
     peers = await rpc.getPeerInfo();
   } catch (err) {
+    coreRestarted({ ok: false });
     logger.warn('getpeerinfo failed', { error: err.message });
     return;
   }
+  let uptime = null;
+  try {
+    uptime = await rpc.call('uptime');
+  } catch (err) {
+    logger.debug('uptime reading failed', { error: err.message });
+  }
+  if (coreRestarted({ ok: true, uptime })) restoreAfterCoreRestart();
   // Traffic rides on the same poll: getnettotals is one small call.
   try {
     traffic.record({ totals: await rpc.call('getnettotals') });
@@ -358,7 +402,8 @@ async function main() {
 
   // Safety net: re-run both directions periodically - re-assert trusted
   // peers as addnodes in case Core forgot them across a restart of the
-  // bitcoin app itself, and adopt anything newly addnode'd outside this app
+  // bitcoin app itself (pollOnce restores them at once when it notices the
+  // restart; this catches one it did not see), and adopt anything newly addnode'd outside this app
   // (e.g. a direct `bitcoin-cli addnode` call) since the last pass.
   setInterval(() => {
     adoptExternalManualPeers()
@@ -386,4 +431,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { upsertSessions, logOfflineTrustedPeers, pollOnce, runMaintenance, main };
+module.exports = { upsertSessions, logOfflineTrustedPeers, pollOnce, runMaintenance, main, coreRestarted, restoreAfterCoreRestart, _coreState: coreState };

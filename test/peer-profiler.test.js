@@ -238,3 +238,35 @@ test('a poll without the fields keeps what an earlier poll recorded', () => {
   upsertSessions([{ ...corePeer({ id: 9, conntimeSecondsAgo: 120 }), synced_headers: 900010 }]);
   assert.equal(flags()[0].synced_headers, 900010);
 });
+
+test('a Core restart is noticed on the next poll, and the manual peers go back at once', async () => {
+  const { mock } = require('node:test');
+  const rpc = require('../src/lib/rpc');
+  const profiler = require('../src/peer-profiler');
+  const state = profiler._coreState;
+  state.uptime = null; state.down = false;
+
+  // The pure rule first: uptime falling, or Core answering again after it did not.
+  assert.equal(profiler.coreRestarted({ ok: true, uptime: 5000 }), false, 'first reading says nothing');
+  assert.equal(profiler.coreRestarted({ ok: true, uptime: 5015 }), false);
+  assert.equal(profiler.coreRestarted({ ok: true, uptime: 12 }), true, 'uptime went down');
+  assert.equal(profiler.coreRestarted({ ok: false }), false);
+  assert.equal(profiler.coreRestarted({ ok: true, uptime: 3 }), true, 'answering again after not answering');
+
+  // And through pollOnce: Core has forgotten its addnodes; the saved one is put back.
+  db.instance.prepare(`INSERT OR IGNORE INTO trusted_peer (address, label, kept, created_at) VALUES ('198.51.100.77:8333', NULL, 1, 1)`).run();
+  const added = [];
+  let uptime = 900;
+  mock.method(rpc, 'getPeerInfo', async () => []);
+  mock.method(rpc, 'getAddedNodeInfo', async () => []);
+  mock.method(rpc, 'addNode', async (a, c) => { added.push(`${c} ${a}`); });
+  mock.method(rpc, 'call', async (m) => (m === 'uptime' ? uptime : { totalbytesrecv: 0, totalbytessent: 0, timemillis: Date.now() }));
+  await profiler.pollOnce();
+  assert.deepEqual(added, [], 'no restart seen yet');
+  uptime = 4;
+  await profiler.pollOnce();
+  await profiler.restoreAfterCoreRestart();
+  assert.ok(added.includes('add 198.51.100.77:8333'), added.join(', '));
+  mock.restoreAll();
+  db.instance.prepare(`DELETE FROM trusted_peer WHERE address = '198.51.100.77:8333'`).run();
+});
