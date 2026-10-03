@@ -26,9 +26,10 @@ const { MIN_ELIGIBLE_FOR_JUDGEMENT, evictableTrusted, beatsHolder } = require('.
  * swap branch - the only thing that ever removes a manual peer - was
  * unreachable the entire time.
  *
- * `ranking` is already sorted by lifetime firstPct DESC (see
- * queries.peerRanking's own ORDER BY), so within each filtered list here
- * the first entry is already the best one - no separate sort needed.
+ * `ranking` is already sorted by peer score, best first (queries.peerRanking
+ * sorts in JavaScript, because the score blends the recent window, which the
+ * SQL does not have), so within each filtered list here the first entry is
+ * already the best one - no separate sort needed.
  */
 async function promoteBestCandidate(ranking) {
   const trusted = ranking.filter((p) => p.trusted);
