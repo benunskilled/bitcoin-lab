@@ -158,6 +158,57 @@ function readBody(req) {
   });
 }
 
+/**
+ * Whether a write may come in at all - answered before its body is read.
+ *
+ * The dashboard has no login of its own; the Umbrel session cookie in front of
+ * it is the only thing between this API and anyone, and a browser sends that
+ * cookie with a request another site makes it send. readBody parses whatever
+ * arrives as JSON, so an HTML form posting `{"scope":"peers","x":"=` + `"}` as
+ * text/plain could reset the measurements, disconnect peers or flip the
+ * rotation from any page the operator happened to open.
+ *
+ * Two rules, either of which stops that on its own:
+ *
+ *   - The body must be declared application/json. A form cannot say that, and
+ *     a script on another origin that does is held for a CORS preflight, which
+ *     this server never answers.
+ *   - The request must come from this page. Sec-Fetch-Site is set by the
+ *     browser and cannot be forged by a page; where a browser does not send it,
+ *     the Origin must name the host the request was addressed to - or, behind
+ *     Umbrel's app proxy, the host it was forwarded for.
+ *
+ * A request with neither header is let through: that is curl or a script on
+ * the node, not a browser carrying somebody's cookie.
+ *
+ * Returns null when the write may proceed, otherwise [status, message].
+ */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function refuseWrite(req) {
+  if (!WRITE_METHODS.has(req.method)) return null;
+  const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  if (type !== 'application/json') {
+    return [415, 'writes must be sent as application/json'];
+  }
+  const site = req.headers['sec-fetch-site'];
+  if (site) {
+    return site === 'same-origin' || site === 'none' ? null : [403, 'cross-site requests are not accepted'];
+  }
+  const origin = req.headers.origin;
+  if (!origin) return null;
+  let originHost;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return [403, 'cross-site requests are not accepted'];
+  }
+  const hosts = [req.headers.host, ...String(req.headers['x-forwarded-host'] || '').split(',')]
+    .map((h) => (h || '').trim())
+    .filter(Boolean);
+  return hosts.includes(originHost) ? null : [403, 'cross-site requests are not accepted'];
+}
+
 function serveStatic(req, res, pathname) {
   const rel = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
@@ -612,8 +663,8 @@ async function router(req, res, pathname, url) {
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
       routeMedian: queries.routeMedian(),
-      // Every address ever credited with a First, so Peer Map can tint the
-      // rows of the connections that have actually brought a block.
+      // Every connected address ever credited with a First, so Peer Map can
+      // tint the rows of the connections that have actually brought a block.
       deliveredEver: queries.deliveredEver(),
     });
   }
@@ -717,7 +768,9 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'POST' && pathname === '/api/rotation/toggle') {
     const { enabled } = await readBody(req);
-    peerRotation.setEnabled(Boolean(enabled));
+    // Only a real boolean, as on the pool route: Boolean("false") is true.
+    if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be true or false' });
+    peerRotation.setEnabled(enabled);
     return sendJson(res, 200, { ok: true, enabled: peerRotation.isEnabled() });
   }
 
@@ -734,7 +787,8 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'POST' && pathname === '/api/stratum/toggle') {
     const { enabled } = await readBody(req);
-    stratumRace.setEnabled(Boolean(enabled));
+    if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be true or false' });
+    stratumRace.setEnabled(enabled);
     // The worker closes or opens its sockets on its own 30-second check - this
     // process has no way to reach into it, and should not have one.
     return sendJson(res, 200, { ok: true, enabled: stratumRace.isEnabled() });
@@ -820,6 +874,12 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (pathname.startsWith('/api/')) {
+      const refused = refuseWrite(req);
+      if (refused) {
+        logger.warn('refused a write', { path: pathname, status: refused[0], origin: req.headers.origin || null });
+        sendJson(res, refused[0], { error: refused[1] });
+        return;
+      }
       const handled = await router(req, res, pathname, url);
       if (handled === null) sendJson(res, 404, { error: 'not found' });
       return;

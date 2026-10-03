@@ -147,12 +147,22 @@ test('formatAddress brackets an IPv6 addr the same way Core itself does, leaves 
   assert.equal(formatAddress('::1', 9333), '[::1]:9333');
 });
 
-test('Add as Manual accepts bracketed IPv6 input end-to-end (previously rejected outright)', async () => {
+test('Add as Manual accepts bracketed IPv6 input end-to-end (previously rejected outright)', async (t) => {
   const server = net.createServer(() => {});
-  await new Promise((resolve, reject) => {
-    server.on('error', reject);
-    server.listen(0, '::1', resolve);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.on('error', reject);
+      server.listen(0, '::1', resolve);
+    });
+  } catch (err) {
+    // A machine or container without IPv6 has no ::1 to listen on. That says
+    // nothing about this code, so the test is skipped there, not failed.
+    if (err.code === 'EAFNOSUPPORT' || err.code === 'EADDRNOTAVAIL') {
+      t.skip(`no IPv6 loopback here (${err.code})`);
+      return;
+    }
+    throw err;
+  }
   const port = server.address().port;
   const input = `[::1]:${port}`;
   try {

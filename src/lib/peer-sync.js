@@ -109,15 +109,27 @@ async function adoptExternalManualPeers() {
   const known = new Set(
     db.instance.prepare(`SELECT address FROM trusted_peer`).all().map((r) => r.address),
   );
+  // Protected on the way in. An addnode this app did not issue is somebody's
+  // choice - a bitcoin.conf line, a peer set in Umbrel's settings - and an
+  // unprotected row is one the rotation may later `addnode remove`, undoing
+  // that choice behind the person's back.
   const insert = db.instance.prepare(
-    `INSERT OR IGNORE INTO trusted_peer (address, label, created_at) VALUES (?, NULL, ?)`,
+    `INSERT OR IGNORE INTO trusted_peer (address, label, kept, created_at) VALUES (?, NULL, 1, ?)`,
   );
 
   const now = Date.now();
   let adopted = 0;
+  const skipped = [];
   for (const { addednode } of addedNodes) {
     if (!addednode || known.has(addednode)) continue;
+    // Never past the limit. Core keeps its own list either way; what does not
+    // fit is only left out of ours, and said so in the log.
+    if (known.size >= config.maxManualPeers) {
+      skipped.push(addednode);
+      continue;
+    }
     insert.run(addednode, now);
+    known.add(addednode);
     // Same reason as in addTrustedPeer: a manual peer with no `peer` row is
     // invisible to peerRanking(), so no rotation pass can ever see it while it
     // still occupies one of the eight slots. An addnode entry Core has never
@@ -125,6 +137,12 @@ async function adoptExternalManualPeers() {
     db.getOrCreatePeer(addednode);
     adopted += 1;
     logger.info('adopted externally-managed manual peer into trusted_peer', { address: addednode });
+  }
+  if (skipped.length > 0) {
+    logger.warn('manual peer limit reached, addnode entries not adopted', {
+      max: config.maxManualPeers,
+      skipped,
+    });
   }
   // Handed back so syncTrustedToAddnode, which always runs straight after
   // this, doesn't have to ask Core for the same list a second time.
@@ -239,16 +257,19 @@ async function dropDuplicateInboundSessions(peers) {
  * capacity was still done up front, so a refused addnode left the manual set
  * one peer smaller than it started, with no mention of it anywhere.
  *
- * So `addnode add` now goes FIRST, before any of our own state moves. Core's
+ * So `addnode add` now comes before any of our own state moves - with one
+ * exception, which goes before it: a live non-manual session to the same host
+ * is disconnected first, because Core will not dial a host it is already
+ * connected to (see the comment at that call for what that costs). Core's
  * addnode list holds more entries than the eight connections it will maintain
  * (MAX_ADDNODE_CONNECTIONS caps concurrent connections, not list length), so a
- * momentary ninth entry is harmless and is resolved by the eviction two lines
- * later. If the call is refused, we return having touched nothing at all:
- * no row, no eviction, no dropped connection.
+ * momentary ninth entry is harmless and is resolved by the eviction below. If
+ * the call is refused, we return with no row written and nothing evicted.
  *
- * Only then, in order: record the peer, take the slot back from the weakest
- * current manual peer if one was needed, and finally disconnect whatever stale
- * non-manual session the new peer still has so Core redials it as a manual one.
+ * Only then, in order: count the slots again and record the peer in one
+ * IMMEDIATE transaction - another add may have taken the last slot during the
+ * RPCs, and then nothing is written and the addnode is taken back - and
+ * finally take the slot back from the peer being replaced, if there is one.
  *
  * `evictToFit` is off by default because the rotation loop does its own,
  * stricter capacity arithmetic (a promotion must beat the peer it replaces);
@@ -259,7 +280,12 @@ async function addTrustedPeer(address, label, options = {}) {
   // the rotation promoted. Typing an address in is already the decision - the
   // loop's own promotions are not, and must stay swappable or it would freeze
   // itself out of every slot it ever filled.
-  const { evictToFit = false, kept = false } = options;
+  // `replace` is the rotation's own swap: it has already chosen whom the new
+  // peer displaces, by its stricter rule, and only needs the order done right
+  // - the new peer in first, the old one out only once that has worked.
+  // `parkEvicted` is false for a displaced peer that is still connected,
+  // which promote.js does not park.
+  const { evictToFit = false, kept = false, replace = null, parkEvicted = true } = options;
   const alreadyTrusted = Boolean(
     db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address),
   );
@@ -268,7 +294,9 @@ async function addTrustedPeer(address, label, options = {}) {
   let toEvict = null;
   if (!alreadyTrusted) {
     const count = countTrusted();
-    if (count >= config.maxManualPeers) {
+    if (count >= config.maxManualPeers && replace && replace.address !== address) {
+      toEvict = replace;
+    } else if (count >= config.maxManualPeers) {
       if (!evictToFit) {
         return { ok: false, count, max: config.maxManualPeers, error: `all ${config.maxManualPeers} manual slots are taken` };
       }
@@ -299,6 +327,7 @@ async function addTrustedPeer(address, label, options = {}) {
   await disconnectIfLiveNonManual(address);
 
   // The one step that can be refused.
+  let alreadyInCore = false;
   try {
     await rpc.addNode(address, 'add');
   } catch (err) {
@@ -312,20 +341,53 @@ async function addTrustedPeer(address, label, options = {}) {
       return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: err.message };
     }
     logger.debug('addnode call while trusting peer', { address, error: err.message });
+    alreadyInCore = true;
   }
 
-  db.instance
-    .prepare(
-      `INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(address) DO UPDATE SET label = excluded.label,
-       -- Re-adding by hand can set the star, but re-adding must never CLEAR
-       -- one: the rotation calls this too (adopting a peer Core already knows,
-       -- reviving a parked one), and those calls pass kept=false. Taking the
-       -- star off is the star's own control, not a side effect of something
-       -- else touching the row.
-       kept = CASE WHEN excluded.kept = 1 THEN 1 ELSE trusted_peer.kept END`,
-    )
-    .run(address, label || null, kept ? 1 : 0, Date.now());
+  // The count again, in the same write transaction as the row. The one above
+  // was read before two RPCs; another add - from the dashboard, from the
+  // rotation in the other process - can have taken the last slot in the
+  // meantime, and both used to write their row. IMMEDIATE takes the write
+  // lock first, so no other writer can slip between this count and the
+  // insert. A slot being freed by our own eviction below still counts as
+  // taken here, which is why the limit is one higher when there is one.
+  const limit = config.maxManualPeers + (toEvict ? 1 : 0);
+  const written = db.instance.transaction(() => {
+    const exists = db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address);
+    if (!exists && countTrusted() >= limit) return false;
+    db.instance
+      .prepare(
+        `INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(address) DO UPDATE SET label = excluded.label,
+         -- Re-adding by hand can set the star, but re-adding must never CLEAR
+         -- one: the rotation calls this too (adopting a peer Core already knows,
+         -- reviving a parked one), and those calls pass kept=false. Taking the
+         -- star off is the star's own control, not a side effect of something
+         -- else touching the row.
+         kept = CASE WHEN excluded.kept = 1 THEN 1 ELSE trusted_peer.kept END`,
+      )
+      .run(address, label || null, kept ? 1 : 0, Date.now());
+    return true;
+  }).immediate();
+
+  if (!written) {
+    // Lost the race for the last slot. Core was already told to add it, so it
+    // is told to drop it again - unless the entry was Core's before we came.
+    if (!alreadyInCore) {
+      try {
+        await rpc.addNode(address, 'remove');
+      } catch (err) {
+        logger.debug('addnode remove after losing the last slot', { address, error: err.message });
+      }
+    }
+    logger.warn('manual slot taken while adding, nothing written', { address, max: config.maxManualPeers });
+    return {
+      ok: false,
+      count: countTrusted(),
+      max: config.maxManualPeers,
+      error: `all ${config.maxManualPeers} manual slots are taken`,
+    };
+  }
 
   // A manual peer must exist in `peer` too, even if Core has never reported a
   // session for it. peerRanking() is driven FROM peer, so without this row the
@@ -344,7 +406,7 @@ async function addTrustedPeer(address, label, options = {}) {
   let evicted = null;
   if (toEvict) {
     await removeTrustedPeer(toEvict.address);
-    parkPeer(toEvict);
+    if (parkEvicted) parkPeer(toEvict);
     evicted = toEvict;
     logger.info('freed a manual slot to stay within the cap', {
       removed: evicted.address,

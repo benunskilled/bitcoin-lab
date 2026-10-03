@@ -16,6 +16,7 @@ const { isValidHost, isValidPort } = require('./lib/validate');
 const logger = require('./lib/logger').make('stratum-race');
 const { StratumPoolConnection } = require('./lib/stratum-client');
 const toggle = require('./lib/stratum-race-toggle');
+const { canonical } = require('./lib/prevhash');
 
 // Pools only ever change through the dashboard, and a few minutes' delay in
 // noticing that is imperceptible - this used to run every 30 seconds, which
@@ -201,7 +202,8 @@ function syncConnections() {
   }
 }
 
-function finalizeRace(prevhash) {
+function finalizeRace(hash) {
+  const prevhash = canonical(hash);
   const race = openRaces.get(prevhash);
   if (!race) return;
   openRaces.delete(prevhash);
@@ -273,8 +275,11 @@ function finalizeAllRaces() {
  * mismeasured, and nobody is charged a miss for it - which is the right way
  * round. The alternative is timing a socket handshake and calling it a pool.
  */
-function handleNotify(pool, prevhash, receivedAtHr, receivedAtMs = Date.now(), firstAfterConnect = false) {
-  if (!prevhash) return;
+function handleNotify(pool, hash, receivedAtHr, receivedAtMs = Date.now(), firstAfterConnect = false) {
+  if (!hash) return;
+  // One key per block, whatever case or word order this pool writes it in -
+  // see prevhash.canonical. Everything below, the stored race included, uses it.
+  const prevhash = canonical(hash);
 
   let race = openRaces.get(prevhash);
 

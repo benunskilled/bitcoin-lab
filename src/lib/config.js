@@ -92,8 +92,9 @@ module.exports = {
   // still frees that one on the offline grace below.
   newManualGraceBlocks: Number(pick(process.env.NEW_MANUAL_PEER_GRACE_BLOCKS, '50')),
 
-  // How much better a challenger must be, in percentage points of First %,
-  // before taking a manual slot away from someone is worth the churn.
+  // How much better a challenger must be, in points of the peer score (see
+  // score.js - a Wilson lower bound in percent, not the raw First %), before
+  // taking a manual slot away from someone is worth the churn.
   // "Strictly better" was too weak: 0.6% displacing 0.4% costs a disconnect and
   // an addnode for a difference of one block in five hundred.
   //

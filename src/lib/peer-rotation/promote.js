@@ -26,9 +26,10 @@ const { MIN_ELIGIBLE_FOR_JUDGEMENT, evictableTrusted, beatsHolder } = require('.
  * swap branch - the only thing that ever removes a manual peer - was
  * unreachable the entire time.
  *
- * `ranking` is already sorted by lifetime firstPct DESC (see
- * queries.peerRanking's own ORDER BY), so within each filtered list here
- * the first entry is already the best one - no separate sort needed.
+ * `ranking` is already sorted by peer score, best first (queries.peerRanking
+ * sorts in JavaScript, because the score blends the recent window, which the
+ * SQL does not have), so within each filtered list here the first entry is
+ * already the best one - no separate sort needed.
  */
 async function promoteBestCandidate(ranking) {
   const trusted = ranking.filter((p) => p.trusted);
@@ -105,6 +106,10 @@ async function promoteBestCandidate(ranking) {
     // each has done lately above what it did over its life.
     if (!beatsHolder(candidate.score, weakest.score)) continue;
 
+    // The challenger goes in first and the weakest comes out only once that
+    // has worked - addTrustedPeer does both, in that order. The other way
+    // round, a challenger Core refused left the slot empty.
+    //
     // Displacement closes the connection. Leaving it up looked harmless - the
     // idea was that the peer would drop back to an ordinary outbound one - but
     // Core never changes a connection's type: it stays MANUAL and keeps its
@@ -114,15 +119,14 @@ async function promoteBestCandidate(ranking) {
     // offline until the displaced one was disconnected, then connected within
     // a minute. The peer keeps its record and can come back as an automatic
     // outbound peer and win a slot again like anyone else.
-    await peerSync.removeTrustedPeer(weakest.address);
+    //
     // Parking is for a peer that is GONE. One that is still connected does not
     // need it and must not have it: parked peers are revived on their lifetime
     // record, so parking a peer that was just displaced on its recent one
     // handed it the slot straight back on the number it had lost on.
-    if (!weakest.live) peerSync.parkPeer(weakest);
-    const swapped = await peerSync.addTrustedPeer(resolved, label);
+    const swapped = await peerSync.addTrustedPeer(resolved, label, { replace: weakest, parkEvicted: !weakest.live });
     if (!swapped.ok) {
-      logger.warn('rotation: swap refused after freeing the slot', { address: resolved, error: swapped.error });
+      logger.warn('rotation: swap refused, the weakest manual peer keeps its slot', { address: resolved, error: swapped.error });
       continue;
     }
     logAction({
