@@ -4,9 +4,11 @@ const db = require('./db');
 const rpc = require('./rpc');
 const config = require('./config');
 const queries = require('./queries');
-const { hostFromAddress } = require('./address');
+const { hostFromAddress, addressKey } = require('./address');
 const { evictableTrusted } = require('./peer-rotation/rules');
 const logger = require('./logger').make('peer-sync');
+
+const keyOf = (address) => addressKey(address, config.bitcoin.network);
 
 /**
  * Makes sure every persisted trusted/manual peer is actually registered
@@ -34,16 +36,18 @@ async function syncTrustedToAddnode(knownAddedNodes) {
     logger.warn('getaddednodeinfo failed, skipping addnode sync this round', { error: err.message });
     return { trusted: trusted.length, existing: 0, added: 0, queued: 0 };
   }
-  const existingAddrs = new Set(addedNodes.map((n) => n.addednode));
+  // Compared by key: Core echoes an addnode in the spelling it was given, and
+  // the same node written another way is still the same entry to Core.
+  const existingAddrs = new Set(addedNodes.map((n) => keyOf(n.addednode)));
 
   // Peers Core already has addnode'd count against the cap too, so we don't
   // starve them out just because they sort later than a newly-queued one.
-  let slotsUsed = trusted.filter(({ address }) => existingAddrs.has(address)).length;
+  let slotsUsed = trusted.filter(({ address }) => existingAddrs.has(keyOf(address))).length;
 
   let added = 0;
   let queued = 0;
   for (const { address } of trusted) {
-    if (existingAddrs.has(address)) continue;
+    if (existingAddrs.has(keyOf(address))) continue;
     if (slotsUsed >= config.maxManualPeers) {
       queued += 1;
       continue;
@@ -108,7 +112,7 @@ async function adoptExternalManualPeers() {
   }
 
   const known = new Set(
-    db.instance.prepare(`SELECT address FROM trusted_peer`).all().map((r) => r.address),
+    db.instance.prepare(`SELECT address FROM trusted_peer`).all().map((r) => keyOf(r.address)),
   );
   // Protected on the way in. An addnode this app did not issue is somebody's
   // choice - a bitcoin.conf line, a peer set in Umbrel's settings - and an
@@ -122,7 +126,7 @@ async function adoptExternalManualPeers() {
   let adopted = 0;
   const skipped = [];
   for (const { addednode } of addedNodes) {
-    if (!addednode || known.has(addednode)) continue;
+    if (!addednode || known.has(keyOf(addednode))) continue;
     // Never past the limit. Core keeps its own list either way; what does not
     // fit is only left out of ours, and said so in the log.
     if (known.size >= config.maxManualPeers) {
@@ -130,7 +134,7 @@ async function adoptExternalManualPeers() {
       continue;
     }
     insert.run(addednode, now);
-    known.add(addednode);
+    known.add(keyOf(addednode));
     // Same reason as in addTrustedPeer: a manual peer with no `peer` row is
     // invisible to peerRanking(), so no rotation pass can ever see it while it
     // still occupies one of the eight slots. An addnode entry Core has never
@@ -287,9 +291,21 @@ async function addTrustedPeer(address, label, options = {}) {
   // `parkEvicted` is false for a displaced peer that is still connected,
   // which promote.js does not park.
   const { evictToFit = false, kept = false, replace = null, parkEvicted = true } = options;
-  const alreadyTrusted = Boolean(
-    db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address),
-  );
+  // The same node under another spelling is already in the set: adding it
+  // again would take a second slot for one connection.
+  const sameNode = db.instance
+    .prepare(`SELECT address FROM trusted_peer`)
+    .all()
+    .find((r) => keyOf(r.address) === keyOf(address));
+  if (sameNode && sameNode.address !== address) {
+    return {
+      ok: false,
+      count: countTrusted(),
+      max: config.maxManualPeers,
+      error: `${address} is already a manual peer, written as ${sameNode.address}`,
+    };
+  }
+  const alreadyTrusted = Boolean(sameNode);
 
   // Decide capacity before anything happens, but do not act on it yet.
   let toEvict = null;

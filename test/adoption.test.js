@@ -54,3 +54,34 @@ test('adoption stops at the manual-peer limit and leaves the rest alone', async 
   // Core's own list is handed on untouched; nothing was removed from it.
   assert.equal(result.addedNodes.length, 4);
 });
+
+test('the same node in another spelling is not adopted a second time', async () => {
+  // Core echoes an addnode in the spelling it was given; the app had stored it
+  // in another. Compared as strings they were two peers, and the echo became a
+  // second row taking a second slot.
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, label, kept, created_at) VALUES ('[2a01:4f8::1]:8333', NULL, 0, 1)`)
+    .run();
+  mock.method(rpc, 'getAddedNodeInfo', async () => [
+    { addednode: '[2a01:4f8:0:0::1]:8333' },
+    { addednode: '2A01:4F8::1' },
+  ]);
+  const result = await adoptExternalManualPeers();
+  assert.equal(result.adopted, 0);
+  assert.deepEqual(rows(), [{ address: '[2a01:4f8::1]:8333', kept: 0 }]);
+});
+
+test('adding a node that is already a manual peer under another spelling takes no second slot', async () => {
+  const { addTrustedPeer } = require('../src/lib/peer-sync');
+  db.instance
+    .prepare(`INSERT INTO trusted_peer (address, label, kept, created_at) VALUES ('[2a01:4f8::1]:8333', NULL, 0, 1)`)
+    .run();
+  mock.method(rpc, 'getPeerInfo', async () => []);
+  const calls = [];
+  mock.method(rpc, 'addNode', async (a, c) => { calls.push(`${c} ${a}`); });
+  const result = await addTrustedPeer('[2a01:4f8:0:0::1]:8333', 'typed', { evictToFit: true, kept: true });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /already a manual peer/);
+  assert.equal(rows().length, 1);
+  assert.deepEqual(calls, []);
+});
