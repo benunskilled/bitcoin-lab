@@ -164,5 +164,27 @@ test('the addresses that ever delivered first, and only those', () => {
       { addr: '3.3.3.3:8333', last_block: at / 1000, minping: 0.02 },
     ],
   });
+  for (const addr of ['1.1.1.1:8333', '2.2.2.2:8333', '3.3.3.3:8333']) openSession(addr);
   assert.deepEqual(blocks.deliveredEver(), ['1.1.1.1:8333', '2.2.2.2:8333']);
+});
+
+function openSession(addr, endedAt = null) {
+  const peer = db.getOrCreatePeer(addr);
+  db.instance
+    .prepare(`INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, 'inbound', 'inbound', 1, ?)`)
+    .run(peer.id, endedAt);
+}
+
+test('only deliverers that are connected now - the list must not grow with the history', () => {
+  // Peer Map tints rows of its current peers and reads at most 64 KB. Every
+  // address that ever delivered - an inbound peer comes back on a new port
+  // each time - grew without end and would one day cost Peer Map the whole
+  // block card. A peer that is gone has no row there to tint.
+  const at = 1_700_100_000_000;
+  relay.recordRace({
+    blockHash: 'e3'.repeat(32), detectedAtMs: at,
+    peers: [{ addr: '4.4.4.4:51234', last_block: at / 1000, minping: 0.02 }],
+  });
+  openSession('4.4.4.4:51234', at + 1000);
+  assert.ok(!blocks.deliveredEver().includes('4.4.4.4:51234'));
 });

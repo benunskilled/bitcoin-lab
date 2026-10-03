@@ -237,7 +237,8 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
 }
 
 /**
- * Every address that has ever been credited with delivering a block first.
+ * The connected peers that have ever been credited with delivering a block
+ * first.
  *
  * For Peer Map, which tints those rows: the question it answers is "is this
  * one of the connections that has actually brought me a block", not how
@@ -245,23 +246,26 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
  * an inbound peer comes back on a new source port and is a new row here,
  * which is exactly how Peer Map sees it too.
  *
- * Small - on a node with a fortnight of history 41 out of 18,858 addresses -
- * and it only changes when a block is recorded, so it is cached against the
- * newest block.
+ * Connected now, not ever. Peer Map only tints the peers it is showing, so a
+ * deliverer that has gone has no row there - and the list of everyone who
+ * ever delivered only grows, by a few new inbound ports a day, while Peer Map
+ * reads at most 64 KB of this reply. Unbounded, it would one day have cost
+ * Peer Map the whole block card. This way it is bounded by the node's own
+ * connection count.
+ *
+ * Not cached: the answer changes with every connection, not only with every
+ * block, and the open-session index makes it a small read.
  */
-let deliveredCache = { key: null, value: null };
 function deliveredEver() {
-  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
-  if (deliveredCache.key === newest && deliveredCache.value) return deliveredCache.value;
-  const value = db.instance
+  return db.instance
     .prepare(
       `SELECT p.address AS address FROM peer_relay_stats s JOIN peer p ON p.id = s.peer_id
-        WHERE s.first > 0 ORDER BY p.address`,
+        WHERE s.first > 0
+          AND EXISTS (SELECT 1 FROM peer_session ps WHERE ps.peer_id = p.id AND ps.ended_at IS NULL)
+        ORDER BY p.address`,
     )
     .all()
     .map((r) => r.address);
-  deliveredCache = { key: newest, value };
-  return value;
 }
 
 // How many blocks in a row with nobody credited before this says anything.
