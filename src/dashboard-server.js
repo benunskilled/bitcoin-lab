@@ -768,7 +768,9 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'POST' && pathname === '/api/rotation/toggle') {
     const { enabled } = await readBody(req);
-    peerRotation.setEnabled(Boolean(enabled));
+    // Only a real boolean, as on the pool route: Boolean("false") is true.
+    if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be true or false' });
+    peerRotation.setEnabled(enabled);
     return sendJson(res, 200, { ok: true, enabled: peerRotation.isEnabled() });
   }
 
@@ -785,7 +787,8 @@ async function router(req, res, pathname, url) {
 
   if (req.method === 'POST' && pathname === '/api/stratum/toggle') {
     const { enabled } = await readBody(req);
-    stratumRace.setEnabled(Boolean(enabled));
+    if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be true or false' });
+    stratumRace.setEnabled(enabled);
     // The worker closes or opens its sockets on its own 30-second check - this
     // process has no way to reach into it, and should not have one.
     return sendJson(res, 200, { ok: true, enabled: stratumRace.isEnabled() });
