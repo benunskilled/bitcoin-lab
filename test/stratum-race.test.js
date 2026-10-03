@@ -387,3 +387,24 @@ test('a flood of made-up prevhashes cannot open unlimited races', () => {
 
   race.abandonOpenRaces();
 });
+
+test('the same prevhash in another spelling joins the race instead of opening a second one', () => {
+  const [a, b, c] = [fakePool(1, 'A'), fakePool(2, 'B'), fakePool(3, 'C')];
+  watchPools(a, b, c);
+  const hash = 'ab'.repeat(4) + '12345678' + '0'.repeat(48);
+  const { encodings } = require('../src/lib/prevhash');
+  const otherOrder = encodings(hash).find((e) => e !== hash);
+
+  const t0 = hr();
+  race.handleNotify(a, hash, t0);
+  race.handleNotify(b, hash.toUpperCase(), t0 + 1_000_000n);
+  race.handleNotify(c, otherOrder, t0 + 3_000_000n);
+  race.finalizeAllRaces();
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n, 1, 'one block, one race');
+  const rows = db.instance
+    .prepare('SELECT pool_id AS poolId, latency_ms AS latencyMs, rank FROM stratum_observation ORDER BY pool_id')
+    .all();
+  assert.deepEqual(rows.map((r) => r.rank), [1, 2, 3]);
+  assert.deepEqual(rows.map((r) => r.latencyMs), [0, 1, 3]);
+});

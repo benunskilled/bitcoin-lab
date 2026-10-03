@@ -559,7 +559,7 @@ test('a returning peer only displaces a manual peer it actually beats', async ()
   assert.equal(db.instance.prepare('SELECT probe_failures AS f FROM parked_peer WHERE address = ?').get(mediocre).f, 0);
 });
 
-test('a returning peer that beats the weakest manual peer swaps in, and the loser is parked in turn', async () => {
+test('a returning peer that beats the weakest manual peer swaps in, and the loser leaves the manual set', async () => {
   const strong = seedLivePeer({ connectionType: 'manual', eligible: 200, first: 60, trusted: true }); // 30%
   const weak = seedLivePeer({ connectionType: 'manual', eligible: 200, first: 8, trusted: true }); // 4%
   const returning = seedParked({ firstPct: 25 });
@@ -571,8 +571,9 @@ test('a returning peer that beats the weakest manual peer swaps in, and the lose
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(returning).n, 1);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(weak).n, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(strong).n, 1);
-  // The displaced peer keeps its own second chance.
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 1);
+  // Still connected, so not parked: it goes on as an ordinary peer and has to
+  // earn a slot again (see the test below).
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
   const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('revive');
   assert.equal(logRow.replaced_address, weak);
 });
@@ -1221,4 +1222,150 @@ test('the new-slot grace runs from the promotion, not from the peer\'s lifetime 
     1,
     'a peer with 900 blocks of history still gets its fifty blocks of safety after being promoted',
   );
+});
+
+test('after a reset, a protected manual peer that is offline keeps its slot', async () => {
+  // "Your manual peers are kept - only their record starts again." The reset
+  // used to wipe every session, so a protected peer that happened to be
+  // offline read as an address Core had never held, and the next tick parked
+  // it - or, with no record left to park, dropped it outright.
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 25, kept: true });
+
+  db.resetPeerData();
+  await peerRotation.tick();
+
+  assert.ok(ranking().find((p) => p.address === address)?.trusted, 'still manual');
+});
+
+test('after a reset, an offline manual peer gets a fresh offline grace instead of losing its slot at once', async () => {
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 25 });
+
+  db.resetPeerData();
+  await peerRotation.tick();
+
+  assert.ok(ranking().find((p) => p.address === address)?.trusted, 'not retired on the first tick after the reset');
+});
+
+test('a returning peer is judged by the same score as the holder, not by its old lifetime figure', async () => {
+  // The holder delivers 15% lately and little before that; the parked peer
+  // did well long ago and 1% lately. Compared lifetime against lifetime the
+  // old record won the slot back from the peer that is delivering now.
+  // The other slot, protected so the holder below is the weakest. Seeded
+  // first, so its blocks are older than the 2,500 that follow.
+  seedLivePeer({ connectionType: 'manual', eligible: 200, first: 100, trusted: true, kept: true });
+
+  const races = [];
+  const insertRace = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)');
+  for (let i = 0; i < 2500; i++) races.push(insertRace.run(`same-score-${i}`, Date.now()).lastInsertRowid);
+  const obs = db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)');
+  const recentFrom = races.length - 500;
+
+  const returning = '198.51.100.120:8333';
+  const old = db.getOrCreatePeer(returning);
+  // 295 firsts early on, 5 in the last 500 blocks: 12% lifetime, 1% now.
+  races.forEach((id, i) => obs.run(id, old.id, (i < 295 || (i >= recentFrom && i < recentFrom + 5)) ? 1 : 0));
+  db.instance
+    .prepare(`INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
+              VALUES (?, NULL, 12, 2500, ?, NULL, 0)`)
+    .run(returning, Date.now() - HOUR);
+
+  const holder = seedLivePeer({ connectionType: 'manual', trusted: true });
+  const holderRow = db.getOrCreatePeer(holder);
+  // Nothing early on, 75 of the last 500: 3% lifetime, 15% now.
+  races.forEach((id, i) => obs.run(id, holderRow.id, (i >= recentFrom && i < recentFrom + 75) ? 1 : 0));
+  mock.method(manualPeer, 'probePort', async () => true);
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 0, 'the peer delivering now keeps its slot');
+  assert.ok(ranking().find((p) => p.address === holder)?.trusted);
+});
+
+test('a manual peer displaced by a returning one is not parked while it is still connected', async () => {
+  // Same rule as a swap by promotion: parking is for a peer that is gone, and
+  // a parked peer comes back on its record - so parking a live loser handed
+  // it a way straight back in on the number it had just lost on.
+  seedLivePeer({ connectionType: 'manual', eligible: 200, first: 60, trusted: true }); // 30%
+  const weak = seedLivePeer({ connectionType: 'manual', eligible: 200, first: 8, trusted: true }); // 4%
+  seedParked({ firstPct: 25 });
+  mock.method(manualPeer, 'probePort', async () => true);
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.equal(revived, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
+});
+
+test('two adds at the same moment cannot take the manual set past its limit', async () => {
+  // The count was read before the RPCs and the row written after them, so two
+  // adds racing through the gap both saw a free slot. MAX_MANUAL_PEERS is 2.
+  seedLivePeer({ connectionType: 'manual', trusted: true });
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  const results = await Promise.all([
+    peerSync.addTrustedPeer('198.51.100.201:8333'),
+    peerSync.addTrustedPeer('198.51.100.202:8333'),
+  ]);
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+  assert.deepEqual(results.map((r) => r.ok).sort(), [false, true]);
+  const refused = results.find((r) => !r.ok);
+  assert.match(refused.error, /slots are taken/);
+  // Core was told to add it before the loss was known, so it is told to drop
+  // it again - otherwise Core holds an addnode this app does not know about.
+  const loser = results[0].ok ? '198.51.100.202:8333' : '198.51.100.201:8333';
+  assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
+});
+
+test('a swap whose addnode Core refuses leaves the weakest manual peer where it was', async () => {
+  // The weakest was removed first and the challenger added after; when Core
+  // refused the challenger, the slot was simply empty.
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const candidate = seedLivePeer({ eligible: 144, first: 80 });
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    if (addr === candidate && cmd === 'add') throw new Error('Error: Unable to open connection');
+  });
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0);
+  assert.ok(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(weak), 'the weakest keeps its slot');
+  assert.ok(!calls.includes(`remove ${weak}`), 'and Core was never told to drop it');
+});
+
+test('in a swap the challenger is added before the weakest is removed', async () => {
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const candidate = seedLivePeer({ eligible: 144, first: 80 });
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => { calls.push(`${cmd} ${addr}`); });
+
+  assert.equal(await peerRotation.promoteBestCandidate(ranking()), 1);
+  assert.ok(calls.indexOf(`add ${candidate}`) < calls.indexOf(`remove ${weak}`), calls.join(', '));
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+  // Still connected when it lost the slot, so not parked - as before.
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
+});
+
+test('dead parked peers that are not due yet do not crowd out one that is', async () => {
+  // Three per tick were picked by "longest unchecked" and only then filtered
+  // for being due, so three long-dead addresses waiting out their backoff
+  // took every place and a good peer due now was never knocked on.
+  for (let i = 0; i < 3; i++) seedParked({ firstPct: 0, probeFailures: 10, lastProbeAt: Date.now() - 20 * HOUR });
+  const good = seedParked({ firstPct: 30, lastProbeAt: Date.now() - HOUR });
+  const probed = [];
+  mock.method(manualPeer, 'probePort', async (host, port) => { probed.push(`${host}:${port}`); return true; });
+
+  const revived = await peerRotation.reviveParkedPeers(ranking());
+
+  assert.deepEqual(probed, [good]);
+  assert.equal(revived, 1);
 });

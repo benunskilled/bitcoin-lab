@@ -214,19 +214,10 @@ function peerRankingSql() {
          UNION
          SELECT id FROM peer WHERE address IN (SELECT address FROM trusted_peer)
        )
-       -- Rank by how OFTEN a peer is first, not how often it's merely been
-       -- around (a peer online forever racks up a high raw "first" count
-       -- at a mediocre rate) - percentage first. Ping is the 2nd-level
-       -- tiebreaker (lower is better; peers with no live ping sort after
-       -- ones that have one, rather than winning ties by default), then raw
-       -- eligible count, then address as the final, purely deterministic
-       -- tiebreaker.
-       ORDER BY
-         CASE WHEN COALESCE(prs.eligible, 0) > 0 THEN (1.0 * COALESCE(prs.first, 0) / prs.eligible) ELSE -1 END DESC,
-         CASE WHEN os.min_ping_ms IS NULL THEN 1 ELSE 0 END ASC,
-         os.min_ping_ms ASC,
-         COALESCE(prs.eligible, 0) DESC,
-         p.address ASC`;
+       -- No ORDER BY: peerRanking() sorts these rows by the peer score in
+       -- JavaScript, since the score blends in the recent window, which this
+       -- statement does not have. An order here was a sort thrown away.
+       `;
 }
 
 // recentRelayStats is exported for the widget, which needs the same window
