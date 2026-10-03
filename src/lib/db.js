@@ -295,10 +295,55 @@ const VACUUM_MIN_FREE_FRACTION = 0.1;
 
 let db;
 
+/**
+ * SQLITE_BUSY in any of its forms - "database is locked", BUSY_SNAPSHOT,
+ * BUSY_RECOVERY. better-sqlite3 puts the extended code on `code`.
+ */
+function isBusy(err) {
+  return /^SQLITE_BUSY/.test(String(err && err.code)) || /database is locked/.test(String(err && err.message));
+}
+
+// A short synchronous pause: open() is synchronous and runs before anything
+// else in the process, so there is nothing else to let run in the meantime.
+function pauseMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Open the shared database, and on a fresh install keep trying while the
+ * other three processes set it up.
+ *
+ * All four open the same new file in the same second. busy_timeout covers
+ * most of what follows, but not all of it: the very first switch to WAL, and
+ * a read transaction asked to upgrade after another process wrote, can still
+ * answer "database is locked" at once - on GitHub's Linux runners 2 of 60
+ * processes in test/first-start.test.js did, where macOS showed none. Every
+ * step here is idempotent (CREATE ... IF NOT EXISTS, flag-guarded
+ * migrations, INSERT OR IGNORE seeding), so the whole setup is simply run
+ * again on a fresh connection a moment later, up to about half a minute.
+ */
 function open() {
   if (db) return db;
   const dir = path.dirname(config.sqlitePath);
   fs.mkdirSync(dir, { recursive: true });
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return openOnce();
+    } catch (err) {
+      try {
+        if (db) db.close();
+      } catch {
+        // the connection is being thrown away either way
+      }
+      db = null;
+      if (!isBusy(err) || attempt >= 40) throw err;
+      logger.debug('database busy while setting up, trying again', { attempt, error: err.message });
+      pauseMs(100 + Math.floor(Math.random() * 400));
+    }
+  }
+}
+
+function openOnce() {
   db = new Database(config.sqlitePath);
   // First, before anything that takes a lock. On a fresh install all four
   // processes open this file at the same moment, and switching it to WAL is
