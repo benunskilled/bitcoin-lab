@@ -85,3 +85,24 @@ test('adding a node that is already a manual peer under another spelling takes n
   assert.equal(rows().length, 1);
   assert.deepEqual(calls, []);
 });
+
+test('a peer the app dropped while Core refused the remove is removed again, not adopted back', async () => {
+  const peerSync = require('../src/lib/peer-sync');
+  db.instance.prepare(`INSERT INTO trusted_peer (address, label, kept, created_at) VALUES ('198.51.100.30:8333', NULL, 0, 1)`).run();
+  const calls = [];
+  mock.method(rpc, 'addNode', async (a, c) => { calls.push(`${c} ${a}`); throw new Error('RPC addnode: timed out'); });
+  mock.method(rpc, 'disconnectNode', async () => {});
+  await peerSync.removeTrustedPeer('198.51.100.30:8333');
+  assert.deepEqual(rows(), []);
+
+  // Next sync: Core still lists it. It must not come back as a protected peer.
+  mock.restoreAll();
+  const retried = [];
+  mock.method(rpc, 'getAddedNodeInfo', async () => [{ addednode: '198.51.100.30:8333' }]);
+  mock.method(rpc, 'addNode', async (a, c) => { retried.push(`${c} ${a}`); });
+  const result = await peerSync.adoptExternalManualPeers();
+  assert.equal(result.adopted, 0);
+  assert.deepEqual(rows(), []);
+  assert.deepEqual(retried, ['remove 198.51.100.30:8333']);
+  db.instance.exec(`DELETE FROM meta WHERE key = 'pending_addnode_removal'`);
+});
