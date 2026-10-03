@@ -300,6 +300,12 @@ function open() {
   const dir = path.dirname(config.sqlitePath);
   fs.mkdirSync(dir, { recursive: true });
   db = new Database(config.sqlitePath);
+  // First, before anything that takes a lock. On a fresh install all four
+  // processes open this file at the same moment, and switching it to WAL is
+  // itself a write: with the timeout still at its default of zero, the
+  // losers of that race failed with SQLITE_BUSY and the process died on its
+  // first boot. Why ten seconds is explained below.
+  db.pragma('busy_timeout = 10000');
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
@@ -315,8 +321,8 @@ function open() {
   // clear - for stratum-race.js specifically, an unhandled failure there
   // used to crash the whole process, silently dropping every pool
   // connection and losing in-flight race data (see stratum-race.js). This
-  // makes every connection wait up to 10s and retry instead.
-  db.pragma('busy_timeout = 10000');
+  // makes every connection wait up to 10s and retry instead - the timeout
+  // set at the top of this function.
   db.exec(SCHEMA);
   runMigrations();
   seedDefaultPools();
@@ -606,7 +612,11 @@ function migrate(flag, description, work) {
     db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)`).run(`migration:${flag}`, String(Date.now()));
     return true;
   });
-  if (tx()) logger.info(`migration: ${description}`, { flag });
+  // IMMEDIATE: the write lock is taken up front. A deferred transaction reads
+  // the flag first and only then asks to write, and when another process
+  // committed in between, SQLite refuses the upgrade at once with
+  // SQLITE_BUSY_SNAPSHOT - no busy_timeout applies to that.
+  if (tx.immediate()) logger.info(`migration: ${description}`, { flag });
 }
 
 function seedDefaultPools() {
@@ -630,7 +640,8 @@ function seedDefaultPools() {
     db.prepare(`INSERT INTO meta (key, value) VALUES ('pools_seeded', '1')`).run();
     return true;
   });
-  if (tx()) logger.info('seeded default stratum pools', { count: DEFAULT_POOLS.length });
+  // IMMEDIATE for the same reason as migrate() above.
+  if (tx.immediate()) logger.info('seeded default stratum pools', { count: DEFAULT_POOLS.length });
 }
 
 // Held for the life of the process rather than compiled per call. This is on
