@@ -109,15 +109,27 @@ async function adoptExternalManualPeers() {
   const known = new Set(
     db.instance.prepare(`SELECT address FROM trusted_peer`).all().map((r) => r.address),
   );
+  // Protected on the way in. An addnode this app did not issue is somebody's
+  // choice - a bitcoin.conf line, a peer set in Umbrel's settings - and an
+  // unprotected row is one the rotation may later `addnode remove`, undoing
+  // that choice behind the person's back.
   const insert = db.instance.prepare(
-    `INSERT OR IGNORE INTO trusted_peer (address, label, created_at) VALUES (?, NULL, ?)`,
+    `INSERT OR IGNORE INTO trusted_peer (address, label, kept, created_at) VALUES (?, NULL, 1, ?)`,
   );
 
   const now = Date.now();
   let adopted = 0;
+  const skipped = [];
   for (const { addednode } of addedNodes) {
     if (!addednode || known.has(addednode)) continue;
+    // Never past the limit. Core keeps its own list either way; what does not
+    // fit is only left out of ours, and said so in the log.
+    if (known.size >= config.maxManualPeers) {
+      skipped.push(addednode);
+      continue;
+    }
     insert.run(addednode, now);
+    known.add(addednode);
     // Same reason as in addTrustedPeer: a manual peer with no `peer` row is
     // invisible to peerRanking(), so no rotation pass can ever see it while it
     // still occupies one of the eight slots. An addnode entry Core has never
@@ -125,6 +137,12 @@ async function adoptExternalManualPeers() {
     db.getOrCreatePeer(addednode);
     adopted += 1;
     logger.info('adopted externally-managed manual peer into trusted_peer', { address: addednode });
+  }
+  if (skipped.length > 0) {
+    logger.warn('manual peer limit reached, addnode entries not adopted', {
+      max: config.maxManualPeers,
+      skipped,
+    });
   }
   // Handed back so syncTrustedToAddnode, which always runs straight after
   // this, doesn't have to ask Core for the same list a second time.
