@@ -1369,3 +1369,33 @@ test('dead parked peers that are not due yet do not crowd out one that is', asyn
   assert.deepEqual(probed, [good]);
   assert.equal(revived, 1);
 });
+
+test('typing in a peer when the slots are full never displaces a protected one', async () => {
+  // MAX_MANUAL_PEERS is 2. Both slots hold protected peers: nothing may go.
+  const a = seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 1 });
+  const b = seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 2 });
+  const result = await peerSync.addTrustedPeer('198.51.100.210:8333', 'typed', { evictToFit: true, kept: true });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /protected/);
+  const rows = db.instance.prepare('SELECT address FROM trusted_peer ORDER BY address').all().map((r) => r.address);
+  assert.deepEqual(rows, [a, b].sort());
+});
+
+test('typing in a peer displaces the weakest unprotected one, even when a protected one is weaker', async () => {
+  const keptWeak = seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 1 });
+  const free = seedLivePeer({ connectionType: 'manual', trusted: true, eligible: 144, first: 40 });
+  const result = await peerSync.addTrustedPeer('198.51.100.211:8333', 'typed', { evictToFit: true, kept: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.evicted.address, free);
+  assert.equal(result.evicted.parked, true);
+  const rows = db.instance.prepare('SELECT address FROM trusted_peer').all().map((r) => r.address);
+  assert.ok(rows.includes(keptWeak) && !rows.includes(free));
+});
+
+test('a peer displaced without any record is reported as not kept for re-testing', async () => {
+  seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 1 });
+  seedLivePeer({ connectionType: 'manual', trusted: true });   // unprotected, no record
+  const result = await peerSync.addTrustedPeer('198.51.100.212:8333', 'typed', { evictToFit: true, kept: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.evicted.parked, false);
+});

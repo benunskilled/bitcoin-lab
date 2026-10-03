@@ -5,6 +5,7 @@ const rpc = require('./rpc');
 const config = require('./config');
 const queries = require('./queries');
 const { hostFromAddress } = require('./address');
+const { evictableTrusted } = require('./peer-rotation/rules');
 const logger = require('./logger').make('peer-sync');
 
 /**
@@ -300,13 +301,19 @@ async function addTrustedPeer(address, label, options = {}) {
       if (!evictToFit) {
         return { ok: false, count, max: config.maxManualPeers, error: `all ${config.maxManualPeers} manual slots are taken` };
       }
-      toEvict = queries.weakestTrustedPeer(queries.peerRanking().filter((p) => p.trusted));
-      if (!toEvict || toEvict.address === address) {
+      // Only a peer the rotation itself could displace: not one with the
+      // padlock, not one still inside its new-slot grace. Typing an address in
+      // used to take the weakest of all eight, a protected one included - the
+      // one thing the padlock promises cannot happen.
+      toEvict = queries.weakestTrustedPeer(
+        evictableTrusted(queries.peerRanking().filter((p) => p.trusted)).filter((p) => p.address !== address),
+      );
+      if (!toEvict) {
         return {
           ok: false,
           count,
           max: config.maxManualPeers,
-          error: `all ${config.maxManualPeers} manual slots are taken and none could be freed`,
+          error: `all ${config.maxManualPeers} manual slots are taken by protected or newly added peers - release one with its padlock first`,
         };
       }
     }
@@ -404,9 +411,12 @@ async function addTrustedPeer(address, label, options = {}) {
   db.instance.prepare(`DELETE FROM parked_peer WHERE address = ?`).run(address);
 
   let evicted = null;
+  let evictedParked = false;
   if (toEvict) {
     await removeTrustedPeer(toEvict.address);
-    if (parkEvicted) parkPeer(toEvict);
+    // parkPeer declines a peer with no record; then it is simply gone, and
+    // the caller must not tell anyone it will be re-tested.
+    if (parkEvicted) evictedParked = parkPeer(toEvict);
     evicted = toEvict;
     logger.info('freed a manual slot to stay within the cap', {
       removed: evicted.address,
@@ -420,7 +430,7 @@ async function addTrustedPeer(address, label, options = {}) {
     ok: true,
     count: countTrusted(),
     max: config.maxManualPeers,
-    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct } : null,
+    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct, parked: evictedParked } : null,
   };
 }
 
