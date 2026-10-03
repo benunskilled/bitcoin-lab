@@ -1222,3 +1222,27 @@ test('the new-slot grace runs from the promotion, not from the peer\'s lifetime 
     'a peer with 900 blocks of history still gets its fifty blocks of safety after being promoted',
   );
 });
+
+test('after a reset, a protected manual peer that is offline keeps its slot', async () => {
+  // "Your manual peers are kept - only their record starts again." The reset
+  // used to wipe every session, so a protected peer that happened to be
+  // offline read as an address Core had never held, and the next tick parked
+  // it - or, with no record left to park, dropped it outright.
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 25, kept: true });
+
+  db.resetPeerData();
+  await peerRotation.tick();
+
+  assert.ok(ranking().find((p) => p.address === address)?.trusted, 'still manual');
+});
+
+test('after a reset, an offline manual peer gets a fresh offline grace instead of losing its slot at once', async () => {
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 25 });
+
+  db.resetPeerData();
+  await peerRotation.tick();
+
+  assert.ok(ranking().find((p) => p.address === address)?.trusted, 'not retired on the first tick after the reset');
+});
