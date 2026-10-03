@@ -723,11 +723,23 @@ function rebuildRelayStats() {
  * longer exists, and there is no honest way to read them. The eight peers
  * found the hard way should not have to be found again for that.
  *
- * `trusted_peer` is untouched, so the manual set survives. Their peer rows are
- * recreated empty, which is what makes the reset safe rather than disruptive:
- * a manual peer at 0 of 0 blocks sits inside the new-peer grace and inside
- * MIN_ELIGIBLE_FOR_JUDGEMENT, so the rotation will not touch anyone for the
- * first day while the new record builds.
+ * The manual set survives, and two things make that true rather than merely
+ * nominal. A manual peer at 0 of 0 blocks sits inside the new-peer grace and
+ * inside MIN_ELIGIBLE_FOR_JUDGEMENT, so no challenger displaces it while the
+ * new record builds. But a manual peer that happens to be offline is judged by
+ * a different rule - how long it has been away - and that rule reads two
+ * things a plain wipe destroys:
+ *
+ *   - its manual sessions, which say Core has really held it (everManual).
+ *     Without them a protected peer reads as an address that never stood up,
+ *     the one kind of protected peer the rotation does park.
+ *   - trusted_peer.created_at, the clock an offline peer with no closed
+ *     session is timed from. Left at the day it was added, a peer reset while
+ *     offline was already past its grace on the next tick.
+ *
+ * So the manual sessions of manual peers are kept, with their peer rows, and
+ * created_at is set to now: every manual peer starts the new record with a
+ * fresh offline grace, as if it had just joined.
  *
  * relay_observation is emptied with the delete trigger dropped for the
  * duration. It maintains peer_relay_stats one row at a time, which is right
@@ -742,7 +754,11 @@ function resetPeerData() {
       db.prepare(`DELETE FROM relay_observation`).run();
       db.prepare(`DELETE FROM peer_relay_stats`).run();
       db.prepare(`DELETE FROM relay_race`).run();
-      db.prepare(`DELETE FROM peer_session`).run();
+      db.prepare(
+        `DELETE FROM peer_session
+          WHERE NOT (connection_type = 'manual'
+                     AND peer_id IN (SELECT p.id FROM peer p JOIN trusted_peer tp ON tp.address = p.address))`,
+      ).run();
       db.prepare(`DELETE FROM parked_peer`).run();
       db.prepare(`DELETE FROM rotation_log`).run();
       // Goes with the rest, not on its own. Everything the funnel shows -
@@ -751,7 +767,7 @@ function resetPeerData() {
       // reading "0 seen, 0 judged, 0 delivered, 8 kept", which is not a
       // statistic but a contradiction.
       db.prepare(`DELETE FROM promoted_peer`).run();
-      db.prepare(`DELETE FROM peer`).run();
+      db.prepare(`DELETE FROM peer WHERE id NOT IN (SELECT peer_id FROM peer_session)`).run();
     } finally {
       // Recreated inside the same transaction, so a failure anywhere above
       // rolls the whole thing back and cannot leave the rollup unmaintained.
@@ -770,6 +786,7 @@ function resetPeerData() {
     const addresses = db.prepare(`SELECT address FROM trusted_peer`).all();
     const insert = db.prepare(`INSERT OR IGNORE INTO peer (address, first_seen_at) VALUES (?, ?)`);
     for (const row of addresses) insert.run(row.address, Date.now());
+    db.prepare(`UPDATE trusted_peer SET created_at = ?`).run(Date.now());
     return addresses.length;
   });
   const keptManualPeers = tx();
