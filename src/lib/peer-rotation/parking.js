@@ -159,28 +159,32 @@ async function reviveParkedPeers(ranking) {
     });
 
   const minInterval = config.parkedPeerMinProbeIntervalMinutes * 60 * 1000;
+  // Exponential backoff on repeated failures, capped - a permanently dead
+  // address must not cost the same as one that just dropped out for lunch -
+  // and the cap itself depends on how much this peer is worth waiting for.
+  const isDue = (parked) => parked.lastProbeAt == null
+    || now - parked.lastProbeAt >= Math.min(probeIntervalCapMs(parked.firstPct), minInterval * 2 ** parked.probeFailures);
+
+  // Due first, then the few per tick. The limit used to come first, in SQL,
+  // so the longest-unchecked addresses took every place even while their
+  // backoff said to leave them alone - three dead ones were enough to keep a
+  // good peer that was due from ever being knocked on. The table holds one
+  // row per retired manual peer, so reading all of it is cheap.
   const candidates = db.instance
     .prepare(
       `SELECT address, label, first_pct AS firstPct, eligible,
               last_probe_at AS lastProbeAt, probe_failures AS probeFailures
        FROM parked_peer
-       ORDER BY last_probe_at IS NOT NULL, last_probe_at ASC
-       LIMIT ?`,
+       ORDER BY last_probe_at IS NOT NULL, last_probe_at ASC`,
     )
-    .all(config.parkedPeerProbesPerTick);
+    .all()
+    .filter(isDue)
+    .slice(0, config.parkedPeerProbesPerTick);
 
   const trusted = ranking.filter((p) => p.trusted);
   let revived = 0;
 
   for (const parked of candidates) {
-    // Exponential backoff on repeated failures, capped - a permanently dead
-    // address must not cost the same as one that just dropped out for lunch -
-    // and the cap itself depends on how much this peer is worth waiting for.
-    const wait = Math.min(
-      probeIntervalCapMs(parked.firstPct),
-      minInterval * 2 ** parked.probeFailures,
-    );
-    if (parked.lastProbeAt != null && now - parked.lastProbeAt < wait) continue;
 
     const { addr, port } = manualPeer.resolveHostPort(parked.address);
     const reachable = port != null ? await manualPeer.probePort(addr, port) : false;
