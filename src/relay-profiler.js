@@ -313,6 +313,9 @@ function stratumRaceOn() {
   }
 }
 
+const CATCHUP_TAIL_MS = 30 * 1000;
+let lastCatchUpAt = null;
+
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   const template = stratumRaceOn() ? timeTemplate(detectedAtMs) : Promise.resolve(null);
   let peers;
@@ -339,7 +342,15 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     return;
   }
 
-  if (isCatchingUp(chain, header)) {
+  // The block that ends a catch-up is at the tip by every test above - one
+  // confirmation, headers equal to blocks - yet it came in the same burst as
+  // the backlog, from whichever peer served it. A block that follows a
+  // skipped one within CATCHUP_TAIL_MS is treated as part of that burst.
+  // Real blocks are ten minutes apart; two found within half a minute right
+  // after a catch-up is rare enough not to matter.
+  const tailOfCatchUp = lastCatchUpAt != null && detectedAtMs - lastCatchUpAt < CATCHUP_TAIL_MS;
+  if (isCatchingUp(chain, header) || tailOfCatchUp) {
+    lastCatchUpAt = detectedAtMs;
     logger.info('block not counted - Core is catching up', {
       blockHash,
       confirmations: header && header.confirmations,
