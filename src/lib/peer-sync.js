@@ -125,8 +125,28 @@ async function adoptExternalManualPeers() {
   const now = Date.now();
   let adopted = 0;
   const skipped = [];
+  const pending = pendingRemovals();
+  let pendingChanged = false;
   for (const { addednode } of addedNodes) {
     if (!addednode || known.has(keyOf(addednode))) continue;
+    // One we removed ourselves while Core did not listen: remove it again,
+    // never adopt it.
+    if (pending[keyOf(addednode)]) {
+      try {
+        await rpc.addNode(addednode, 'remove');
+        delete pending[keyOf(addednode)];
+        pendingChanged = true;
+        logger.info('retried addnode remove for a peer this app had dropped', { address: addednode });
+      } catch (err) {
+        if (notAdded(err)) {
+          delete pending[keyOf(addednode)];
+          pendingChanged = true;
+        } else {
+          logger.warn('addnode remove retry failed', { address: addednode, error: err.message });
+        }
+      }
+      continue;
+    }
     // Never past the limit. Core keeps its own list either way; what does not
     // fit is only left out of ours, and said so in the log.
     if (known.size >= config.maxManualPeers) {
@@ -143,6 +163,7 @@ async function adoptExternalManualPeers() {
     adopted += 1;
     logger.info('adopted externally-managed manual peer into trusted_peer', { address: addednode });
   }
+  if (pendingChanged) savePendingRemovals(pending);
   if (skipped.length > 0) {
     logger.warn('manual peer limit reached, addnode entries not adopted', {
       max: config.maxManualPeers,
@@ -506,6 +527,33 @@ function parkPeer(peer) {
  * back to being an ordinary outbound peer, keeps accumulating a record, and
  * has to earn a slot again the same way everyone else does.
  */
+// Addresses this app took out of the manual set while Core refused the
+// matching `addnode remove` (Core restarting, an RPC timeout). Core still has
+// the entry, and the next sync would read it as somebody else's addnode and
+// adopt it back - protected, since 1.25.8, so for good. Kept in `meta` for a
+// day; the sync retries the remove instead of adopting.
+const PENDING_REMOVAL_KEY = 'pending_addnode_removal';
+const PENDING_REMOVAL_MS = 24 * 60 * 60 * 1000;
+
+function pendingRemovals() {
+  try {
+    const row = db.instance.prepare(`SELECT value FROM meta WHERE key = ?`).get(PENDING_REMOVAL_KEY);
+    const all = row ? JSON.parse(row.value) : {};
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(all).filter(([, at]) => now - at < PENDING_REMOVAL_MS));
+  } catch {
+    return {};
+  }
+}
+
+function savePendingRemovals(map) {
+  db.instance
+    .prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+    .run(PENDING_REMOVAL_KEY, JSON.stringify(map));
+}
+
+const notAdded = (err) => /not been added|not added/i.test((err && err.message) || '');
+
 async function removeTrustedPeer(address, { disconnect = true } = {}) {
   db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(address);
   try {
@@ -514,8 +562,17 @@ async function removeTrustedPeer(address, { disconnect = true } = {}) {
     // it, silently holding a manual slot the UI now thinks is free.
     await rpc.addNode(address, 'remove');
   } catch (err) {
-    // "Node has not been added" etc. - not worth failing the remove over.
-    logger.debug('addnode remove while untrusting peer', { address, error: err.message });
+    // "Node has not been added" is the end state we wanted. Anything else
+    // means Core may still hold the entry: remember it, so the sync removes
+    // it again instead of adopting it back.
+    if (!notAdded(err)) {
+      const pending = pendingRemovals();
+      pending[keyOf(address)] = Date.now();
+      savePendingRemovals(pending);
+      logger.warn('addnode remove failed, will retry on the next sync', { address, error: err.message });
+    } else {
+      logger.debug('addnode remove while untrusting peer', { address, error: err.message });
+    }
   }
   if (!disconnect) return;
   try {
