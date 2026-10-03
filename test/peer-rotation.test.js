@@ -1296,3 +1296,28 @@ test('a manual peer displaced by a returning one is not parked while it is still
   assert.equal(revived, 1);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
 });
+
+test('two adds at the same moment cannot take the manual set past its limit', async () => {
+  // The count was read before the RPCs and the row written after them, so two
+  // adds racing through the gap both saw a free slot. MAX_MANUAL_PEERS is 2.
+  seedLivePeer({ connectionType: 'manual', trusted: true });
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  const results = await Promise.all([
+    peerSync.addTrustedPeer('198.51.100.201:8333'),
+    peerSync.addTrustedPeer('198.51.100.202:8333'),
+  ]);
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+  assert.deepEqual(results.map((r) => r.ok).sort(), [false, true]);
+  const refused = results.find((r) => !r.ok);
+  assert.match(refused.error, /slots are taken/);
+  // Core was told to add it before the loss was known, so it is told to drop
+  // it again - otherwise Core holds an addnode this app does not know about.
+  const loser = results[0].ok ? '198.51.100.202:8333' : '198.51.100.201:8333';
+  assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
+});
