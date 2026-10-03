@@ -1321,3 +1321,36 @@ test('two adds at the same moment cannot take the manual set past its limit', as
   const loser = results[0].ok ? '198.51.100.202:8333' : '198.51.100.201:8333';
   assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
 });
+
+test('a swap whose addnode Core refuses leaves the weakest manual peer where it was', async () => {
+  // The weakest was removed first and the challenger added after; when Core
+  // refused the challenger, the slot was simply empty.
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const candidate = seedLivePeer({ eligible: 144, first: 80 });
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    if (addr === candidate && cmd === 'add') throw new Error('Error: Unable to open connection');
+  });
+
+  const promoted = await peerRotation.promoteBestCandidate(ranking());
+
+  assert.equal(promoted, 0);
+  assert.ok(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(weak), 'the weakest keeps its slot');
+  assert.ok(!calls.includes(`remove ${weak}`), 'and Core was never told to drop it');
+});
+
+test('in a swap the challenger is added before the weakest is removed', async () => {
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const candidate = seedLivePeer({ eligible: 144, first: 80 });
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => { calls.push(`${cmd} ${addr}`); });
+
+  assert.equal(await peerRotation.promoteBestCandidate(ranking()), 1);
+  assert.ok(calls.indexOf(`add ${candidate}`) < calls.indexOf(`remove ${weak}`), calls.join(', '));
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+  // Still connected when it lost the slot, so not parked - as before.
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
+});

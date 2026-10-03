@@ -277,7 +277,12 @@ async function addTrustedPeer(address, label, options = {}) {
   // the rotation promoted. Typing an address in is already the decision - the
   // loop's own promotions are not, and must stay swappable or it would freeze
   // itself out of every slot it ever filled.
-  const { evictToFit = false, kept = false } = options;
+  // `replace` is the rotation's own swap: it has already chosen whom the new
+  // peer displaces, by its stricter rule, and only needs the order done right
+  // - the new peer in first, the old one out only once that has worked.
+  // `parkEvicted` is false for a displaced peer that is still connected,
+  // which promote.js does not park.
+  const { evictToFit = false, kept = false, replace = null, parkEvicted = true } = options;
   const alreadyTrusted = Boolean(
     db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address),
   );
@@ -286,7 +291,9 @@ async function addTrustedPeer(address, label, options = {}) {
   let toEvict = null;
   if (!alreadyTrusted) {
     const count = countTrusted();
-    if (count >= config.maxManualPeers) {
+    if (count >= config.maxManualPeers && replace && replace.address !== address) {
+      toEvict = replace;
+    } else if (count >= config.maxManualPeers) {
       if (!evictToFit) {
         return { ok: false, count, max: config.maxManualPeers, error: `all ${config.maxManualPeers} manual slots are taken` };
       }
@@ -396,7 +403,7 @@ async function addTrustedPeer(address, label, options = {}) {
   let evicted = null;
   if (toEvict) {
     await removeTrustedPeer(toEvict.address);
-    parkPeer(toEvict);
+    if (parkEvicted) parkPeer(toEvict);
     evicted = toEvict;
     logger.info('freed a manual slot to stay within the cap', {
       removed: evicted.address,
