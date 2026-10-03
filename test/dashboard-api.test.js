@@ -454,3 +454,17 @@ test('GET /api/blocks/latest serves the neighbour', async () => {
   // Addresses, not the owner's own labels for them.
   assert.equal('trustedLabel' in body, false);
 });
+
+test('the rotation and stratum switches take only true or false', async () => {
+  // Boolean("false") is true: a client sending the string switched the
+  // feature ON while asking for off, and the reply said so as if asked.
+  for (const route of ['/api/rotation/toggle', '/api/stratum/toggle']) {
+    for (const enabled of ['false', 'true', 0, 1, null, undefined]) {
+      const { status } = await api(route, { method: 'POST', body: JSON.stringify({ enabled }) });
+      assert.equal(status, 400, `${route} with ${JSON.stringify(enabled)}`);
+    }
+    const off = await api(route, { method: 'POST', body: JSON.stringify({ enabled: false }) });
+    assert.equal(off.status, 200);
+    assert.equal(off.body.enabled, false);
+  }
+});
