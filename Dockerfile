@@ -2,8 +2,14 @@
 # far more reliable prebuilt binaries for glibc than for musl across both
 # amd64 and arm64, which keeps this buildable without compiling libzmq
 # from source in CI.
+#
+# Pinned by digest - the multi-arch index, so it resolves on amd64 and arm64
+# alike - like everything the store pins: the same Dockerfile then builds from
+# the same base on every run. The price is that base-image updates (Node and
+# Debian security fixes) arrive only when this digest is moved on, together
+# with the tag, as part of a release.
 
-FROM node:22-bookworm-slim AS builder
+FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS builder
 WORKDIR /app
 
 # Only needed as a fallback if a native dependency has no prebuilt binary
@@ -40,7 +46,7 @@ RUN rm -rf node_modules/zeromq/build/win32 \
 
 COPY src ./src
 
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
 WORKDIR /app
 ENV NODE_ENV=production
 
