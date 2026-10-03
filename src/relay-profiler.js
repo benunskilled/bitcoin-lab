@@ -25,6 +25,7 @@ const health = require('./lib/health');
 const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
 const poolId = require('./lib/pool-id');
+const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('relay-profiler');
 
 // A peer counts as "first" if Core recorded a block from it within this
@@ -295,8 +296,25 @@ function isCatchingUp(info, header) {
   return Number.isFinite(info.headers) && Number.isFinite(info.blocks) && info.headers > info.blocks;
 }
 
+/**
+ * Whether to time the template at all: only beside Stratum Race, the one place
+ * the number is read. getblocktemplate builds a whole block in Core, and on a
+ * node that runs no pool it was CPU spent on every block for nothing.
+ *
+ * Read from the database like every other process reads the switch, after the
+ * timestamp has already been taken. A failed read counts as off.
+ */
+function stratumRaceOn() {
+  try {
+    return stratumRace.isEnabled();
+  } catch (err) {
+    logger.debug('could not read the Stratum Race switch', { error: err.message });
+    return false;
+  }
+}
+
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
-  const template = timeTemplate(detectedAtMs);
+  const template = stratumRaceOn() ? timeTemplate(detectedAtMs) : Promise.resolve(null);
   let peers;
   let chain;
   let header;
