@@ -40,7 +40,8 @@ test.beforeEach(() => {
 });
 
 const races = () => db.instance.prepare('SELECT COUNT(*) AS n FROM relay_race').get().n;
-const block = (i) => ({ blockHash: String(i).padStart(64, 'c'), detectedAtMs: now, t0: process.hrtime.bigint() });
+// Ten minutes apart, like real blocks - a block seconds after a skipped one counts as the tail of the catch-up.
+const block = (i, atMs = now + i * 600_000) => ({ blockHash: String(i).padStart(64, 'c'), detectedAtMs: atMs, t0: process.hrtime.bigint() });
 
 test('isCatchingUp: headers ahead of blocks, or initial block download', () => {
   assert.equal(relay.isCatchingUp({ blocks: 900, headers: 905, initialblockdownload: false }), true);
@@ -83,5 +84,18 @@ test('a block at the tip is scored as before', async () => {
 test('if getblockchaininfo fails, the block is still scored', async () => {
   rpc.getBlockchainInfo = async () => { throw new Error('timeout'); };
   await relay.handleHashBlock(block(3));
+  assert.equal(races(), 1);
+});
+
+test('the block that ends a catch-up is not scored either, a block minutes later is', async () => {
+  rpc.getBlockchainInfo = async () => chain;
+  const t = now + 100 * 600_000;
+  chain = { blocks: 990, headers: 1000, initialblockdownload: false };
+  header = { confirmations: 1 };
+  await relay.handleHashBlock(block(100, t));            // backlog
+  chain = { blocks: 1000, headers: 1000, initialblockdownload: false };
+  await relay.handleHashBlock(block(101, t + 2000));     // the tip, same burst
+  assert.equal(races(), 0);
+  await relay.handleHashBlock(block(102, t + 9 * 60_000)); // the next real block
   assert.equal(races(), 1);
 });
