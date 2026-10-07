@@ -17,7 +17,7 @@ The four processes share a SQLite database in WAL mode, allowing readers to acce
 
 The dashboard's Storage panel shows how much space the data uses. Peer measurements and pool history can be cleared separately.
 
-Your saved manual selection survives either reset. Clearing peer measurements starts a fresh delivery record while keeping the peers you have chosen.
+Your saved manual selection survives either reset. Clearing peer measurements starts a fresh delivery record while keeping the peers you have chosen. Manual peers that are offline at that moment are kept as well and get a new waiting period, so the reset itself never parks them.
 
 ## Health and recovery
 

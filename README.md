@@ -41,8 +41,7 @@ Before rotation, inbound connections brought 98% of blocks first. With eight
 manual peers, the inbound share fell to 16%, and the
 manual peers delivered 82% of blocks first. A restart does not throw that away:
 Bitcoin Lab puts the saved manual peers straight back, so the node started
-strong right away – 42 of the first 43 blocks after the restart came first
-through a manual peer. That is the discovery behind the project: a small set of
+strong right away. That is the discovery behind the project: a small set of
 connections can matter far more than its size suggests.
 [The full story and measurements.](docs/measured.md)
 
@@ -68,7 +67,7 @@ You can manage peers yourself or enable rotation to run this loop automatically.
 
 The ranking favours recent blocks and discounts small samples. A newly promoted peer gets a grace period. Good peers that go offline are parked and tested again later, with their history kept.
 
-**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and all inbound peers are measured and ranked, but left untouched. Wondering whether this makes an eclipse attack easier? [It does not.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
+**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and all inbound peers are measured and ranked, but left untouched. Wondering whether this makes an eclipse attack easier? [Not that I can see – rotation even adds a hurdle.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
 
 Bitcoin Lab can only keep clearnet peers as manual connections. If Core makes
 its outgoing connections over clearnet only, every one of its eight full-relay

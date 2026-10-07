@@ -42,7 +42,7 @@ By default, each percentage point of lifetime First earns one hour, with a minim
 
 Once that period ends, rotation parks the peer and frees its slot for another candidate. Its delivery history stays intact. Parked peers are checked periodically, and a reachable peer becomes eligible to compete for a manual slot again.
 
-Protected peers keep their place and are never parked automatically.
+Protected peers keep their place and are not parked when they go offline. The one exception is an address Core has never managed to hold as a manual connection: after its waiting period, it is parked like any other, so an address that does not work cannot block a slot for good.
 
 ## Stronger peers are worth checking for longer
 
@@ -52,9 +52,13 @@ With the defaults, a peer with 5% lifetime First stays on that list for 25 days.
 
 Checks become less frequent after repeated failures. Strong performers are checked more often than peers with a weaker record, and only a few parked peers are checked per rotation pass.
 
+When a parked peer answers again and beats the weakest manual peer, the two change places. The peer that makes room is parked only if it is offline itself; one that is still connected simply goes back to competing as a candidate.
+
 ## Protected peers stay your choice
 
 Use the padlock to keep a peer in your manual selection regardless of its ranking. Rotation will neither replace it with a stronger candidate nor park it when it goes offline. Peers you type in are protected automatically.
+
+Manual peers that were already set in Core, for example in `bitcoin.conf` or in Umbrel's Bitcoin Node settings, are taken over as protected as well. Bitcoin Lab adopts up to eight in total; any beyond that stay in Core's own list and are left untouched.
 
 Protection does not affect measurement or ranking. Click the padlock again whenever you want rotation to manage that peer's place.
 
@@ -76,7 +80,9 @@ On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming
 
 ## Does choosing peers make an eclipse attack easier?
 
-No. An eclipse attack needs every one of your node's connections. If anything, it gets harder: an attacker would also need your manual peers. Bitcoin Lab's manual peers come on top of Core's ten automatic outbound connections, which Core keeps choosing on its own, with the same protections as without Bitcoin Lab. Candidates are only ever peers Core connected to by itself; Bitcoin Lab adds no address you did not type in. Inbound connections are never touched. Rotation only replaces automatic full-relay peers; the two block-relay-only connections Core keeps as anchors are left alone.
+Not that I can see, and rotation even adds a hurdle. An eclipse attack needs every one of your node's connections. Your manual peers come on top of Core's ten automatic outbound connections, and an attacker cannot simply take their places: a peer only earns a manual slot by delivering blocks first more often than the peers already there. A peer that holds blocks back – which is what an eclipse needs – never delivers first, so rotation drops it after 50 blocks. Candidates are only ever peers Core connected to by itself; Bitcoin Lab adds no address you did not type in. Inbound connections are never touched, and the two block-relay-only connections Core keeps as anchors are left alone.
+
+One thing does change: because rotation drops automatic peers that deliver nothing first, Core picks new outbound peers more often than usual – on my node around 15 to 20 times a day. Each pick follows Core's own rules, but more picks also give an attacker's addresses more chances to be chosen for a while.
 
 Your node still checks every block it receives. A bad peer can hold a block back, but it cannot make your node accept an invalid one. At worst, a weak manual set brings you blocks later, not a different chain.
 

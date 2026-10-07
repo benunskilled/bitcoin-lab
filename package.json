@@ -1,7 +1,7 @@
 {
   "name": "bitcoin-lab",
   "version": "1.25.7",
-  "description": "Find your fastest Bitcoin peers, keep them, and see whether your mining pool got faster because of it. An Umbrel app for solo miners.",
+  "description": "Measures which of your peers brings you new blocks first, ranks them, and optionally keeps the best as manual peers. Stratum Race times your own mining pool against public ones. Umbrel app.",
   "license": "MIT",
   "private": true,
   "type": "commonjs",
