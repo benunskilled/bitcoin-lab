@@ -14,11 +14,13 @@ Security fixes are provided for the latest release. Please update before checkin
 
 ## Access to your node
 
-Bitcoin Lab uses Bitcoin Core's RPC and ZMQ interfaces. It reads peer information and block events, and uses `addnode` and `disconnectnode` to manage connections.
+Bitcoin Lab uses Bitcoin Core's RPC and ZMQ interfaces. It reads peer information and block events, and uses `addnode` and `disconnectnode` to manage connections. While Stratum Race is on, it also asks Core for a block template after each new block, to time how long building it takes.
 
 The app does not access wallet files, private keys or Core's block files, and does not edit `bitcoin.conf`.
 
 On Umbrel, the app proxy handles dashboard authentication. The dashboard has no login of its own, so direct access to its internal port also gives access to its peer-management controls.
+
+The dashboard only accepts changes from its own page. A reset, a disconnect or a rotation switch must arrive as a JSON request from the dashboard itself, so another website you have open cannot trigger them through your Umbrel login.
 
 ## Connections to mining pools
 

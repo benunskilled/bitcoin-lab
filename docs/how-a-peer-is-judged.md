@@ -31,6 +31,8 @@ Two peers can both be credited: Core notes each peer's last new block only to th
 
 Blocks your node fetches while catching up after being offline are not counted: they arrive several a second from many peers and say nothing about who relays a new block quickly.
 
+Core itself favours peers that have just been fast. Under BIP152, it asks up to three peers that recently delivered a new block first to send the next one straight away, without waiting to be asked. A peer that is already ahead keeps that edge more easily – part of why a good manual peer tends to stay good, and why a new candidate needs a few blocks before it shows what it can do.
+
 This builds a record of which connections actually bring new blocks to your node first.
 
 ## Not every connection serves the same purpose
