@@ -24,6 +24,7 @@ const rpc = require('./lib/rpc');
 const queries = require('./lib/queries');
 const peerSync = require('./lib/peer-sync');
 const sibling = require('./lib/sibling');
+const localPools = require('./lib/local-pools');
 const health = require('./lib/health');
 const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
@@ -792,6 +793,11 @@ async function router(req, res, pathname, url) {
     // The worker closes or opens its sockets on its own 30-second check - this
     // process has no way to reach into it, and should not have one.
     return sendJson(res, 200, { ok: true, enabled: stratumRace.isEnabled() });
+  }
+
+  if (req.method === 'GET' && pathname === '/api/pools/local') {
+    const configured = db.instance.prepare('SELECT host, port FROM stratum_pool').all();
+    return sendJson(res, 200, await localPools.list(configured));
   }
 
   if (req.method === 'GET' && pathname === '/api/pools') {

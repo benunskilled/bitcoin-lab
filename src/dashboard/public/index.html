@@ -247,11 +247,18 @@
           <option value="all">All time</option>
         </select>
       </div>
+      <div class="inline-form" id="pool-found" hidden>
+        <span class="hint" id="pool-found-text"></span>
+        <button type="button" data-action="add-found-pools">Add to Stratum Race</button>
+        <button type="button" class="secondary" data-action="dismiss-found-pools">Not now</button>
+      </div>
       <div class="inline-form" id="pool-quickfill">
         <span class="hint">Local Umbrel pool:</span>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="gobrrr">GoBrrr</button>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="bassin">Bassin</button>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="public-pool">Public Pool</button>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="datum">DATUM</button>
+        <button type="button" class="secondary" data-action="fill-pool-template" data-template="pogolo">Pogolo</button>
       </div>
       <form id="pool-add-form" class="inline-form">
         <input type="text" id="pool-label" aria-label="Pool name" placeholder="Label" required />
@@ -270,7 +277,7 @@
           placeholder="Port"
           min="1"
           max="65535"
-          title="The port the pool's stratum server listens on inside its own container - not the port your miner connects to on the LAN, which is often a different, externally-published number. ckpool-based pools (GoBrrr, Bassin) use 3333; Public Pool uses 2018. The buttons above fill this in for you."
+          title="The port the pool's stratum server listens on inside its own container - not the port your miner connects to on the LAN, which is often a different, externally-published number. ckpool-based pools (GoBrrr, Bassin) use 3333; Public Pool uses 2018, DATUM 23334 and Pogolo 5661. The buttons above fill this in for you."
           required
         />
         <button type="submit">Add Pool</button>
