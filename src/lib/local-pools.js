@@ -17,9 +17,10 @@ const dns = require('dns');
  * and 3456), so only 3333 works from in here. Public Pool (2018), DATUM (23334)
  * and Pogolo (5661) publish their stratum port unchanged. Checked against the
  * docker-compose.yml of each app in getumbrel/umbrel-apps, 09.10.2026.
- * GoBrrr, Bassin and Public Pool have raced on a real node; DATUM and Pogolo
- * are taken from those files and have not yet been raced against a running
- * instance (DATUM may only send jobs once it is set up for OCEAN).
+ * Only GoBrrr has raced on the node this was written for (3,339 races by
+ * 09.10.2026); the other four are taken from those files and have not yet been
+ * raced against a running instance (DATUM may only send jobs once it is set up
+ * for OCEAN).
  */
 const LOCAL_POOLS = [
   { key: 'gobrrr', label: 'GoBrrr', host: 'gobrrr-pool_ckpool_1', port: 3333 },
