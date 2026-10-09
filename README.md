@@ -94,7 +94,7 @@ in one week my node sent 543 GB to other nodes and received only 25 GB.
 
 Enable Stratum Race to compare new mining jobs as they arrive from your own pool and eight preconfigured public solo pools. Templates help with adding your local GoBrrr, Bassin or Public Pool.
 
-For each new block hash reported in a job, the first pool sets the reference time. The others are measured against it. The dashboard shows wins, latency statistics and missed races, giving you a way to follow whether your own pool improves as you change your setup.
+For each new block hash reported in a job, the first pool sets the reference time and the others are measured against it – not a ping, but how quickly each pool switches to the new block. The dashboard shows wins, latency statistics and missed races, giving you a way to follow whether your own pool improves as you change your setup.
 
 Stratum Race is off by default on a fresh install. It subscribes to the pools without submitting mining shares, so you can observe the race without directing any mining work to them.
 
