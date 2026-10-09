@@ -853,6 +853,7 @@ async function refreshPools() {
   const range = document.getElementById('stratum-range').value;
   const pools = await api(`/api/pools?range=${encodeURIComponent(range)}`);
   renderPools(pools);
+  refreshLocalPools();
 }
 
 function renderPools(pools) {
@@ -1096,34 +1097,73 @@ function showToast(message, kind) {
   }
 }
 
-// Quick-fill for the solo pools available in the Umbrel app store - all three
-// of them, as of now.
-//
-// A local pool app is not reachable at umbrel.local, and the port a miner on
-// the LAN connects to is the app's externally-published port, not its internal
-// one. Bitcoin Lab is already a container on the same network as the pool, so
-// it needs the pool's container name (<app-id>_<service>_1) and the port the
-// stratum server actually listens on inside its container.
-//
-// Those two numbers are not always the same. GoBrrr and Bassin both run
-// ckpool on container-internal 3333 and publish it externally under a
-// different number (21420 and 3456), so only 3333 works from in here. Public
-// Pool is the exception that makes the point worth stating: it listens on
-// 2018 (STRATUM_PORT=2018 in its app manifest) and publishes it unchanged, so
-// 2018 is right on both sides.
-const LOCAL_POOL_TEMPLATES = {
-  gobrrr: { label: 'GoBrrr', host: 'gobrrr-pool_ckpool_1', port: 3333 },
-  bassin: { label: 'Bassin', host: 'bassin_ckpool_1', port: 3333 },
-  'public-pool': { label: 'Public Pool', host: 'public-pool_server_1', port: 2018 },
-};
+// Quick-fill for the solo pools available in the Umbrel app store. The list,
+// with the container name and internal stratum port of each and why those
+// differ from what a miner on the LAN uses, lives in src/lib/local-pools.js;
+// /api/pools/local hands it over together with which of them are installed.
+// The buttons are always there - a pool declined in the "found" note below
+// can still be added any time.
+let localPoolTemplates = {};
+
+// Pools found on this Umbrel and not yet added are offered once, until the
+// user adds or declines them. Declined ones are remembered in this browser
+// only; the quick-fill buttons stay either way.
+const POOLS_DISMISSED_KEY = 'lab.localPoolsDismissed';
+function dismissedPools() {
+  try { return new Set(JSON.parse(localStorage.getItem(POOLS_DISMISSED_KEY) || '[]')); } catch { return new Set(); }
+}
+let foundPools = [];
+
+async function refreshLocalPools() {
+  let list;
+  try { list = await api('/api/pools/local'); } catch { return; }
+  localPoolTemplates = Object.fromEntries(list.map((p) => [p.key, p]));
+  const dismissed = dismissedPools();
+  foundPools = list.filter((p) => p.installed && !p.added && !dismissed.has(p.key));
+  const box = document.getElementById('pool-found');
+  if (!box) return;
+  box.hidden = foundPools.length === 0;
+  if (foundPools.length) {
+    document.getElementById('pool-found-text').textContent =
+      `Found on this Umbrel: ${foundPools.map((p) => p.label).join(', ')}.`;
+  }
+}
 
 document.body.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const { action, address, id, template } = btn.dataset;
 
+  if (action === 'add-found-pools') {
+    btn.disabled = true;
+    const added = [];
+    for (const p of foundPools) {
+      try {
+        await api('/api/pools', { method: 'POST', body: JSON.stringify({ label: p.label, host: p.host, port: p.port }) });
+        added.push(p.label);
+      } catch (err) {
+        showToast(`Could not add ${p.label}: ${err.message}`, 'error');
+      }
+    }
+    btn.disabled = false;
+    // Offered once: a pool added here and removed later is not offered again.
+    const dismissed = dismissedPools();
+    foundPools.forEach((p) => dismissed.add(p.key));
+    try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window */ }
+    if (added.length) showToast(`Added ${added.join(' and ')} to Stratum Race.`, 'success');
+    await refreshLocalPools();
+    refreshPools();
+    return;
+  }
+  if (action === 'dismiss-found-pools') {
+    const dismissed = dismissedPools();
+    foundPools.forEach((p) => dismissed.add(p.key));
+    try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window: shows again next time */ }
+    document.getElementById('pool-found').hidden = true;
+    return;
+  }
   if (action === 'fill-pool-template') {
-    const t = LOCAL_POOL_TEMPLATES[template];
+    const t = localPoolTemplates[template];
     if (!t) return;
     document.getElementById('pool-label').value = t.label;
     document.getElementById('pool-host').value = t.host;
