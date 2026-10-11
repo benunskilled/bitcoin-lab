@@ -43,9 +43,8 @@ jobs:
   # its own image-build job was red.
   #
   # `needs: ci` on the publish job below is that edge. It covers the unit tests
-  # on both Node versions and the regtest integration test: ci.yml gates that
-  # one on a tag ref, and a called workflow sees the caller's ref, which is the
-  # tag. Before v1.12.0 a tag went straight to build-and-push with no test run
+  # on both Node versions and the regtest integration test. Before v1.12.0 a tag
+  # went straight to build-and-push with no test run
   # at all; this is the same fix carried the rest of the way.
   ci:
     uses: ./.github/workflows/ci.yml
@@ -60,6 +59,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # For the build provenance below: a short-lived OIDC token to sign it, and
+      # the right to store the attestation.
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -127,6 +130,17 @@ jobs:
           # rebuild whenever that matters.
           cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/bitcoin-lab:buildcache
           cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/bitcoin-lab:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
+
+      # Build provenance: a signed statement, stored with the image and on
+      # GitHub, that this exact digest was built by this workflow from this
+      # commit. Anyone can check it without trusting us:
+      #   gh attestation verify oci://ghcr.io/benunskilled/bitcoin-lab:X.Y.Z --owner benunskilled
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bitcoin-lab
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
       # "The image built" is not the same statement as "the image runs". Both
       # runtime dependencies are native: better-sqlite3 and zeromq ship

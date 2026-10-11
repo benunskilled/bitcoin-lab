@@ -140,6 +140,7 @@ test('the reason shown names the family the Go side named', () => {
     ['/electrumx:1.16/', 'indexer'],
   ];
   for (const [agent, fragment] of expectations) {
-    assert.match(cannotRelayReason(agent) || '', new RegExp(fragment), agent);
+    const reason = cannotRelayReason(agent) || '';
+    assert.ok(reason.includes(fragment), `${agent}: "${reason}" should mention "${fragment}"`);
   }
 });

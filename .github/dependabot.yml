@@ -1,0 +1,22 @@
+# Dependency updates, bundled into one PR per ecosystem, on the 1st and 15th
+# of each month (Ben, 11.10.2026: every two weeks is enough). Every PR still has
+# to pass the full Tests workflow before it can be merged.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
+    groups: { npm: { patterns: ["*"] } }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
+    groups: { actions: { patterns: ["*"] } }
+  # Base images: patches only. A new Go or Node minor/major (golang:1.28,
+  # node:24) is a deliberate change with its own PR, not a background update.
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
+    groups: { docker: { patterns: ["*"] } }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
