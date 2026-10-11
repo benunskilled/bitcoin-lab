@@ -1,6 +1,6 @@
 # Changelog
 
-What changed in each Bitcoin Lab release. The same notes are on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases).
+The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
 ## 1.25.8 – 2026-10-07
 
@@ -43,31 +43,45 @@ Bitcoin Lab 1.25.8 closes a gap and makes rotation more careful with your choice
 ## 1.24.0 – 2026-09-25
 
 **Faster, and it writes less.** The peer ranking no longer walks your whole history to read its 500-block window: on a node with two million recorded observations that took 3.7 s, and now takes 32 ms. The dashboard only writes a peer's session when something actually changed, which saves roughly 100 MB of database log a day.
- **Fixes.** IPv6 peers are no longer counted twice, and every step of the outbound funnel now counts the same peers. Stratum Race no longer charges a pool with a miss for the moment it takes us to connect. The dashboard sends the same security headers as Peer Map and turns malformed actions away instead of passing them on to Core. Both apps now run in a tighter container.
- Bitcoin Lab also counts the transactions in each block template, so **Peer Map** can show why your pool took longer on one block than the next.
+
+**Fixes.** IPv6 peers are no longer counted twice, and every step of the outbound funnel now counts the same peers. Stratum Race no longer charges a pool with a miss for the moment it takes us to connect. The dashboard sends the same security headers as Peer Map and turns malformed actions away instead of passing them on to Core. Both apps now run in a tighter container.
+
+Bitcoin Lab also counts the transactions in each block template, so **Peer Map** can show why your pool took longer on one block than the next.
 
 ## 1.23.0 – 2026-09-22
 
 Bitcoin Lab now tells **Peer Map** which of your connections have ever
+
 delivered a block first, so the map can mark them. It is the record the
+
 ranking is already built on, sent along with the newest block: no extra
+
 request, worked out once per block.
 
 ## 1.22.0 – 2026-09-21
 
 The Peer Map route of a block now splits the stretch from Core to your pool
+
 in two: **how long Core takes to build the next block template**, and how long
+
 your pool takes to turn it into a job. For that, Bitcoin Lab asks Core for a
+
 template itself the moment a block arrives — the same request every pool on
+
 the node makes then — and times it. Measured on one node: 75 to 91 ms right
+
 after a block.
 
 It costs one template per block; a pool on the same node already asks about
+
 thirty times as often. Core builds one template at a time and keeps it for a
+
 few seconds, so this can make your pool faster, never slower.
 
 The delivering peer's ping is now stored with each block, from the moment it
+
 arrived. And for every stop of the route Bitcoin Lab works out the median over
+
 the last hundred blocks, so a change you make shows up as a shorter stretch.
 
 All of this is measured at every block, whether Peer Map is open or not.
@@ -75,52 +89,83 @@ All of this is measured at every block, whether Peer Map is open or not.
 ## 1.21.0 – 2026-09-20
 
 Two peers can be credited with the same block, and the dashboard now says how
+
 often that happens on your node. **First** comes from Core's `last_block`, a
+
 timestamp in whole seconds: two connections that hand the same block over
+
 inside one second cannot be told apart, so both keep the credit. The status
+
 line carries the count beside the network and the database size — "2 ties in
+
 2,206 blocks".
 
 How often it happens is a property of your node rather than of this app. It
+
 depends on how tightly the first copies of a block arrive, which is a question
+
 of where the node sits and who it is connected to. On the node this app is
+
 built against it is close to never — twice in 2,206 blocks over sixteen days,
+
 with no block left uncredited — but there is no reason to think that number
+
 travels, which is why yours is counted rather than assumed.
 
 A lifetime count rather than the 500-block window the ranking uses: at this
+
 rate a recent window would read zero almost every day, and a number that never
+
 says anything else is not worth its space. A fresh install shows nothing at all
+
 until it has recorded a block.
 
 It is affordable because of a new partial index over the credited rows only —
+
 one per block instead of one per peer per block. The count takes 0.26 ms
+
 instead of 104 ms on a node with a fortnight of history, for 28 KB and a one-off
+
 18 ms the next time the app starts.
 
 ## 1.20.0 – 2026-09-20
 
 Every block now says who found it. The **pool that mined the newest block**
+
 stands under its height, read off the block itself: the coinbase carries the
+
 address the reward is paid to and a short text the miner writes, and both are
+
 matched against a list that ships with the app. Nothing is asked of any
+
 service. On ten consecutive blocks on one real node, ten of ten were
+
 attributed — four by payout address, six only by tag, which is why both are
+
 used.
 
 A miner nobody has listed is not an empty field. What he wrote into his own
+
 coinbase is shown instead, in quotes, because it is his claim and not a name
+
 this app put on him.
 
 The cost is deliberately small and deliberately late: the lookup runs after the
+
 block race has been recorded, never before. Measured on the same node, 15.4 ms
+
 and 0.8 ms of RPC once every ten minutes — nowhere near the timing that
+
 matters.
 
 **Peer Map**, in the same store, reads the whole story of a block from here
+
 now: which pool mined it, which of your peers delivered it first, and where the
+
 Stratum race put your own pool. Joining a mining job to a block needed care,
+
 because pools send the previous block hash in whichever byte order they like.
+
 Of 200 races checked against this node's own history, 200 found their block.
 
 ## 1.19.0 – 2026-09-17
@@ -142,6 +187,7 @@ A peer that cannot deliver a block now says so in colour. Phone wallets, light c
 Underneath, three more facts are written down for every connection: whether a peer advertises any services at all, whether it asked for transactions, and whether Bitcoin Core has ever learned which chain it is on. Nothing reads them yet. They are there because a name is worth very little — on the node this app is built against, four connections called themselves Bitcoin Core with a zero in place of the o — and because deciding what to do about a peer like that deserves data rather than an argument.
 
 **Image:** `ghcr.io/benunskilled/bitcoin-lab:1.18.0`
+
 **Digest:** `sha256:23d324736b4f1766642ed3c99d898170103dc695c7bfe697411a4f512d2c5c3b`
 
 ## 1.17.1 – 2026-09-16
@@ -155,6 +201,7 @@ A pool that says something malformed is now cut off rather than believed, and a 
 Nothing new to learn and nothing to switch on. Under the hood the ranking rule was measured against 2,206 recorded blocks instead of argued for — it came out ahead, and stays as it was — and there is now a test that runs two real Bitcoin Core nodes and checks that the peer which delivered a block is the peer this app credits.
 
 **Image:** `ghcr.io/benunskilled/bitcoin-lab:1.17.1`
+
 **Digest:** `sha256:e9ef1e4c8cabfcadd868bc8b587ebccd4b8a9203a8c194824f9f426948b186c2`
 
 ## 1.16.3 – 2026-09-11
@@ -283,8 +330,11 @@ A full review of the code and both repositories, with every finding above "mediu
 `offlineForMs()` measured a manual peer's absence from the end of its last closed session, without asking whether it had been re-added since. So retiring parked a peer, the revival pass found it answering and put it straight back, and the next tick read the same stale session end and retired it again — park, revive, park, revive, every ten minutes indefinitely. Because only one peer may join the manual set per tick, that loop consumed the tick's one move every single time, so **no genuine candidate was ever promoted while it ran**. Four consecutive ticks with a 90%-first candidate waiting:
 
 ```
+
 rt1/rv1/p0   rt1/rv1/p0   rt1/rv1/p0   rt1/rv1/p0
+
 90% candidate promoted: false
+
 ```
 
 The same line meant a peer added by hand could be retired seconds later, before Core had a chance to dial it. The clock now starts at whichever is later: the last session's end, or joining the manual set.
@@ -354,10 +404,15 @@ The explanation under the rotation toggle had been grown a sentence at a time wi
 **After**
 
 > Every ~10 minutes, one change at a time:
+
 > - Drops an outbound peer that has been connected a whole day without ever delivering a block first. Core replaces it with a new random one.
+
 > - Frees the slot of a manual peer that has gone offline. Good peers get longer: an hour per point of First %, up to a day.
+
 > - Puts the best peer available into a free slot.
+
 >
+
 > Losing a slot is not losing the peer. It is parked below, tested regularly, and takes a slot back as soon as it answers again.
 
 Each sentence does one thing. The detailed rules stay in the README, where someone who wants them is actually looking; what belongs beside a switch is what it does and what it costs you. The Parked table's subtitle got the same treatment.
@@ -401,10 +456,15 @@ It does not need to be. The wait only has to cover the outages that fix themselv
 The chase afterwards scales too, in the direction that spends least for the least reward: the re-probe ceiling is 12h from 20% First % upwards, sliding to 48h as the record approaches zero, and a parked peer is remembered for five days per point (2-day floor, 180-day ceiling) rather than a flat month.
 
 | First % | keeps its slot for | then re-tested every | remembered for |
+
 |---|---|---|---|
+
 | 0.8% | 1 hour | ~47 hours | 4 days |
+
 | 5% | 5 hours | ~39 hours | 25 days |
+
 | 12% | 12 hours | ~26 hours | 60 days |
+
 | 30% | 24 hours (max) | 12 hours (max speed) | 150 days |
 
 The early backoff is the same for everyone — first knock on the next pass, then 30m, 1h, 2h, 4h, 8h — so a returning peer of any strength is noticed quickly on day one. The scaling only decides what happens after that.
@@ -453,10 +513,15 @@ Image: `ghcr.io/benunskilled/bitcoin-lab:1.15.0@sha256:a190c2e9c10d72d8833510ed3
 They claimed that Core timestamps block arrival to the second, so "several peers routinely share the same block", and that First % therefore means *how often a peer was in the fastest group*. Both halves are wrong. Core sets a peer's `last_block` only when the block was new to the node:
 
 ```cpp
+
 bool new_block{false};
+
 m_chainman.ProcessNewBlock(block, force_processing, min_pow_checked, &new_block);
+
 if (new_block) {
-    node.m_last_block_time = GetTime<std::chrono::seconds>();
+
+node.m_last_block_time = GetTime<std::chrono::seconds>();
+
 ```
 
 A peer relaying a block you already have is not credited, so for any given block exactly one peer normally is — the one that actually delivered it. **First % means what it looks like it means.** Two peers land in the same detection window only when two blocks are accepted inside it: competing blocks at the same height, or two in quick succession.

@@ -43,7 +43,8 @@ jobs:
   # its own image-build job was red.
   #
   # `needs: ci` on the publish job below is that edge. It covers the unit tests
-  # on both Node versions and the regtest integration test. Before v1.12.0 a tag went straight to build-and-push with no test run
+  # on both Node versions and the regtest integration test. Before v1.12.0 a tag
+  # went straight to build-and-push with no test run
   # at all; this is the same fix carried the rest of the way.
   ci:
     uses: ./.github/workflows/ci.yml
