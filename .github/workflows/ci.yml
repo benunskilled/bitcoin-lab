@@ -8,8 +8,7 @@ name: Tests
 # instead: release.yml calls this workflow as its first job and gates the
 # publish on it, so on a tag these checks run exactly once and a red one stops
 # the image from being pushed rather than being a second, independent workflow
-# that goes red beside a green release. The integration job below still keys
-# off the ref, which is the caller's tag when it is called that way.
+# that goes red beside a green release.
 on:
   push:
     branches: ['**']
@@ -80,13 +79,10 @@ jobs:
   # product is built on: that the peer which delivered a block is the peer the
   # app credits with it.
   #
-  # Only on tags and on demand, deliberately. It answers a question whose answer
-  # changes when Core does - roughly twice a year - and running it on every
-  # push would fetch 90 MB and start two nodes to re-answer it after a typo in
-  # a comment. On a tag it is the last thing checked before a release; by hand
-  # it is how to find out whether a new Core has moved anything.
+  # On every push and pull request (Ben, 11.10.2026). Core is cached, so this is
+  # about a minute, and a change that breaks the claim above shows up in its
+  # PR rather than first at the release.
   integration:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     name: Against real Bitcoin Core
     env:
