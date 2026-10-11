@@ -1,0 +1,35 @@
+name: Bug report
+description: Something doesn't work or looks wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. Please leave out passwords, RPC credentials and any peer addresses you'd rather not make public.
+  - type: input
+    id: version
+    attributes:
+      label: Bitcoin Lab version
+      description: Shown on the app's page in the Umbrel App Store.
+      placeholder: 1.26.0
+    validations: { required: true }
+  - type: input
+    id: umbrelos
+    attributes:
+      label: umbrelOS version
+      placeholder: "2.0.0"
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options: [Umbrel Home, PC or server (x86), Raspberry Pi 5, Raspberry Pi 4, Other]
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: In Umbrel, open the app's menu → Troubleshoot, and paste what looks relevant.
+      render: text

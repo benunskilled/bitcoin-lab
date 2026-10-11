@@ -1,0 +1,17 @@
+# Dependency updates, bundled into one PR per ecosystem, on the 1st and 15th
+# of each month (Ben, 11.10.2026: every two weeks is enough). Every PR still has
+# to pass the full Tests workflow before it can be merged.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
+    groups: { npm: { patterns: ["*"] } }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
+    groups: { actions: { patterns: ["*"] } }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
+    groups: { docker: { patterns: ["*"] } }
