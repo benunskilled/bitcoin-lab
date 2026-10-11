@@ -11,7 +11,12 @@ updates:
     directory: /
     schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
     groups: { actions: { patterns: ["*"] } }
+  # Base images: patches only. A new Go or Node minor/major (golang:1.28,
+  # node:24) is a deliberate change with its own PR, not a background update.
   - package-ecosystem: docker
     directory: /
     schedule: { interval: cron, cronjob: "0 6 1,15 * *" }
     groups: { docker: { patterns: ["*"] } }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

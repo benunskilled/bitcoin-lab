@@ -10,7 +10,7 @@ body:
     attributes:
       label: Bitcoin Lab version
       description: Shown on the app's page in the Umbrel App Store.
-      placeholder: 1.26.0
+      placeholder: 1.25.8
     validations: { required: true }
   - type: input
     id: umbrelos
