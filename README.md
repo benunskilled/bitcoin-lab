@@ -35,7 +35,7 @@ it had found:
 | Rotation on, 19 Sep to the restart on 25 Sep | 930 | 61% | 6% | 33% |
 | Restart with 8 manual peers, 25 Sep – 1 Oct | 907 | 82% | 1% | 16% |
 
-¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation leaves inbound peers alone.
+¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation never promotes inbound peers.
 
 Before rotation, inbound connections brought 98% of blocks first. With eight
 manual peers, the inbound share fell to 16%, and the
@@ -67,7 +67,7 @@ You can manage peers yourself or enable rotation to run this loop automatically.
 
 The ranking favours recent blocks and discounts small samples. A newly promoted peer gets a grace period. Good peers that go offline are parked and tested again later, with their history kept.
 
-**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and all inbound peers are measured and ranked, but left untouched. Wondering whether this makes an eclipse attack easier? [Not that I can see – rotation even adds a hurdle.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
+**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and all inbound peers are measured and ranked, but never promoted or replaced automatically. Wondering whether this makes an eclipse attack easier? [Not that I can see – rotation even adds a hurdle.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
 
 Bitcoin Lab can only keep clearnet peers as manual connections. If Core makes
 its outgoing connections over clearnet only, every one of its eight full-relay
