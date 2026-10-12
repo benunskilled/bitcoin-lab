@@ -92,7 +92,7 @@ in one week my node sent 543 GB to other nodes and received only 25 GB.
 
 ## Compare your pool with Stratum Race
 
-Enable Stratum Race to compare new mining jobs as they arrive from your own pool and eight preconfigured public solo pools. Templates help with adding your local GoBrrr, Bassin or Public Pool.
+Enable Stratum Race to compare new mining jobs as they arrive from your own pool and eight preconfigured public solo pools. If GoBrrr, Bassin, Public Pool, DATUM or Pogolo is installed on your Umbrel, Bitcoin Lab offers to add it; buttons for all five stay available below.
 
 For each new block hash reported in a job, the first pool sets the reference time and the others are measured against it – not a ping, but how quickly each pool switches to the new block. The dashboard shows wins, latency statistics and missed races, giving you a way to follow whether your own pool improves as you change your setup.
 
