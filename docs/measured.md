@@ -10,7 +10,7 @@ I run Bitcoin Core on Umbrel with `maxconnections=200`, accepting incoming conne
 | Rotation on, 19 Sep to the restart on 25 Sep | 930 | 61% | 6% | 33% |
 | Restart with 8 manual peers, 25 Sep – 1 Oct | 907 | 82% | 1% | 16% |
 
-¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation leaves inbound peers alone.
+¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation never promotes inbound peers.
 
 Core had introduced me to every one of those eight manual peers. Bitcoin Lab's job was to recognise the good ones and keep them.
 
