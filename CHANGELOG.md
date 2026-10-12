@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 1.26.0 – 2026-10-12
+
+Bitcoin Lab now notices pool apps installed on your Umbrel. With Stratum Race on, if it finds GoBrrr, Bassin, Public Pool, DATUM or Pogolo and they are not in Stratum Race yet, it offers to add them, once in each browser. The quick-fill buttons stay for later, now including DATUM and Pogolo. Finding them is only a name lookup: nothing connects to a pool until you add it.
+
 ## 1.25.8 – 2026-10-07
 
 Bitcoin Lab 1.25.8 closes a gap and makes rotation more careful with your choices. The dashboard now only accepts changes from its own page, so another website you have open can no longer reset your data or disconnect peers through your Umbrel login. Manual peers you set in Core yourself, for example in Umbrel's Bitcoin Node settings, are now protected, a reset keeps manual peers that are offline, and after Core restarts your manual peers are back within seconds. Typing in a peer never pushes out a protected one, and the same node written two ways now counts once. Without Stratum Race switched on, Bitcoin Lab no longer asks Core for a block template on every block.
