@@ -29,7 +29,9 @@ RUN npm ci --omit=dev --no-audit --no-fund
 # Both native packages ship more than this image can ever load. zeromq
 # includes a prebuilt binary for every platform it supports - Windows, macOS,
 # and musl alongside glibc - and better-sqlite3 ships the SQLite C sources it
-# was compiled from, which are a build input and nothing else. This image is
+# was compiled from, which are a build input and nothing else. Since 13.0
+# better-sqlite3 also bundles a prebuilt binary per platform (prebuilds/), so
+# the same platforms go there too. This image is
 # Debian (glibc) Linux and compiles nothing at runtime, so all of that is
 # weight that can never be used.
 #
@@ -42,6 +44,9 @@ RUN rm -rf node_modules/zeromq/build/win32 \
            node_modules/zeromq/build/darwin \
            node_modules/better-sqlite3/deps \
            node_modules/better-sqlite3/src \
+           node_modules/better-sqlite3/prebuilds/darwin-* \
+           node_modules/better-sqlite3/prebuilds/win32-* \
+           node_modules/better-sqlite3/prebuilds/linuxmusl-* \
     && find node_modules/zeromq/build/linux -type d -name 'musl-*' -prune -exec rm -rf {} +
 
 COPY src ./src
