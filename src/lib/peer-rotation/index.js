@@ -23,6 +23,7 @@
  * the dashboard, the profiler and the tests already use.
  */
 
+const config = require('../config');
 const db = require('../db');
 const rpc = require('../rpc');
 const queries = require('../queries');
@@ -37,6 +38,7 @@ const { offlineGraceMs, probeIntervalCapMs, parkedRetentionMs } = require('./rul
 const META_KEY = 'peer_rotation_enabled';
 
 function isEnabled() {
+  if (config.readOnly) return false;
   const row = db.instance.prepare(`SELECT value FROM meta WHERE key = ?`).get(META_KEY);
   return row ? row.value === '1' : false;
 }
