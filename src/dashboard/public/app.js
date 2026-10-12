@@ -36,7 +36,7 @@ let RECENT_WINDOW_BLOCKS = null;
 // this app's own server (it can see the container; a browser cannot), and the
 // port is the one Peer Map's store manifest publishes.
 let PEER_MAP_INSTALLED = false;
-const PEER_MAP_PORT = 8791;
+let PEER_MAP_PORT = 8791; // the store port; a test copy passes its own (peerMapLinkPort)
 function peerMapURL(address) {
   const base = `${location.protocol}//${location.hostname}:${PEER_MAP_PORT}/`;
   return address ? `${base}?peer=${encodeURIComponent(address)}` : base;
@@ -179,6 +179,11 @@ async function refreshStatus() {
   }
   applyStratumEnabled(Boolean(s.stratumRaceEnabled));
   PEER_MAP_INSTALLED = Boolean(s.peerMapInstalled);
+  if (s.peerMapLinkPort) PEER_MAP_PORT = s.peerMapLinkPort;
+  const readOnlyBanner = document.getElementById('readonly-banner');
+  if (readOnlyBanner) readOnlyBanner.hidden = !s.readOnly;
+  const rotationToggleBox = document.getElementById('rotation-toggle');
+  if (rotationToggleBox && s.readOnly) rotationToggleBox.disabled = true;
   const siblingLink = document.getElementById('sibling-link');
   if (siblingLink) {
     siblingLink.hidden = !PEER_MAP_INSTALLED;

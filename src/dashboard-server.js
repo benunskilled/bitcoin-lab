@@ -88,6 +88,10 @@ const SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
 };
 
+const READ_ONLY_BLOCKED = new Set([
+  '/api/peers/untrust', '/api/peers/manual-add', '/api/peers/add-manual', '/api/peers/disconnect', '/api/rotation/toggle',
+]);
+
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
   res.writeHead(status, {
@@ -620,6 +624,9 @@ async function router(req, res, pathname, url) {
       // decide whether to offer a link there at all - a link to an app nobody
       // installed is worse than no link.
       peerMapInstalled: await sibling.isInstalled(),
+      // A test copy (see lib/config.js): read-only, and its own Peer Map port.
+      readOnly: config.readOnly,
+      peerMapLinkPort: config.peerMapLinkPort || undefined,
     });
   }
 
@@ -698,6 +705,11 @@ async function router(req, res, pathname, url) {
     if (scope === 'peers') return sendJson(res, 200, { ok: true, scope, ...db.resetPeerData() });
     if (scope === 'pools') return sendJson(res, 200, { ok: true, scope, ...db.resetPoolHistory() });
     return sendJson(res, 400, { error: 'scope must be "peers" or "pools"' });
+  }
+
+  // Read-only test copy: nothing that would change Core's peers.
+  if (config.readOnly && req.method === 'POST' && READ_ONLY_BLOCKED.has(pathname)) {
+    return sendJson(res, 403, { error: 'This is a read-only test copy: it does not change Core\'s peers.' });
   }
 
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
