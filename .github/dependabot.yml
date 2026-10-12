@@ -1,5 +1,5 @@
 # Dependency updates, bundled into one PR per ecosystem, on the 1st and 15th
-# of each month (Ben, 11.10.2026: every two weeks is enough). Every PR still has
+# of each month (every two weeks is enough). Every PR still has
 # to pass the full Tests workflow before it can be merged.
 version: 2
 updates:

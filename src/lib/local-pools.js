@@ -31,10 +31,12 @@ const LOCAL_POOLS = [
 ];
 
 /**
- * Whether a pool app is installed is a name lookup on the Umbrel network,
- * nothing more: Docker answers for a running container's name and for nothing
- * else. No connection is opened to the pool - that only happens once the user
- * has added it and Stratum Race is on.
+ * Whether a pool app is installed is a name lookup, nothing more: Docker's DNS
+ * answers for a running container's name. A name it does not know (an app that
+ * is not installed) may be passed on to the Umbrel's own resolver, so the
+ * lookup can leave the Umbrel; it carries only the container name. No
+ * connection is opened to the pool - that only happens once the user has added
+ * it and Stratum Race is on. The dashboard only asks while Stratum Race is on.
  *
  * Asked at most every five minutes, like the Peer Map check in sibling.js: an
  * app is installed or removed by hand, and the dashboard polls far more often.

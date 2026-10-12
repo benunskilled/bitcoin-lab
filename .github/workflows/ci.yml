@@ -79,7 +79,7 @@ jobs:
   # product is built on: that the peer which delivered a block is the peer the
   # app credits with it.
   #
-  # On every push and pull request (Ben, 11.10.2026). Core is cached, so this is
+  # On every push and pull request. Core is cached, so this is
   # about a minute, and a change that breaks the claim above shows up in its
   # PR rather than first at the release.
   integration:

@@ -851,9 +851,11 @@ async function refreshPools() {
   // Nothing to ask for while it is off, and nowhere to put the answer.
   if (document.getElementById('stratum-body')?.hidden) return;
   const range = document.getElementById('stratum-range').value;
+  // First, and on its own: the quick-fill buttons need the templates even if
+  // the pool list below fails to load.
+  refreshLocalPools();
   const pools = await api(`/api/pools?range=${encodeURIComponent(range)}`);
   renderPools(pools);
-  refreshLocalPools();
 }
 
 function renderPools(pools) {
@@ -1113,6 +1115,10 @@ function dismissedPools() {
   try { return new Set(JSON.parse(localStorage.getItem(POOLS_DISMISSED_KEY) || '[]')); } catch { return new Set(); }
 }
 let foundPools = [];
+// "A", "A and B", "A, B and C"
+function listLabels(labels) {
+  return labels.length < 3 ? labels.join(' and ') : `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}`;
+}
 
 async function refreshLocalPools() {
   let list;
@@ -1140,17 +1146,18 @@ document.body.addEventListener('click', async (e) => {
     for (const p of foundPools) {
       try {
         await api('/api/pools', { method: 'POST', body: JSON.stringify({ label: p.label, host: p.host, port: p.port }) });
-        added.push(p.label);
+        added.push(p);
       } catch (err) {
         showToast(`Could not add ${p.label}: ${err.message}`, 'error');
       }
     }
     btn.disabled = false;
     // Offered once: a pool added here and removed later is not offered again.
+    // One that could not be added stays on offer.
     const dismissed = dismissedPools();
-    foundPools.forEach((p) => dismissed.add(p.key));
+    added.forEach((p) => dismissed.add(p.key));
     try { localStorage.setItem(POOLS_DISMISSED_KEY, JSON.stringify([...dismissed])); } catch { /* private window */ }
-    if (added.length) showToast(`Added ${added.join(' and ')} to Stratum Race.`, 'success');
+    if (added.length) showToast(`Added ${listLabels(added.map((p) => p.label))} to Stratum Race.`, 'success');
     await refreshLocalPools();
     refreshPools();
     return;
@@ -1163,6 +1170,7 @@ document.body.addEventListener('click', async (e) => {
     return;
   }
   if (action === 'fill-pool-template') {
+    if (!localPoolTemplates[template]) await refreshLocalPools();
     const t = localPoolTemplates[template];
     if (!t) return;
     document.getElementById('pool-label').value = t.label;
