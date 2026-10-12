@@ -245,6 +245,10 @@ tr:hover td { background: #0f151b; }
   margin-bottom: 14px;
   flex-wrap: wrap;
 }
+/* display: flex above would otherwise beat the hidden attribute: the "found
+   on this Umbrel" note stayed on screen, without its text, after the pools
+   were added. */
+.inline-form[hidden] { display: none; }
 
 .inline-form input {
   background: #0f151b;
