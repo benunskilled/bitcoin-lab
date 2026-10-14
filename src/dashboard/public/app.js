@@ -671,6 +671,8 @@ function renderPeerTables(peers, options = {}) {
     showAllLivePeers = true;
   }
   const visibleLivePeers = showAllLivePeers ? livePeers : livePeers.slice(0, LIVE_PEER_LIMIT);
+  const hbLegend = document.getElementById('hb-legend');
+  if (hbLegend) hbLegend.hidden = !livePeers.some((p) => p.hb);
   const limitToggle = document.getElementById('live-peer-limit-toggle');
   const countLabel = document.getElementById('live-peer-count');
   if (countLabel) {
