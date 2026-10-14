@@ -43,7 +43,7 @@ manual peers delivered 82% of blocks first. A restart does not throw that away:
 Bitcoin Lab puts the saved manual peers straight back, so the node started
 strong right away. That is the discovery behind the project: a small set of
 connections can matter far more than its size suggests.
-[The full story and measurements.](docs/measured.md)
+[How rare good peers are, and what I noticed while solo mining.](docs/measured.md)
 
 ## From random connections to a chosen set
 
