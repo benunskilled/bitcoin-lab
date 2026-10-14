@@ -56,25 +56,23 @@ connections, eight of them chosen by you.
 The loop is straightforward:
 
 1. **Observe.** See which peers deliver each new block first.
-2. **Keep good candidates.** Add proven peers to your manual selection so Core maintains connections to them. Bitcoin Lab remembers your selection across restarts and restores it when Core comes back online, so it can reconnect to your chosen peers straight away.
-3. **Keep looking.** Disconnect an automatic full-relay outbound peer that has been connected through 50 blocks without delivering one first. Core immediately looks for another candidate to take its place.
+2. **Keep good candidates.** Add proven peers to your [manual selection](docs/manual-slots.md) so Core maintains connections to them. Bitcoin Lab remembers your selection across restarts and restores it when Core comes back online, so it can reconnect to your chosen peers straight away.
+3. **Keep looking.** Disconnect an automatic full-relay outbound peer that has been connected through [50 blocks](docs/why-50-blocks.md) without delivering one first. Core immediately looks for another candidate to take its place.
 
 ![Peer rotation: from one kept peer to a full manual set](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/rotation.gif)
 
 *Rotation as an animation, from a single kept peer to a full manual set. Simulated peers, the real rules. [Watch the full video](https://github.com/user-attachments/assets/72281912-4d8e-4498-bece-fb6cc5080155).*
 
-You can manage peers yourself or enable rotation to run this loop automatically. **Rotation is off by default.** Peers you type in are protected from automatic replacement; the padlock lets you change that protection.
+You can manage peers yourself or enable rotation to run this loop automatically. **Rotation is off by default.** Peers you type in are [protected](docs/protected-peers.md) from automatic replacement; the padlock lets you change that protection.
 
-The ranking favours recent blocks and discounts small samples. A newly promoted peer gets a grace period. Good peers that go offline are parked and tested again later, with their history kept.
+The ranking [favours recent blocks and discounts small samples](docs/how-a-peer-is-judged.md). A newly promoted peer gets a [grace period](docs/grace-period.md), and a challenger needs a [clear lead](docs/swap-margin.md) to take a slot. Good peers that go offline are [parked and tested again later](docs/parking.md), with their history kept. The rotation log records each promotion, replacement, drop and parking; the last 30 are kept.
 
-**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and all inbound peers are measured and ranked, but never promoted or replaced automatically. Wondering whether this makes an eclipse attack easier? [Not that I can see – rotation even adds a hurdle.](docs/peer-rotation.md#does-choosing-peers-make-an-eclipse-attack-easier)
+**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and [all inbound peers](docs/inbound-peers.md) are measured and ranked, but never promoted or replaced automatically. Wondering whether this makes an eclipse attack easier? [Not that I can see – rotation even adds a hurdle.](docs/eclipse.md)
 
 Bitcoin Lab can only keep clearnet peers as manual connections. If Core makes
 its outgoing connections over clearnet only, every one of its eight full-relay
 slots holds a possible candidate, and rotation finds good peers faster. On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**.
 Incoming Tor and I2P connections are fine.
-
-See [how peers are judged](docs/how-a-peer-is-judged.md) and [why the rotation works this way](docs/peer-rotation.md).
 
 ## Who mined it
 
@@ -129,7 +127,14 @@ peer, Core, the block template, your pool's job – with the time each step take
 |---|---|
 | [Records from my node](docs/measured.md) | Peer-selection results and the experience of solo mining |
 | [Peer scoring](docs/how-a-peer-is-judged.md) | First, Eligible, recent history and sample size |
-| [Rotation](docs/peer-rotation.md) | Selection, grace periods, parking and connection handling |
+| [Manual slots](docs/manual-slots.md) | The eight places for proven peers, kept across restarts |
+| [Why 50 blocks?](docs/why-50-blocks.md) | When rotation drops a candidate that never delivers first |
+| [Grace period](docs/grace-period.md) | Why a newly promoted peer is left alone for a while |
+| [Clear lead](docs/swap-margin.md) | The margin a challenger needs to take a slot |
+| [Parking](docs/parking.md) | What happens to good peers that go offline |
+| [Protected peers](docs/protected-peers.md) | The padlock, and peers already set in Core |
+| [Inbound peers](docs/inbound-peers.md) | Why rotation never promotes them |
+| [Eclipse attacks](docs/eclipse.md) | Does choosing peers make one easier? |
 | [Architecture](docs/architecture.md) | Processes, storage and resource use |
 | [Configuration](docs/configuration.md) | Environment variables and defaults |
 | [Limitations](docs/limitations.md) | Measurement, networking and storage constraints |
