@@ -162,12 +162,25 @@ function escapeHtml(str) {
 
 // Address and Client can both be long enough to blow up the whole table's
 // width (a long subver string in particular forces every other column wide
-// too under auto table layout) - cap them visually with an ellipsis and put
-// the full value in a title tooltip instead of just letting them run wide.
+// too under auto table layout) - cap them visually with an ellipsis. The full
+// value goes into a tooltip only when the ellipsis actually cut it; a tooltip
+// that repeats the cell says nothing (see the mouseover handler below).
 function truncatedCell(text) {
   const safe = escapeHtml(text);
-  return `<td class="cell-truncate" title="${safe}">${safe}</td>`;
+  return `<td class="cell-truncate" data-full="${safe}">${safe}</td>`;
 }
+
+// Whether a cell is cut off depends on the screen, so it is decided when the
+// pointer gets there. A link inside keeps its own hint and gets the full
+// value in front of it.
+document.addEventListener('mouseover', (e) => {
+  const td = e.target.closest && e.target.closest('td.cell-truncate[data-full]');
+  if (!td) return;
+  const cut = td.scrollWidth > td.clientWidth;
+  const link = td.querySelector('a[data-tip]');
+  if (link) link.title = (cut ? td.dataset.full + '\n' : '') + link.dataset.tip;
+  else td.title = cut ? td.dataset.full : '';
+});
 
 async function refreshStatus() {
   const s = await api('/api/status');
@@ -546,7 +559,7 @@ function addressCell(p) {
   // other question. Without it, a plain cell - no dead links.
   if (PEER_MAP_INSTALLED) {
     const safe = escapeHtml(p.address);
-    return `<td class="cell-truncate" title="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" title="Show this peer in Peer Map">${safe}</a></td>`;
+    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
   }
   return truncatedCell(p.address);
 }
