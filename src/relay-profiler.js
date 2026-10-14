@@ -122,7 +122,21 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
      VALUES (?, NULL, ?, ?, ?, ?)`,
   );
   const insertObservation = database.prepare(
-    `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)`,
+    `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first, hb) VALUES (?, ?, 1, ?, ?)`,
+  );
+  // Who Core kept as a high-bandwidth peer before this block, as the peer
+  // profiler last saw it (at most 15 seconds ago). Not from the snapshot this
+  // race was read from: by then Core may already have promoted the peer that
+  // delivered this very block, which would credit it with a head start it did
+  // not have. A peer the profiler has not polled yet stays unknown.
+  const hbBefore = new Map(
+    database
+      .prepare(
+        `SELECT p.address, ps.hb_to FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
+         WHERE ps.ended_at IS NULL AND ps.hb_to IS NOT NULL`,
+      )
+      .all()
+      .map((r) => [r.address, r.hb_to]),
   );
 
   const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
@@ -147,7 +161,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       // peer_relay_stats (the rollup peerRanking reads instead of aggregating
       // this table on every request) is updated by a database trigger on this
       // insert, in this same transaction - see db.js. Nothing to do here.
-      insertObservation.run(raceId, peerRow.id, isFirst ? 1 : 0);
+      insertObservation.run(raceId, peerRow.id, isFirst ? 1 : 0, hbBefore.has(peer.addr) ? hbBefore.get(peer.addr) : null);
     }
     return raceId;
   });

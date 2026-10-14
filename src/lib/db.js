@@ -49,6 +49,12 @@ CREATE TABLE IF NOT EXISTS peer_session (
   -- fixed for the life of a connection. -1 means Core has never seen a header
   -- from this peer and has no idea what chain it is on.
   synced_headers INTEGER,
+  -- hb_to: Core's bip152_hb_to - whether Core has picked this peer as one of
+  -- its (at most three) high-bandwidth compact-block peers, which send a new
+  -- block straight away instead of announcing it first. Overwritten on every
+  -- poll; it changes whenever another peer delivers a block first. NULL for
+  -- rows written before this column existed, or when Core did not report it.
+  hb_to INTEGER,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
   min_ping_ms REAL,
@@ -122,6 +128,12 @@ CREATE TABLE IF NOT EXISTS relay_observation (
   -- holds millions of rows on a long-lived node, for no gain.
   eligible INTEGER NOT NULL DEFAULT 1,
   first INTEGER NOT NULL DEFAULT 0,
+  -- Was this peer one of Core's high-bandwidth peers just before the block?
+  -- Read from the peer profiler's last poll, not from the snapshot taken after
+  -- the block: Core may promote the peer that delivered it in that same
+  -- moment, and the question is whether it already had the head start. NULL
+  -- when unknown - rows from before this column, or a peer not polled yet.
+  hb INTEGER,
   PRIMARY KEY (race_id, peer_id)
 );
 -- peer_id first, but never for a query: nothing reads relay_observation by
@@ -228,6 +240,18 @@ CREATE TABLE IF NOT EXISTS stratum_observation (
 -- order, which is what turns the median/P90 lookups into an ordered index
 -- walk instead of a sort.
 CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool_latency ON stratum_observation(pool_id, latency_ms);
+
+-- Every time a peer gains or loses its place among Core's high-bandwidth
+-- peers, as the peer profiler sees it (once per poll, so to the nearest 15
+-- seconds). Keyed by address rather than peer id on purpose: the daily prune
+-- deletes peer rows, and a foreign key here would make it fail. Small - a few
+-- rows a day on a steady node.
+CREATE TABLE IF NOT EXISTS hb_change (
+  at INTEGER NOT NULL,
+  address TEXT NOT NULL,
+  hb INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hb_change_at ON hb_change(at);
 
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -630,6 +654,24 @@ function runMigrations() {
       for (const name of ['pool_name', 'pool_tag', 'pool_source']) {
         if (!existing.has(name)) db.prepare(`ALTER TABLE relay_race ADD COLUMN ${name} TEXT`).run();
       }
+    });
+
+    // Core's high-bandwidth compact-block peers (BIP152). The two columns
+    // are added before the index that reads one of them, and the index is
+    // created here rather than in SCHEMA because SCHEMA runs before this on an
+    // existing database, where relay_observation does not have the column yet.
+    //
+    // Partial on first = 1, like idx_relay_obs_first: the ranking only ever
+    // asks how many of a peer's FIRST deliveries came while it was a
+    // high-bandwidth peer, and those rows are one per block, not one per peer
+    // per block.
+    migrate('bip152_hb_v1_27_0', 'recorded Core\'s high-bandwidth peers', () => {
+      const columns = (table) => new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all().map((r) => r.name),
+      );
+      if (!columns('peer_session').has('hb_to')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_to INTEGER`).run();
+      if (!columns('relay_observation').has('hb')) db.prepare(`ALTER TABLE relay_observation ADD COLUMN hb INTEGER`).run();
+      db.prepare(`CREATE INDEX IF NOT EXISTS idx_relay_obs_first_hb ON relay_observation(peer_id, hb) WHERE first = 1`).run();
     });
 
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
