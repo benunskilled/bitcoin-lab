@@ -475,9 +475,13 @@ function firstPctCell(p) {
   const lifetime = p.eligible > 0
     ? `Over its whole record: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible}).`
     : 'No lifetime record yet.';
-  const title = windowed
+  // Only once something is known: blocks from before ⚡ was recorded say nothing.
+  const asHb = p.firstHbKnown > 0
+    ? ` Since ⚡ has been recorded, ${p.firstAsHb} of its ${p.firstHbKnown} first deliveries came while it was a ⚡ high-bandwidth peer.`
+    : '';
+  const title = (windowed
     ? `${p.recentFirst} of the ${p.recentEligible} blocks this peer was connected for inside the ranking window. ${lifetime}`
-    : `${p.first} of ${p.eligible} eligible blocks`;
+    : `${p.first} of ${p.eligible} eligible blocks`) + asHb;
   return `<td title="${escapeHtml(title)}">${fmtPct(pct)}<span class="hint"> (${counts})</span></td>`;
 }
 
@@ -608,12 +612,20 @@ document.addEventListener('focusout', () => {
 // that does not relay, or a peer that offers no services at all - whatever it
 // calls itself. Peer Map strikes the same peers. The explanation lives in the
 // tooltip, not in the table: a dashboard is not the place for a paragraph.
+// ⚡ beside the pill: one of the (at most three) peers Core lets send a new
+// block straight away. Whoever holds such a place wins First far more easily,
+// so it says why a peer is ahead, not only that it is.
+const HB_TITLE = "One of Core's high-bandwidth peers (BIP152): it sends a new block straight away instead of announcing it first. Core keeps at most three, taken from the peers that most recently delivered a block first.";
+function hbMark(p) {
+  return p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '';
+}
+
 function statusPill(p, status) {
   const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
-  if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
+  if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>${hbMark(p)}`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The type colour stays; the strike is what says "never in the running".
-  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>${hbMark(p)}`;
 }
 
 function peerRow(p, { status = p.status, actions }) {

@@ -67,6 +67,7 @@ function needsWrite(stored, next) {
   if (next.services !== null && stored.services !== next.services) return true;
   if (next.relayTxes !== null && stored.relay_txes !== next.relayTxes) return true;
   if (next.syncedHeaders !== null && stored.synced_headers !== next.syncedHeaders) return true;
+  if (next.hbTo !== null && stored.hb_to !== next.hbTo) return true;
   if (stored.last_ping_ms == null || next.lastPingMs == null) return stored.last_ping_ms !== next.lastPingMs;
   return Math.abs(next.lastPingMs - stored.last_ping_ms) >= PING_DRIFT_MS;
 }
@@ -82,13 +83,18 @@ function upsertSessions(peers) {
     .prepare(
       `SELECT ps.id, ps.peer_id, ps.core_peer_id, ps.started_at, ps.direction, ps.connection_type,
               ps.network, ps.subver, ps.min_ping_ms, ps.last_ping_ms, ps.services, ps.relay_txes,
-              ps.synced_headers, p.address
+              ps.synced_headers, ps.hb_to, p.address
        FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
        WHERE ps.ended_at IS NULL`,
     )
     .all();
 
   const closeStmt = database.prepare(`UPDATE peer_session SET ended_at = ? WHERE id = ?`);
+  // A change in who Core keeps as a high-bandwidth peer, written as it is
+  // seen. A peer that disconnects while it held a place has lost it, so its
+  // closing session writes the loss too - otherwise the record would show it
+  // holding the place forever.
+  const hbChange = database.prepare(`INSERT INTO hb_change (at, address, hb) VALUES (?, ?, ?)`);
   const openByAddress = new Map();
   // Same address in the snapshot is not the same session. Core hands every
   // connection its own transient peer id and reports `conntime` per session,
@@ -112,12 +118,14 @@ function upsertSessions(peers) {
       const peer = peerByAddress.get(s.address);
       if (!peer) {
         closeStmt.run(nowMs, s.id);
+        if (s.hb_to === 1) hbChange.run(nowMs, s.address, 0);
       } else if (!isSameSession(s, peer)) {
         // Reconnected since the last poll. Close the old session at the
         // connection time of the new one rather than "now", so the gap lands
         // outside both sessions instead of being credited to the old one.
         const endedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
         closeStmt.run(Math.max(s.started_at, Math.min(endedAt, nowMs)), s.id);
+        if (s.hb_to === 1) hbChange.run(nowMs, s.address, 0);
       } else {
         openByAddress.set(s.address, s);
       }
@@ -128,8 +136,8 @@ function upsertSessions(peers) {
   const insertSession = database.prepare(
     `INSERT INTO peer_session
        (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms,
-        services, relay_txes, synced_headers)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        services, relay_txes, synced_headers, hb_to)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   // COALESCE on the three new columns, not plain assignment: a poll where Core
   // omits a field must not erase what an earlier poll recorded. It also
@@ -138,7 +146,7 @@ function upsertSessions(peers) {
     `UPDATE peer_session
      SET core_peer_id = ?, direction = ?, connection_type = ?, network = ?, subver = ?, min_ping_ms = ?, last_ping_ms = ?,
          services = COALESCE(?, services), relay_txes = COALESCE(?, relay_txes),
-         synced_headers = COALESCE(?, synced_headers)
+         synced_headers = COALESCE(?, synced_headers), hb_to = COALESCE(?, hb_to)
      WHERE id = ?`,
   );
 
@@ -160,6 +168,8 @@ function upsertSessions(peers) {
       const services = Array.isArray(peer.servicesnames) ? peer.servicesnames.join(',') : null;
       const relayTxes = typeof peer.relaytxes === 'boolean' ? (peer.relaytxes ? 1 : 0) : null;
       const syncedHeaders = typeof peer.synced_headers === 'number' ? peer.synced_headers : null;
+      // Core 0.20+ reports it; anything older leaves it out, and that stays NULL.
+      const hbTo = typeof peer.bip152_hb_to === 'boolean' ? (peer.bip152_hb_to ? 1 : 0) : null;
 
       const stored = openByAddress.get(peer.addr);
       if (stored) {
@@ -186,17 +196,22 @@ function upsertSessions(peers) {
           services,
           relayTxes,
           syncedHeaders,
+          hbTo,
         };
         if (needsWrite(stored, next)) {
           updateSession.run(next.corePeerId, next.direction, next.connectionType, next.network, next.subver,
-            next.minPingMs, next.lastPingMs, next.services, next.relayTxes, next.syncedHeaders, stored.id);
+            next.minPingMs, next.lastPingMs, next.services, next.relayTxes, next.syncedHeaders, next.hbTo, stored.id);
         }
+        // NULL before counts as "not held": the first poll after an update
+        // writes the places as they are, which is the starting point.
+        if (hbTo !== null && (stored.hb_to ?? 0) !== hbTo) hbChange.run(nowMs, peer.addr, hbTo);
       } else {
         // conntime is Core's own unix-second connection start - more
         // accurate than "now" for a connection we're only just noticing.
         const startedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
         insertSession.run(peerRow.id, peer.id, direction, connectionType, network, peer.subver || null, startedAt, minPingMs, lastPingMs,
-          services, relayTxes, syncedHeaders);
+          services, relayTxes, syncedHeaders, hbTo);
+        if (hbTo === 1) hbChange.run(nowMs, peer.addr, 1);
       }
     }
   });
