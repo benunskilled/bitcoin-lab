@@ -461,7 +461,7 @@ function clientCell(p) {
 function sessionCell(p) {
   if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
   if (p.offlineSinceMs != null) {
-    return `<td class="hint" title="Last seen connected ${fmtDuration(p.offlineSinceMs)} ago">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+    return `<td class="hint">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
   }
   return `<td>-</td>`;
 }
@@ -488,17 +488,13 @@ function firstPctCell(p) {
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
-  const lifetime = p.eligible > 0
-    ? `Over its whole record: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible}).`
-    : 'No lifetime record yet.';
-  // Only once something is known: blocks from before ⚡ was recorded say nothing.
-  const asHb = p.firstHbKnown > 0
-    ? ` Since ⚡ has been recorded, ${p.firstAsHb} of its ${p.firstHbKnown} first deliveries came while it was a ⚡ high-bandwidth peer.`
-    : '';
-  const title = (windowed
-    ? `${p.recentFirst} of the ${p.recentEligible} blocks this peer was connected for inside the ranking window. ${lifetime}`
-    : `${p.first} of ${p.eligible} eligible blocks`) + asHb;
-  return `<td title="${escapeHtml(title)}">${fmtPct(pct)}<span class="hint"> (${counts})</span>${hbMark(p)}</td>`;
+  // Only what the cell does not say already: the lifetime rate, when the cell
+  // shows the window, and how many firsts came as ⚡ - once that is known.
+  const lines = [];
+  if (windowed && p.eligible > 0) lines.push(`Lifetime: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible})`);
+  if (p.firstHbKnown > 0) lines.push(`As ⚡: ${p.firstAsHb} of ${p.firstHbKnown} firsts`);
+  const title = lines.join('\n');
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}>${fmtPct(pct)}<span class="hint"> (${counts})</span>${hbMark(p)}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -536,7 +532,7 @@ async function refreshPeers() {
 // honestly instead.
 function addressCell(p) {
   if (p.sourceObscured) {
-    return `<td class="cell-truncate hint" title="Core reports this connection's address as ${escapeHtml(p.address)} - Docker's inbound IPv6 relay (docker-proxy) re-originates the connection from its own internal gateway, so the peer's real address is never visible to Core itself, let alone to us. This is a Docker networking limitation, not an error.">IPv6 peer (address hidden by Docker)</td>`;
+    return `<td class="cell-truncate hint" title="Inbound IPv6 passes through Docker, which puts its own address in place of the peer's.">IPv6 peer (address hidden by Docker)</td>`;
   }
   // Not a real external peer at all - another app on this same Umbrel host
   // (electrs, mempool's indexer, etc.) connecting to Core's P2P port
@@ -553,7 +549,7 @@ function addressCell(p) {
   // neighbour of ours and said nothing about the peer - the word Tor appeared
   // only as a note in the actions column, at the far end of the row.
   if (p.proxiedPrivatePeer) {
-    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - this peer reached your node over ${escapeHtml(p.privateNetwork)}, so the address Bitcoin Core sees is your own ${escapeHtml(p.privateNetwork)} proxy's, not the peer's. Its real address is never visible to Core, and this app dials out over plain TCP only - so it can never be made a manual peer. It still ranks normally and can still deliver a block first.">${escapeHtml(p.privateNetwork)} peer</td>`;
+    return `<td class="cell-truncate hint" title="Core only sees your own ${escapeHtml(p.privateNetwork)} proxy, not the peer. It still ranks, but cannot be made a manual peer.">${escapeHtml(p.privateNetwork)} peer</td>`;
   }
   // With Peer Map installed the address becomes the way over: same peer, the
   // other question. Without it, a plain cell - no dead links.
