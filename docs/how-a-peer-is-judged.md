@@ -45,7 +45,7 @@ Bitcoin Lab marks software categories that are not expected to relay blocks.
 
 The ranking updates as new blocks arrive. With rotation enabled, Bitcoin Lab uses these scores to choose candidates for your manual slots.
 
-See [How peer rotation works](peer-rotation.md) for promotion rules, grace periods and protected peers.
+See [grace period](grace-period.md), [clear lead](swap-margin.md) and [protected peers](protected-peers.md) for what happens after the ranking.
 
 ---
 
