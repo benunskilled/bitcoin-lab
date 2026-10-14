@@ -82,7 +82,7 @@ Offline grace and parked retention use lifetime First %, within their configured
 
 Probe intervals increase with repeated failures. With the defaults, the backoff ceiling is 12 hours for peers at 20% lifetime First or above, 30 hours at 10%, and about 46 hours at 1%. These are ceilings, not fixed intervals from the first probe; checks are scheduled during rotation passes.
 
-See [How peer rotation works](peer-rotation.md) for protection, parking and recovery rules.
+See [protected peers](protected-peers.md) and [parking](parking.md) for protection, parking and recovery rules.
 
 ## Stratum Race
 
@@ -132,7 +132,7 @@ in `src/lib/config.js` and is not an environment variable.
 
 ## Changing defaults
 
-The rotation settings work together: observation thresholds, grace periods, swap margins and parking determine how quickly candidates are tried and how long proven peers are retained. [How peer rotation works](peer-rotation.md) explains the choices behind the defaults.
+The rotation settings work together: observation thresholds, grace periods, swap margins and parking determine how quickly candidates are tried and how long proven peers are retained. The pages linked from the [README](../README.md#documentation) explain the choices behind the defaults.
 
 Numeric settings are validated at startup. Invalid values stop the service with an error naming the setting. In particular, minimum grace and retention values must not exceed their maximums, and `RECENT_SCORE_WINDOW_BLOCKS` must be at least `MIN_ELIGIBLE_FOR_JUDGEMENT`.
 
