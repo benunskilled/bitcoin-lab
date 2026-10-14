@@ -615,7 +615,7 @@ document.addEventListener('focusout', () => {
 // ⚡ beside the pill: one of the (at most three) peers Core lets send a new
 // block straight away. Whoever holds such a place wins First far more easily,
 // so it says why a peer is ahead, not only that it is.
-const HB_TITLE = "One of Core's high-bandwidth peers (BIP152): it sends a new block straight away instead of announcing it first. Core keeps at most three, taken from the peers that most recently delivered a block first.";
+const HB_TITLE = "One of Core's high-bandwidth peers (BIP152): it sends a new block straight away instead of announcing it first. Core keeps at most three, usually the peers that most recently delivered a block first.";
 function hbMark(p) {
   return p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '';
 }

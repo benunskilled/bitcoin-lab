@@ -72,6 +72,8 @@ function needsWrite(stored, next) {
   return Math.abs(next.lastPingMs - stored.last_ping_ms) >= PING_DRIFT_MS;
 }
 
+let lastPollAt = null;
+
 function upsertSessions(peers) {
   const database = db.instance;
   const nowMs = Date.now();
@@ -168,7 +170,7 @@ function upsertSessions(peers) {
       const services = Array.isArray(peer.servicesnames) ? peer.servicesnames.join(',') : null;
       const relayTxes = typeof peer.relaytxes === 'boolean' ? (peer.relaytxes ? 1 : 0) : null;
       const syncedHeaders = typeof peer.synced_headers === 'number' ? peer.synced_headers : null;
-      // Core 0.20+ reports it; anything older leaves it out, and that stays NULL.
+      // Core 22.0+ reports it; anything older leaves it out, and that stays NULL.
       const hbTo = typeof peer.bip152_hb_to === 'boolean' ? (peer.bip152_hb_to ? 1 : 0) : null;
 
       const stored = openByAddress.get(peer.addr);
@@ -215,6 +217,10 @@ function upsertSessions(peers) {
       }
     }
   });
+  // When the high-bandwidth places were last read from Core. Kept in memory
+  // and handed out with the heartbeat (see main) rather than written here: a
+  // poll that learns nothing must write nothing.
+  lastPollAt = nowMs;
   tx2();
 }
 
@@ -395,7 +401,9 @@ async function main() {
 
   db.open();
   logger.info('starting', { intervalMs: config.peerPollIntervalMs });
-  health.start(db, 'peer-profiler', logger);
+  // lastPollAt rides on the heartbeat: the relay profiler only trusts the
+  // high-bandwidth places this process recorded while its polls are recent.
+  health.start(db, 'peer-profiler', logger, () => ({ lastPollAt }));
 
   // Pull in any peer Core already has addnode'd that we don't know about
   // yet (added outside this app) before pushing our own list back out -
