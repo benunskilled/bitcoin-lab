@@ -46,6 +46,10 @@
     -->
     <section class="card" id="live-peer-card">
       <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
+      <!-- Shown once Core reports any high-bandwidth peer. A tooltip alone was
+           not enough: hovering the ⚡ showed a help cursor and nothing else on
+           some browsers, and a phone has no hover at all. -->
+      <p class="hint" id="hb-legend" hidden>⚡ One of Core's high-bandwidth peers: it sends a new block straight away instead of announcing it first, so it wins First far more easily. Core keeps at most three, usually the peers that most recently delivered a block first.</p>
       <div class="table-wrap">
         <table id="peer-table" class="peer-table">
           <thead>
