@@ -91,6 +91,7 @@ function fmtBytes(bytes) {
 // The colour says what kind of connection this is, and nothing else. Manual,
 // inbound, outbound - the same three colours Peer Map paints its markers with.
 function statusPillClass(status) {
+  if (status === UMBREL_APP) return 'umbrel';
   if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
   if (status.includes('MANUAL')) return 'manual';
   if (status.includes('INBOUND')) return 'inbound';
@@ -482,7 +483,7 @@ function firstPctCell(p) {
   const title = (windowed
     ? `${p.recentFirst} of the ${p.recentEligible} blocks this peer was connected for inside the ranking window. ${lifetime}`
     : `${p.first} of ${p.eligible} eligible blocks`) + asHb;
-  return `<td title="${escapeHtml(title)}">${hbMark(p)}${fmtPct(pct)}<span class="hint"> (${counts})</span></td>`;
+  return `<td title="${escapeHtml(title)}">${fmtPct(pct)}<span class="hint"> (${counts})</span>${hbMark(p)}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -616,11 +617,10 @@ document.addEventListener('focusout', () => {
 // block straight away. Whoever holds such a place wins First far more easily,
 // so it says why a peer is ahead, not only that it is.
 const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new block without being asked first, which gives it a head start of at least one ping.";
-// In the First % cell, in front of the number: the Type column is too narrow
-// for it next to "OUTBOUND-FULL-RELAY", and the ⚡ is often the reason the
-// number is high.
+// At the end of the First % cell: the Type column is too narrow for it next to
+// "OUTBOUND-FULL-RELAY", and the ⚡ is often the reason the number is high.
 function hbMark(p) {
-  return p.hb ? `<span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span> ` : '';
+  return p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '';
 }
 
 function statusPill(p, status) {
@@ -631,7 +631,13 @@ function statusPill(p, status) {
   return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
 }
 
+// An app on this same Umbrel (electrs, Fulcrum, a Lightning node) connects to
+// Core like any inbound peer, but it is the owner's own software, not a peer
+// out on the network - so it gets a pill of its own instead of "INBOUND".
+const UMBREL_APP = 'UMBREL APP';
+
 function peerRow(p, { status = p.status, actions }) {
+  if (p.localUmbrelPeer) status = UMBREL_APP;
   return `
     <tr class="${rowClassFor(p.address)}">
       ${addressCell(p)}
