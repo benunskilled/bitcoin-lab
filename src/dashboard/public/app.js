@@ -482,7 +482,7 @@ function firstPctCell(p) {
   const title = (windowed
     ? `${p.recentFirst} of the ${p.recentEligible} blocks this peer was connected for inside the ranking window. ${lifetime}`
     : `${p.first} of ${p.eligible} eligible blocks`) + asHb;
-  return `<td title="${escapeHtml(title)}">${fmtPct(pct)}<span class="hint"> (${counts})</span></td>`;
+  return `<td title="${escapeHtml(title)}">${hbMark(p)}${fmtPct(pct)}<span class="hint"> (${counts})</span></td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -616,18 +616,19 @@ document.addEventListener('focusout', () => {
 // block straight away. Whoever holds such a place wins First far more easily,
 // so it says why a peer is ahead, not only that it is.
 const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new block without being asked first, which gives it a head start of at least one ping.";
-// In front of the pill, not behind it: "OUTBOUND-FULL-RELAY" is wide enough
-// to push anything after it out of the column.
+// In the First % cell, in front of the number: the Type column is too narrow
+// for it next to "OUTBOUND-FULL-RELAY", and the ⚡ is often the reason the
+// number is high.
 function hbMark(p) {
   return p.hb ? `<span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span> ` : '';
 }
 
 function statusPill(p, status) {
   const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
-  if (!reason) return `${hbMark(p)}<span class="pill ${statusPillClass(status)}">${status}</span>`;
+  if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The type colour stays; the strike is what says "never in the running".
-  return `${hbMark(p)}<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
 }
 
 function peerRow(p, { status = p.status, actions }) {
