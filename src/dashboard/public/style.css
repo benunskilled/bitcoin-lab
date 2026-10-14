@@ -84,7 +84,7 @@ main {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 14px;
   padding: 18px 20px;
 }
 
@@ -120,13 +120,20 @@ details.card > *:not(summary) { margin-top: 14px; }
 }
 
 .stat {
-  background: #0f151b;
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  position: relative;
+  overflow: hidden;
 }
+/* A colour strip along the foot of a tile: the group it counts. */
+.stat.s-inbound, .stat.s-outbound, .stat.s-manual { box-shadow: inset 0 -3px 0 var(--strip); }
+.stat.s-inbound { --strip: rgba(158,154,40,.6); }
+.stat.s-outbound { --strip: rgba(26,158,143,.6); }
+.stat.s-manual { --strip: rgba(57,135,229,.6); }
 
-.stat .n { font-size: 20px; font-weight: 600; }
+.stat .n { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 
 .table-wrap { overflow-x: auto; position: relative; }
@@ -162,7 +169,7 @@ table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13
 
 th, td {
   text-align: left;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -177,7 +184,7 @@ td.cell-truncate {
   text-overflow: ellipsis;
 }
 
-th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 
 /* Zebra striping so a wide, 9-column row can still be followed with the eye
    without losing your place - background lives on the <tr>, not the <td>,
@@ -188,9 +195,13 @@ th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: upp
    inherits the row's background, and a translucent one would let the columns
    scrolling underneath show through it. Same value as rgba(255,255,255,.05)
    resolved over --panel. */
-.table-wrap table tbody tr:nth-child(even) { background: #1c232b; }
+.table-wrap table tbody tr:nth-child(even) { background: var(--panel); }
 
-tr:hover td { background: #0f151b; }
+tr:hover td { background: #17202a; }
+/* A peer that can never deliver a block first: dimmed, and its type cell
+   says "never first" (statusPill). */
+tr.weak td { color: var(--muted); }
+.never { display: block; width: max-content; margin-top: 3px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; cursor: help; }
 
 .pill {
   display: inline-block;
@@ -211,7 +222,7 @@ tr:hover td { background: #0f151b; }
    on the same axis is one a colour-blind reader cannot separate - measured, not
    assumed. It is not a fault either; a wallet is doing what a wallet does, and
    the colour still says what kind of connection this is. */
-.pill.norelay { text-decoration: line-through; text-decoration-thickness: 1px; opacity: .7; cursor: help; }
+.pill.norelay { opacity: .7; cursor: help; }
 /* Peer Rotation's own action log - kick is a removal (bad-colored, even
    though it's working as intended), promote/swap add a manual peer
    (good-colored); swap gets the accent color since, unlike a plain
@@ -436,16 +447,22 @@ th.col-total { padding-left: 4px; }
 th.col-actions { padding-left: 20px; }
 
 /* Hero: current chain height, pulses via .bump when a new block lands */
-.hero-card { padding: 20px 24px; }
+.hero-card { padding: 0; background: none; border: 0; }
 
 .hero-grid {
   display: flex;
-  align-items: center;
-  gap: 28px;
+  align-items: stretch;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
-.hero-stat { min-width: 180px; }
+.hero-stat {
+  min-width: 220px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid #3a2a12;
+  background: radial-gradient(120% 140% at 0% 0%, rgba(247,147,26,.16), transparent 60%), var(--panel);
+}
 
 .hero-l {
   font-size: 11px;
