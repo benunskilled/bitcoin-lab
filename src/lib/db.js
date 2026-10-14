@@ -859,6 +859,7 @@ function resetPeerData() {
       ).run();
       db.prepare(`DELETE FROM parked_peer`).run();
       db.prepare(`DELETE FROM rotation_log`).run();
+      db.prepare(`DELETE FROM hb_change`).run();
       // Goes with the rest, not on its own. Everything the funnel shows -
       // seen, judged, delivered - is derived from the tables above and returns
       // to zero here; a "kept" count that survived would leave the header
