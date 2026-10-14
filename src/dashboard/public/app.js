@@ -232,16 +232,18 @@ async function refreshStatus() {
       : '';
   }
 
+  // The last field is the colour strip along the tile's foot: the group's
+  // own colour, and the outbound one for the two kinds of outbound connection.
   const stats = [
-    ['Total', s.live.total],
-    ['Inbound', s.live.inbound],
-    ['Outbound', s.live.outbound],
-    ['Manual', s.live.manual],
-    ['Full Relay', s.live.outboundFullRelay],
-    ['Block Relay Only', s.live.blockRelayOnly],
+    ['Total', s.live.total, ''],
+    ['Inbound', s.live.inbound, 'inbound'],
+    ['Outbound', s.live.outbound, 'outbound'],
+    ['Manual', s.live.manual, 'manual'],
+    ['Full Relay', s.live.outboundFullRelay, 'outbound'],
+    ['Block Relay Only', s.live.blockRelayOnly, 'outbound'],
   ];
   document.getElementById('live-stats').innerHTML = stats
-    .map(([label, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${label}</div></div>`)
+    .map(([label, n, k]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="n">${n}</div><div class="l">${label}</div></div>`)
     .join('');
 }
 
@@ -627,8 +629,9 @@ function statusPill(p, status) {
   const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
-  // The type colour stays; the strike is what says "never in the running".
-  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
+  // Was a strike-through. The row is dimmed instead and the cell says it in
+  // words, so the fact stays visible at a glance.
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span><span class="never" title="${title}">never first</span>`;
 }
 
 // An app on this same Umbrel (electrs, Fulcrum, a Lightning node) connects to
@@ -638,8 +641,9 @@ const UMBREL_APP = 'UMBREL APP';
 
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
+  const weak = cannotRelayReason(p.client) || p.offersNothing ? ' weak' : '';
   return `
-    <tr class="${rowClassFor(p.address)}">
+    <tr class="${rowClassFor(p.address)}${weak}">
       ${addressCell(p)}
       ${clientCell(p)}
       <td class="col-status">${statusPill(p, status)}</td>
