@@ -197,7 +197,19 @@ function fitTables() {
 }
 let fitTimer = null;
 const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
-new MutationObserver(scheduleFit).observe(document.body, { childList: true, subtree: true });
+// Re-rendered rows are cards without their labels until fitTables runs, and
+// fitTables takes the cards away for a moment to measure: either way the page
+// is shorter for an instant, and Safari clamps the scroll position to it and
+// keeps it there - a reader far down was thrown up on every refresh. The
+// position from the last frame is put back before anything is painted. Only a
+// jump upwards of more than a flick, so a scroll in progress is left alone.
+let lastScrollY = window.scrollY;
+window.addEventListener('scroll', () => { lastScrollY = window.scrollY; }, { passive: true });
+new MutationObserver(() => {
+  const y = lastScrollY;
+  fitTables();
+  if (y - window.scrollY > 100) window.scrollTo(0, y);
+}).observe(document.body, { childList: true, subtree: true });
 window.addEventListener('resize', scheduleFit);
 document.addEventListener('toggle', scheduleFit, true);
 

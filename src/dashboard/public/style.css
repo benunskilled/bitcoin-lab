@@ -95,6 +95,10 @@ main {
   border-radius: 14px;
   padding: 18px 20px;
 }
+/* The panels re-render every few seconds. Safari anchors the scroll position
+   to something inside them, and when that is replaced it re-anchors and throws
+   the reader somewhere else on the page - so they take no part in anchoring. */
+.card { overflow-anchor: none; }
 
 .card h2 {
   margin: 0 0 14px;
