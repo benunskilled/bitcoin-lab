@@ -336,8 +336,8 @@ button.danger { color: var(--bad); }
    whichever slot doesn't apply to a given row (see actionsCell in app.js).
    A shared min-width across both real buttons and empty placeholders keeps
    every row's slots starting at the same position regardless of which
-   label (or none) occupies the first one. Smaller font/padding than a
-   normal button - this is a dense table, not a form. */
+   label (or none) occupies the first one. Font and padding come from the
+   row-button rule further down. */
 .action-slot {
   display: flex;
   align-items: center;
@@ -672,7 +672,7 @@ td.client { color: var(--muted); font-size: 12.5px; }
 td .pct { font-weight: 600; }
 td .cnt { color: var(--faint); font-size: 12px; margin-left: 4px; }
 
-/* Buttons in rows: a little larger, the destructive ones tinted red. */
+/* Buttons in rows: smaller than a form button, the destructive ones tinted red. */
 .action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
 .row-actions > .action-slot[data-action="disconnect"], .row-actions > span.action-slot:last-child { min-width: 92px; }
 button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: #ff9b95; background: rgba(248,81,73,.08); border-color: rgba(248,81,73,.25); }
