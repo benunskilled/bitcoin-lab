@@ -378,6 +378,13 @@ button.danger { color: var(--bad); }
   box-sizing: border-box;
 }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
+/* The first slot holds "Remove" in one row and "Add as Manual" in the next,
+   so it is as wide as the longer one - otherwise Disconnect beside it jumps
+   from row to row. The Manual table only ever holds Remove there and keeps
+   the narrow slot, which leaves its row room for the lock. */
+.row-actions > .action-slot:first-child,
+.row-actions > .keep-star + .action-slot { min-width: 104px; }
+#manual-peer-table .row-actions > .action-slot { min-width: 78px; }
 
 /* Manual Peers: unused capacity (below the app's manual-connection cap)
    rendered as actual empty rows at the bottom of the table, not just a
@@ -672,3 +679,4 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 .cards.cards tr.row-focus { background: rgba(247,147,26,.10); box-shadow: inset 3px 0 0 var(--accent); }
 .cards.cards tr.empty-slot td { display: none; }
 .cards.cards tr.empty-slot::before { content: "Free slot"; color: var(--muted); font-size: 12px; }
+.cards.cards table tr td.row-actions { display: flex; }
