@@ -114,7 +114,7 @@ function statusPillClass(status) {
 //
 // This is Peer Map's kindRules (peer-map/kinds.go), same patterns in the same
 // order, and it has to stay that way. The two apps show the same node's peers
-// in two windows, and a peer that is struck through in one and not the other
+// in two windows, and a peer that is marked in one and not the other
 // is worse than no marking at all. The Go side names each family; here only
 // the answer to "can this thing pass a block on" is needed, so a family that
 // relays carries a null reason and is simply a stop.
@@ -650,11 +650,12 @@ document.addEventListener('focusout', () => {
  *   actions  what may be done to this peer here - the live table alone offers
  *            Disconnect, and only the manual table carries the lock.
  */
-// The pill is struck through when the peer cannot deliver a block: software
-// that does not relay, or a peer that offers no services at all - whatever it
-// calls itself. Peer Map strikes the same peers. The explanation lives in the
-// tooltip, not in the table: a dashboard is not the place for a paragraph.
-// ⚡ beside the pill: one of the (at most three) peers Core lets send a new
+// A peer that cannot deliver a block - software that does not relay, or a
+// peer that offers no services at all, whatever it calls itself - reads
+// "never first" beside its pill. Peer Map marks the same peers. The
+// explanation lives in the tooltip, not in the table: a dashboard is not the
+// place for a paragraph.
+// ⚡ in the First % cell: one of the (at most three) peers Core lets send a new
 // block straight away. Whoever holds such a place wins First far more easily,
 // so it says why a peer is ahead, not only that it is.
 const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new block without being asked first, which gives it a head start of at least one ping.";
@@ -668,8 +669,8 @@ function statusPill(p, status) {
   const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
-  // Was a strike-through. The row is dimmed instead and the cell says it in
-  // words, so the fact stays visible at a glance.
+  // The pill is dimmed and the cell says it in words, so the fact stays
+  // visible at a glance.
   return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span><span class="never" title="${title}">never first</span>`;
 }
 

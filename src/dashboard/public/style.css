@@ -141,8 +141,8 @@ details.card > *:not(summary) { margin-top: 14px; }
 .stat.s-outbound { --strip: rgba(26,158,143,.6); }
 .stat.s-manual { --strip: rgba(57,135,229,.6); }
 
-.stat .n { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.stat .n { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat .l { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
 
 .table-wrap { overflow-x: auto; position: relative; }
 
@@ -152,11 +152,7 @@ details.card > *:not(summary) { margin-top: 14px; }
 .table-wrap table tbody tr { background: var(--panel); }
 
 /* separate + border-spacing:0 rather than collapse - visually identical
-   here (every cell already draws its own border-bottom below) but
-   border-collapse:collapse silently breaks `position: sticky` on table
-   cells in every major browser, which is exactly why the sticky Actions
-   column above wasn't actually sticking and got clipped at the table's
-   right edge instead of staying reachable. */
+   here, since every cell draws its own border-bottom below. */
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 
 th, td {
@@ -176,18 +172,7 @@ td.cell-truncate {
   text-overflow: ellipsis;
 }
 
-th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
-
-/* Zebra striping so a wide, 9-column row can still be followed with the eye
-   without losing your place - background lives on the <tr>, not the <td>,
-   so it composes for free with every rule below that paints a <td>
-   background instead (hover, the sticky Actions column, the first-block
-   highlight): a cell's own background always paints over its row's. */
-/* An opaque tone rather than a translucent white: the pinned Actions column
-   inherits the row's background, and a translucent one would let the columns
-   scrolling underneath show through it. Same value as rgba(255,255,255,.05)
-   resolved over --panel. */
-.table-wrap table tbody tr:nth-child(even) { background: var(--panel); }
+th { color: var(--faint); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 
 tr:hover td { background: #17202a; }
 /* A peer that can never deliver a block first: dimmed, and its type cell
@@ -207,11 +192,11 @@ tr.weak td { color: var(--muted); }
 .pill.outbound { background: rgba(26,158,143,.15); color: var(--outbound); }
 .pill.umbrel { background: rgba(139,92,246,.15); color: var(--umbrel); }
 .pill.offline { background: rgba(138,153,168,.15); color: var(--muted); }
-/* Software that passes no blocks on. Struck through rather than recoloured:
-   every hue in this table already means a connection type, and a fourth meaning
-   on the same axis is one a colour-blind reader cannot separate - measured, not
-   assumed. It is not a fault either; a wallet is doing what a wallet does, and
-   the colour still says what kind of connection this is. */
+/* Software that passes no blocks on. Dimmed and labelled "never first" rather
+   than recoloured: every hue in this table already means a connection type, and
+   a fourth meaning on the same axis is one a colour-blind reader cannot
+   separate - measured, not assumed. It is not a fault either; a wallet is doing
+   what a wallet does, and the colour still says what kind of connection this is. */
 .pill.norelay { opacity: .7; }
 /* Peer Rotation's own action log - kick is a removal (bad-colored, even
    though it's working as intended), promote/swap add a manual peer
@@ -340,12 +325,10 @@ button.danger { color: var(--bad); }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
-/* Side by side, not stacked - stacking used to double every row's height
-   just to fit two buttons, which made the whole table (already 9 columns)
-   tiring to scan. Fits because the Actions column itself is wider now (see
-   .col-actions) and stays reachable at any window width via the sticky
-   trick above - the table simply scrolls under it if the window is narrow,
-   rather than the column ever needing to shrink or wrap. */
+/* Side by side, not stacked - stacking would double every row's height just
+   to fit two buttons, which makes a wide table tiring to scan. Fits because
+   the Actions column is wide enough (see .col-actions); a table too narrow
+   for it turns into cards instead. */
 .row-actions { display: flex; flex-direction: row; gap: 6px; }
 
 /* Each action cell renders a fixed two-slot layout (primary action, then
@@ -360,18 +343,16 @@ button.danger { color: var(--bad); }
   align-items: center;
   justify-content: center;
   min-width: 78px;
-  padding: 4px 8px;
-  font-size: 12px;
   box-sizing: border-box;
 }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
 /* The first slot holds "Remove" in one row and "Add as Manual" in the next,
    so it is as wide as the longer one - otherwise Disconnect beside it jumps
-   from row to row. The Manual table only ever holds Remove there and keeps
-   the narrow slot, which leaves its row room for the lock. */
+   from row to row. The Manual table only ever holds Remove there, so its
+   slot is narrower, which leaves its row room for the lock. */
 .row-actions > .action-slot:first-child,
-.row-actions > .keep-star + .action-slot { min-width: 104px; }
-#manual-peer-table .row-actions > .action-slot { min-width: 78px; }
+.row-actions > .keep-star + .action-slot { min-width: 112px; }
+#manual-peer-table .row-actions > .action-slot { min-width: 92px; }
 
 /* Manual Peers: unused capacity (below the app's manual-connection cap)
    rendered as actual empty rows at the bottom of the table, not just a
@@ -412,7 +393,7 @@ table.peer-table {
 }
 .panel-note strong { color: var(--text); font-weight: 600; }
 .col-address { width: 16%; }
-.col-client { width: 12%; }
+.col-client { width: 10%; }
 /* Widest of the remaining columns on purpose - "OUTBOUND-FULL-RELAY" is the
    longest pill value and needs real room, which is exactly what was
    missing before (the pill visibly ran into First Seen %). overflow:hidden
@@ -431,11 +412,9 @@ table.peer-table {
    column carry no col-* class, so the data itself is untouched. */
 th.col-total { padding-left: 4px; }
 .col-sessions { width: 5%; }
-/* Widened to fit "Add as Manual" and "Disconnect" side by side (see
-   .row-actions) - stays reachable at any window width via the sticky
-   column trick above, so this is free real estate, not a squeeze on the
-   other columns that actually needed their room. */
-.col-actions { width: 17%; }
+/* Wide enough for "Add as Manual" and "Disconnect" side by side (see
+   .row-actions). */
+.col-actions { width: 19%; }
 /* Same optical nudge as .col-total above, other direction - the column is
    wide (room for two buttons) and the plain 10px padding left the label
    sitting noticeably left of where the buttons actually start. */
@@ -445,15 +424,15 @@ th.col-actions { padding-left: 20px; }
 .hero-card { padding: 0; background: none; border: 0; }
 
 .hero-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: 2fr repeat(6, minmax(0, 1fr));
   align-items: stretch;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 .hero-stat {
-  min-width: 220px;
-  padding: 14px 18px;
+  min-width: 0;
+  padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid #3a2a12;
   background: radial-gradient(120% 140% at 0% 0%, rgba(247,147,26,.16), transparent 60%), var(--panel);
@@ -489,6 +468,7 @@ th.col-actions { padding-left: 20px; }
   font-size: 13px;
   color: var(--muted);
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .hero-sub b { color: var(--text); font-weight: 600; }
 .hero-sub.raw b { font-style: italic; }
@@ -500,7 +480,7 @@ th.col-actions { padding-left: 20px; }
   line-height: 1.6;
 }
 
-.hero-grid .stat-grid { flex: 1; }
+.hero-grid .stat-grid { display: contents; }
 
 /* Status toast for peer/pool row actions (add-manual, remove, disconnect,
    pool add/remove) - gives an explicit, visible outcome for every button
@@ -672,14 +652,9 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 /* ---- V2 as in the approved design (Claude outputs/lab-design) ---- */
 
 /* Tiles: the label on top, the number under it; the block height twice as
-   wide as a count, with who mined it and what the next template holds. */
-.hero-grid { display: grid; grid-template-columns: 2fr repeat(6, minmax(0, 1fr)); gap: 10px; }
-.hero-grid .stat-grid { display: contents; }
-.hero-stat { min-width: 0; padding: 12px 14px; }
+   wide as a count, with who mined it. */
 .hero-l { color: var(--faint); letter-spacing: .05em; }
 .hero-n { font-size: 34px; letter-spacing: -.01em; line-height: 1.2; margin-top: 2px; }
-.stat .l { color: var(--faint); letter-spacing: .05em; }
-.stat .n { font-size: 26px; margin-top: 2px; }
 .stat .s { font-size: 12px; color: var(--muted); }
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -692,23 +667,15 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 .card h3 .hint { font-weight: 400; margin-left: 4px; }
 
 /* Tables */
-th { color: var(--faint); }
 td { border-bottom-color: var(--row); }
 td.client { color: var(--muted); font-size: 12.5px; }
 td .pct { font-weight: 600; }
 td .cnt { color: var(--faint); font-size: 12px; margin-left: 4px; }
 
-/* Buttons in rows: a little larger, the first slot as wide as "Add as
-   Manual", the destructive ones tinted red. */
+/* Buttons in rows: a little larger, the destructive ones tinted red. */
 .action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
-.row-actions > .action-slot:first-child,
-.row-actions > .keep-star + .action-slot { min-width: 112px; }
 .row-actions > .action-slot[data-action="disconnect"], .row-actions > span.action-slot:last-child { min-width: 92px; }
-#manual-peer-table .row-actions > .action-slot { min-width: 92px; }
 button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: #ff9b95; background: rgba(248,81,73,.08); border-color: rgba(248,81,73,.25); }
-.col-client { width: 10%; }
-.col-actions { width: 19%; }
-
 /* "Show all" is a link under the table, not a button. */
 button.link { background: none; border: 0; padding: 10px 0 0; color: var(--muted); font-weight: 400; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
 button.link:hover { color: var(--text); filter: none; }

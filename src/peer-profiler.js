@@ -132,7 +132,7 @@ function upsertSessions(peers) {
         services, relay_txes, synced_headers, hb_to)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  // COALESCE on the three new columns, not plain assignment: a poll where Core
+  // COALESCE on these columns, not plain assignment: a poll where Core
   // omits a field must not erase what an earlier poll recorded. It also
   // backfills a session that was already open when the columns were added.
   const updateSession = database.prepare(

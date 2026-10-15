@@ -63,13 +63,6 @@ test('the place is kept per session, as Core reports it now', () => {
   assert.equal(sessionHb(B), 1);
 });
 
-test('no history of changes is kept', () => {
-  const tables = db.instance.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map((r) => r.name);
-  assert.ok(!tables.includes('hb_change'));
-  const cols = db.instance.prepare(`SELECT name FROM pragma_table_info('relay_observation')`).all().map((r) => r.name);
-  assert.ok(!cols.includes('hb'));
-});
-
 test('a Core that does not report the field leaves it unknown, not "no"', () => {
   upsertSessions([corePeer(A, { id: 1 })]);
   assert.equal(sessionHb(A), null);
@@ -94,24 +87,19 @@ test('the ranking reports the place now', () => {
   assert.equal(rows[B].first, 1);
 });
 
-test('an install from before this change loses the history and keeps the rest', () => {
+test('an install from 1.26.0 gains the column and keeps its open sessions', () => {
   const d = db.instance;
-  d.exec(`ALTER TABLE relay_observation ADD COLUMN hb INTEGER;
-    CREATE INDEX idx_relay_obs_first_hb ON relay_observation(peer_id, hb) WHERE first = 1;
-    CREATE TABLE hb_change (at INTEGER NOT NULL, address TEXT NOT NULL, hb INTEGER NOT NULL);`);
-  upsertSessions([corePeer(A, { id: 1, hb: true })]);
-  d.prepare(`INSERT INTO relay_race (block_hash, detected_at) VALUES ('ff', 1)`).run();
-  const raceId = d.prepare(`SELECT id FROM relay_race`).get().id;
-  const peerId = d.prepare(`SELECT id FROM peer WHERE address = ?`).get(A).id;
-  d.prepare(`INSERT INTO relay_observation (race_id, peer_id, eligible, first, hb) VALUES (?, ?, 1, 1, 1)`).run(raceId, peerId);
+  upsertSessions([corePeer(A, { id: 1 })]);
+  // As 1.26.0 left it: no hb_to, and the migration not yet run.
+  d.exec(`ALTER TABLE peer_session DROP COLUMN hb_to`);
+  d.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:bip152_hb_v2_0_0');
 
-  d.prepare(`DELETE FROM meta WHERE key = ?`).run('migration:drop_hb_history_v2_0_0');
   db.runMigrations();
 
-  const cols = d.prepare(`SELECT name FROM pragma_table_info('relay_observation')`).all().map((r) => r.name);
-  assert.ok(!cols.includes('hb'));
-  assert.equal(d.prepare(`SELECT name FROM sqlite_master WHERE name = 'idx_relay_obs_first_hb'`).get(), undefined);
-  assert.equal(d.prepare(`SELECT name FROM sqlite_master WHERE name = 'hb_change'`).get(), undefined);
-  assert.equal(d.prepare(`SELECT COUNT(*) AS n FROM relay_observation WHERE first = 1`).get().n, 1);
-  assert.equal(sessionHb(A), 1, 'the place held now is kept');
+  const cols = d.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name);
+  assert.ok(cols.includes('hb_to'));
+  assert.equal(sessionHb(A), null, 'the open session survives, its place not known yet');
+  upsertSessions([corePeer(A, { id: 1, hb: true })]);
+  assert.equal(sessionHb(A), 1);
+  assert.equal(Object.fromEntries(queries.peerRanking().map((r) => [r.address, r]))[A].hb, true);
 });
