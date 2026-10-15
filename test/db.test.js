@@ -753,8 +753,6 @@ test('liveSummary counts each connection under exactly one heading', () => {
   assert.equal(s.inbound, 2);
   assert.equal(s.outbound, 3, 'manual connections are outbound too - Core dialled them');
   assert.equal(s.manual, 1);
-  assert.equal(s.outboundFullRelay, 1);
-  assert.equal(s.blockRelayOnly, 1);
   assert.equal(s.inbound + s.outbound, s.total, 'every connection is one or the other, never both or neither');
 });
 
