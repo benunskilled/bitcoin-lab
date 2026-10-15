@@ -77,7 +77,9 @@ main {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 1200px;
+  /* As wide as Peer Map: at 1200 the nine peer columns did not fit and the
+     tables scrolled sideways on an ordinary laptop screen. */
+  max-width: 1400px;
   margin: 0 auto;
 }
 
