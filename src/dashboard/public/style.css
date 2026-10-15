@@ -698,12 +698,12 @@ td .life { display: block; color: var(--faint); font-size: 11.5px; margin-top: 1
 /* Buttons in rows: smaller than a form button, the destructive ones tinted red. */
 .action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
 .row-actions > .action-slot[data-action="disconnect"], .row-actions > span.action-slot:last-child { min-width: 92px; }
-button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: #ff9b95; background: rgba(248,81,73,.08); border-color: rgba(248,81,73,.25); }
+button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: var(--bad); background: rgba(248,81,73,.08); border-color: rgba(248,81,73,.45); }
 /* On a green or orange row the see-through red mixes into pink; laid over the
    panel colour instead, it is the same red as on a plain row. */
 tr:is(.row-delivered, .row-first-block, .row-focus) :is(button.danger, .action-slot[data-action="disconnect"]) {
   background: linear-gradient(rgba(248,81,73,.08), rgba(248,81,73,.08)), var(--panel);
-  border-color: #4c282c;
+  border-color: #7a3334;
 }
 /* "Show all" is a link under the table, not a button. */
 button.link { background: none; border: 0; padding: 10px 0 0; color: var(--muted); font-weight: 400; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
