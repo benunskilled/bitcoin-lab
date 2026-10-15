@@ -170,6 +170,37 @@ function truncatedCell(text) {
   return `<td class="cell-truncate" data-full="${safe}">${safe}</td>`;
 }
 
+// A table that does not fit its panel turns each row into a small card of its
+// own (see .table-wrap.cards in style.css) instead of scrolling sideways:
+// every value stays, below each other rather than beside, each with its
+// column's name in front. Decided by measuring, not by a fixed screen width,
+// and for all tables together - one panel as cards and the next as a table
+// looked like two different pages. The rows are re-rendered all the time,
+// so the labels are put back after every change.
+function fitTables() {
+  const wraps = [...document.querySelectorAll('.table-wrap')];
+  for (const w of wraps) {
+    const ths = [...w.querySelectorAll('thead th')];
+    for (const tr of w.querySelectorAll('tbody tr')) {
+      [...tr.children].forEach((td, i) => {
+        const th = ths[i];
+        if (!th || td.dataset.label != null) return;
+        td.dataset.label = th.textContent.trim();
+        const col = [...th.classList].find((c) => c.startsWith('col-'));
+        if (col) td.dataset.col = col;
+      });
+    }
+    w.classList.remove('cards');
+  }
+  const tight = wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
+  for (const w of wraps) w.classList.toggle('cards', tight);
+}
+let fitTimer = null;
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
+new MutationObserver(scheduleFit).observe(document.body, { childList: true, subtree: true });
+window.addEventListener('resize', scheduleFit);
+document.addEventListener('toggle', scheduleFit, true);
+
 // Whether a cell is cut off depends on the screen, so it is decided when the
 // pointer gets there. A link inside keeps its own hint and gets the full
 // value in front of it.

@@ -641,7 +641,7 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 .traffic-totals .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .traffic-totals .v { font-size: 15px; }
 .traffic-chart { overflow-x: auto; margin-bottom: 16px; }
-.traffic-chart svg { display: block; min-width: 520px; width: 100%; height: auto; }
+.traffic-chart svg { display: block; min-width: 0; width: 100%; height: auto; }
 .traffic-chart .sent { fill: var(--accent); }
 .traffic-chart .recv { fill: var(--muted); opacity: .55; }
 .traffic-chart .axis { fill: var(--muted); font-size: 10px; }
@@ -650,3 +650,25 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
 .traffic-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 .traffic-legend .sent { background: var(--accent); }
 .traffic-legend .recv { background: var(--muted); opacity: .55; }
+
+/* A table too wide for its panel: each row becomes a small card, the address
+   on top, the other values wrapping below it with their column's name in
+   front. Nothing scrolls sideways (see fitTables in app.js). */
+.table-wrap.cards { overflow-x: visible; }
+.table-wrap.cards table, .table-wrap.cards tbody { display: block; min-width: 0; }
+.table-wrap.cards thead { display: none; }
+.cards.cards table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.cards.cards table tr td {
+  display: block; padding: 0; border: 0; width: auto; max-width: 100%; min-width: 0;
+  position: static; box-shadow: none; background: none;
+}
+.cards.cards table tr td[data-col="col-address"],
+.cards.cards table tr td[data-col="col-actions"] { flex: 1 1 100%; }
+.cards.cards table tr td[data-label]:not([data-label=""]):not(:first-child):not([data-col="col-address"]):not([data-col="col-client"]):not([data-col="col-status"]):not([data-col="col-actions"])::before {
+  content: attr(data-label); margin-right: 5px;
+  color: var(--muted); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+}
+.cards.cards tr.row-first-block { background: rgba(247, 147, 26, .22); }
+.cards.cards tr.row-focus { background: rgba(247,147,26,.10); box-shadow: inset 3px 0 0 var(--accent); }
+.cards.cards tr.empty-slot td { display: none; }
+.cards.cards tr.empty-slot::before { content: "Free slot"; color: var(--muted); font-size: 12px; }
