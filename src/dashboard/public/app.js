@@ -278,13 +278,15 @@ async function refreshStatus() {
 
   // The last field is the colour strip along the tile's foot: the group's
   // own colour, and the outbound one for the two kinds of outbound connection.
+  // Outbound leaves out the manual peers, which have a tile of their own - as
+  // in Peer Map, so the three groups add up to the total in both apps.
   const stats = [
     ['Total', s.live.total, ''],
     ['Inbound', s.live.inbound, 'inbound'],
-    ['Outbound', s.live.outbound, 'outbound'],
+    ['Outbound', s.live.outbound - s.live.manual, 'outbound'],
     ['Manual', s.live.manual, 'manual', `of ${MAX_MANUAL_PEERS}`],
     ['Full Relay', s.live.outboundFullRelay, 'outbound'],
-    ['Block Relay Only', s.live.blockRelayOnly, 'outbound'],
+    ['Block Relay', s.live.blockRelayOnly, 'outbound'],
   ];
   document.getElementById('live-stats').innerHTML = stats
     .map(([label, n, k, sub]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="l">${label}</div><div class="n">${n}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`)
@@ -660,18 +662,23 @@ document.addEventListener('focusout', () => {
 // so it says why a peer is ahead, not only that it is.
 const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new block without being asked first, which gives it a head start of at least one ping.";
 // At the end of the First % cell: the Type column is too narrow for it next to
-// "OUTBOUND-FULL-RELAY", and the ⚡ is often the reason the number is high.
+// the longest pill, and the ⚡ is often the reason the number is high.
 function hbMark(p) {
   return p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '';
 }
 
+// Core's names for the two automatic outbound kinds, said as Peer Map and the
+// tiles say them.
+const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 'BLOCK RELAY' };
+const statusLabel = (status) => STATUS_LABEL[status] || status;
+
 function statusPill(p, status) {
   const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
-  if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
+  if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The pill is dimmed and the cell says it in words, so the fact stays
   // visible at a glance.
-  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span><span class="never" title="${title}">never first</span>`;
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${statusLabel(status)}</span><span class="never" title="${title}">never first</span>`;
 }
 
 // An app on this same Umbrel (electrs, Fulcrum, a Lightning node) connects to
@@ -686,7 +693,7 @@ function peerRow(p, { status = p.status, actions }) {
     <tr class="${rowClassFor(p.address)}${weak}">
       ${addressCell(p)}
       ${clientCell(p)}
-      <td class="col-status" data-full="${escapeHtml(status)}">${statusPill(p, status)}</td>
+      <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
