@@ -174,7 +174,7 @@ function truncatedCell(text) {
 // pointer gets there. A link inside keeps its own hint and gets the full
 // value in front of it.
 document.addEventListener('mouseover', (e) => {
-  const td = e.target.closest && e.target.closest('td.cell-truncate[data-full]');
+  const td = e.target.closest && e.target.closest('td[data-full]');
   if (!td) return;
   const cut = td.scrollWidth > td.clientWidth;
   const link = td.querySelector('a[data-tip]');
@@ -655,7 +655,7 @@ function peerRow(p, { status = p.status, actions }) {
     <tr class="${rowClassFor(p.address)}${weak}">
       ${addressCell(p)}
       ${clientCell(p)}
-      <td class="col-status">${statusPill(p, status)}</td>
+      <td class="col-status" data-full="${escapeHtml(status)}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
