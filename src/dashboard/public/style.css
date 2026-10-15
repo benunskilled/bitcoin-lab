@@ -333,7 +333,11 @@ button.danger { color: var(--bad); }
    to fit two buttons, which makes a wide table tiring to scan. Fits because
    the Actions column is wide enough (see .col-actions); a table too narrow
    for it turns into cards instead. */
-.row-actions { display: flex; flex-direction: row; gap: 6px; }
+/* A real table cell, so it grows with a two-line row and its border lines up;
+   the slots sit in it side by side. */
+.row-actions { white-space: nowrap; }
+td.row-actions > * { display: inline-flex; vertical-align: middle; }
+td.row-actions > * + * { margin-left: 6px; }
 
 /* Each action cell renders a fixed two-slot layout (primary action, then
    Disconnect) with an empty placeholder - never an omitted element - for
@@ -561,11 +565,21 @@ th.col-actions { padding-left: 20px; }
 
 /* Row of the peer(s) that delivered the newest block first - fades in,
    stays tinted for ~2 minutes (see app.js HIGHLIGHT_MS), fades out. */
-tr.row-first-block td {
+/* A connected peer that has delivered a block first at least once - the same
+   green Peer Map gives the same peers. The orange of the newest block wins.
+   On the row, not its cells: the Actions cell is a flex box that does not
+   grow to a two-line row, and a cell colour would leave a gap there. */
+.table-wrap table tbody tr.row-first-block {
   background: rgba(247, 147, 26, .22);
   transition: background 1.2s ease;
 }
-tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
+.table-wrap table tbody tr.row-delivered { background: rgba(63, 185, 80, .13); }
+.table-wrap table tbody tr.row-delivered.row-first-block { background: rgba(247, 147, 26, .22); }
+.table-wrap table tbody tr.row-first-block:hover { background: rgba(247, 147, 26, .3); }
+.table-wrap table tbody tr.row-delivered:hover { background: rgba(63, 185, 80, .2); }
+.table-wrap table tbody tr.row-delivered.row-first-block:hover { background: rgba(247, 147, 26, .3); }
+.table-wrap table tbody tr.row-first-block:hover td,
+.table-wrap table tbody tr.row-delivered:hover td { background: none; }
 
 /* The keep lock in the Manual Peers table. Both the state and the switch:
    the padlock means the rotation leaves this peer alone. Off shows nothing -
@@ -647,11 +661,13 @@ tr.row-first-block:hover td { background: rgba(247, 147, 26, .3); }
   content: attr(data-label); margin-right: 5px;
   color: var(--muted); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
 }
+.cards.cards tr.row-delivered { background: rgba(63, 185, 80, .13); }
 .cards.cards tr.row-first-block { background: rgba(247, 147, 26, .22); }
 .cards.cards tr.row-focus { background: rgba(247,147,26,.10); box-shadow: inset 3px 0 0 var(--accent); }
 .cards.cards tr.empty-slot td { display: none; }
 .cards.cards tr.empty-slot::before { content: "Free slot"; color: var(--muted); font-size: 12px; }
-.cards.cards table tr td.row-actions { display: flex; }
+.cards.cards table tr td.row-actions { display: flex; gap: 6px; }
+.cards.cards table tr td.row-actions > * + * { margin-left: 0; }
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { flex: 1 1 100%; white-space: normal; }
 
@@ -677,6 +693,7 @@ td { border-bottom-color: var(--row); }
 td.client { color: var(--muted); font-size: 12.5px; }
 td .pct { font-weight: 600; }
 td .cnt { color: var(--faint); font-size: 12px; margin-left: 4px; }
+td .life { display: block; color: var(--faint); font-size: 11.5px; margin-top: 1px; }
 
 /* Buttons in rows: smaller than a form button, the destructive ones tinted red. */
 .action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
