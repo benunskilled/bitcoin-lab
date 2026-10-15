@@ -128,12 +128,6 @@ CREATE TABLE IF NOT EXISTS relay_observation (
   -- holds millions of rows on a long-lived node, for no gain.
   eligible INTEGER NOT NULL DEFAULT 1,
   first INTEGER NOT NULL DEFAULT 0,
-  -- Was this peer one of Core's high-bandwidth peers just before the block?
-  -- Read from the peer profiler's last poll, not from the snapshot taken after
-  -- the block: Core may promote the peer that delivered it in that same
-  -- moment, and the question is whether it already had the head start. NULL
-  -- when unknown - rows from before this column, or a peer not polled yet.
-  hb INTEGER,
   PRIMARY KEY (race_id, peer_id)
 );
 -- peer_id first, but never for a query: nothing reads relay_observation by
@@ -240,18 +234,6 @@ CREATE TABLE IF NOT EXISTS stratum_observation (
 -- order, which is what turns the median/P90 lookups into an ordered index
 -- walk instead of a sort.
 CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool_latency ON stratum_observation(pool_id, latency_ms);
-
--- Every time a peer gains or loses its place among Core's high-bandwidth
--- peers, as the peer profiler sees it (once per poll, so to the nearest 15
--- seconds). Keyed by address rather than peer id on purpose: the daily prune
--- deletes peer rows, and a foreign key here would make it fail. Small - a few
--- rows a day on a steady node.
-CREATE TABLE IF NOT EXISTS hb_change (
-  at INTEGER NOT NULL,
-  address TEXT NOT NULL,
-  hb INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_hb_change_at ON hb_change(at);
 
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
@@ -656,22 +638,24 @@ function runMigrations() {
       }
     });
 
-    // Core's high-bandwidth compact-block peers (BIP152). The two columns
-    // are added before the index that reads one of them, and the index is
-    // created here rather than in SCHEMA because SCHEMA runs before this on an
-    // existing database, where relay_observation does not have the column yet.
-    //
-    // Partial on first = 1, like idx_relay_obs_first: the ranking only ever
-    // asks how many of a peer's FIRST deliveries came while it was a
-    // high-bandwidth peer, and those rows are one per block, not one per peer
-    // per block.
+    // Core's high-bandwidth compact-block peers (BIP152): the place each session
+    // holds now, as getpeerinfo reports it.
     migrate('bip152_hb_v1_27_0', 'recorded Core\'s high-bandwidth peers', () => {
-      const columns = (table) => new Set(
-        db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all().map((r) => r.name),
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
       );
-      if (!columns('peer_session').has('hb_to')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_to INTEGER`).run();
-      if (!columns('relay_observation').has('hb')) db.prepare(`ALTER TABLE relay_observation ADD COLUMN hb INTEGER`).run();
-      db.prepare(`CREATE INDEX IF NOT EXISTS idx_relay_obs_first_hb ON relay_observation(peer_id, hb) WHERE first = 1`).run();
+      if (!existing.has('hb_to')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_to INTEGER`).run();
+    });
+
+    // Only the place held now is kept; the history the earlier versions wrote
+    // goes with the column and the table that held it.
+    migrate('drop_hb_history_v2_0_0', 'dropped the high-bandwidth history', () => {
+      const columns = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_observation')`).all().map((r) => r.name),
+      );
+      db.prepare(`DROP INDEX IF EXISTS idx_relay_obs_first_hb`).run();
+      if (columns.has('hb')) db.prepare(`ALTER TABLE relay_observation DROP COLUMN hb`).run();
+      db.prepare(`DROP TABLE IF EXISTS hb_change`).run();
     });
 
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
@@ -859,7 +843,6 @@ function resetPeerData() {
       ).run();
       db.prepare(`DELETE FROM parked_peer`).run();
       db.prepare(`DELETE FROM rotation_log`).run();
-      db.prepare(`DELETE FROM hb_change`).run();
       // Goes with the rest, not on its own. Everything the funnel shows -
       // seen, judged, delivered - is derived from the tables above and returns
       // to zero here; a "kept" count that survived would leave the header

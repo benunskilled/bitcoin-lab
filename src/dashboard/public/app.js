@@ -520,10 +520,9 @@ function firstPctCell(p) {
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
   // Only what the cell does not say already: the lifetime rate, when the cell
-  // shows the window, and how many firsts came as ⚡ - once that is known.
+  // shows the window.
   const lines = [];
   if (windowed && p.eligible > 0) lines.push(`Lifetime: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible})`);
-  if (p.firstHbKnown > 0) lines.push(`As ⚡: ${p.firstAsHb} of ${p.firstHbKnown} firsts`);
   const title = lines.join('\n');
   return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
