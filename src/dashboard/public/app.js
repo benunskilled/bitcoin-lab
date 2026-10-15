@@ -337,9 +337,6 @@ function setBlockPool(race) {
     const name = document.createElement('b');
     name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
     el.append('mined by ', name);
-    // The transactions the template after this block carries - what the
-    // pools' jobs are built from, and why one block's job takes longer.
-    if (race.templateTx != null) el.append(` · ${race.templateTx.toLocaleString()} tx in the next template`);
     el.title = known ? `Mined by ${race.poolName}, from the block's coinbase`
       : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
