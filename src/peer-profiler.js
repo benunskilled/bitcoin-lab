@@ -72,8 +72,6 @@ function needsWrite(stored, next) {
   return Math.abs(next.lastPingMs - stored.last_ping_ms) >= PING_DRIFT_MS;
 }
 
-let lastPollAt = null;
-
 function upsertSessions(peers) {
   const database = db.instance;
   const nowMs = Date.now();
@@ -92,11 +90,6 @@ function upsertSessions(peers) {
     .all();
 
   const closeStmt = database.prepare(`UPDATE peer_session SET ended_at = ? WHERE id = ?`);
-  // A change in who Core keeps as a high-bandwidth peer, written as it is
-  // seen. A peer that disconnects while it held a place has lost it, so its
-  // closing session writes the loss too - otherwise the record would show it
-  // holding the place forever.
-  const hbChange = database.prepare(`INSERT INTO hb_change (at, address, hb) VALUES (?, ?, ?)`);
   const openByAddress = new Map();
   // Same address in the snapshot is not the same session. Core hands every
   // connection its own transient peer id and reports `conntime` per session,
@@ -120,14 +113,12 @@ function upsertSessions(peers) {
       const peer = peerByAddress.get(s.address);
       if (!peer) {
         closeStmt.run(nowMs, s.id);
-        if (s.hb_to === 1) hbChange.run(nowMs, s.address, 0);
       } else if (!isSameSession(s, peer)) {
         // Reconnected since the last poll. Close the old session at the
         // connection time of the new one rather than "now", so the gap lands
         // outside both sessions instead of being credited to the old one.
         const endedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
         closeStmt.run(Math.max(s.started_at, Math.min(endedAt, nowMs)), s.id);
-        if (s.hb_to === 1) hbChange.run(nowMs, s.address, 0);
       } else {
         openByAddress.set(s.address, s);
       }
@@ -204,23 +195,15 @@ function upsertSessions(peers) {
           updateSession.run(next.corePeerId, next.direction, next.connectionType, next.network, next.subver,
             next.minPingMs, next.lastPingMs, next.services, next.relayTxes, next.syncedHeaders, next.hbTo, stored.id);
         }
-        // NULL before counts as "not held": the first poll after an update
-        // writes the places as they are, which is the starting point.
-        if (hbTo !== null && (stored.hb_to ?? 0) !== hbTo) hbChange.run(nowMs, peer.addr, hbTo);
       } else {
         // conntime is Core's own unix-second connection start - more
         // accurate than "now" for a connection we're only just noticing.
         const startedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
         insertSession.run(peerRow.id, peer.id, direction, connectionType, network, peer.subver || null, startedAt, minPingMs, lastPingMs,
           services, relayTxes, syncedHeaders, hbTo);
-        if (hbTo === 1) hbChange.run(nowMs, peer.addr, 1);
       }
     }
   });
-  // When the high-bandwidth places were last read from Core. Kept in memory
-  // and handed out with the heartbeat (see main) rather than written here: a
-  // poll that learns nothing must write nothing.
-  lastPollAt = nowMs;
   tx2();
 }
 
@@ -401,9 +384,7 @@ async function main() {
 
   db.open();
   logger.info('starting', { intervalMs: config.peerPollIntervalMs });
-  // lastPollAt rides on the heartbeat: the relay profiler only trusts the
-  // high-bandwidth places this process recorded while its polls are recent.
-  health.start(db, 'peer-profiler', logger, () => ({ lastPollAt }));
+  health.start(db, 'peer-profiler', logger);
 
   // Pull in any peer Core already has addnode'd that we don't know about
   // yet (added outside this app) before pushing our own list back out -

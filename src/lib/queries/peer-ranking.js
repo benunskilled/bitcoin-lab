@@ -159,12 +159,6 @@ function peerRankingSql() {
          os.min_ping_ms AS liveMinPingMs,
          os.last_ping_ms AS liveLastPingMs,
          os.hb_to AS liveHb,
-         -- Of the blocks this peer delivered first, how many came while it was
-         -- one of Core's high-bandwidth peers, and for how many that is known
-         -- at all. Both read only first = 1 rows, through the partial index
-         -- idx_relay_obs_first_hb - a few per peer, not its whole history.
-         (SELECT COUNT(*) FROM relay_observation o WHERE o.peer_id = p.id AND o.first = 1 AND o.hb = 1) AS firstAsHb,
-         (SELECT COUNT(*) FROM relay_observation o WHERE o.peer_id = p.id AND o.first = 1 AND o.hb IS NOT NULL) AS firstHbKnown,
          -- Correlated rather than a derived table: as a GROUP BY over the
          -- whole of peer_session it was computed for every peer that table
          -- has ever held, then thrown away by the join.

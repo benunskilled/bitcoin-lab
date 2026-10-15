@@ -114,46 +114,6 @@ function firstPeerPingMs(peers, detectedAtMs) {
   return best;
 }
 
-// How fresh the peer profiler's last poll must be for its high-bandwidth
-// places to count as the state before a block. It polls every 15 seconds and
-// reports the time with its heartbeat, which is written every 30.
-const HB_POLL_MAX_AGE_MS = 60 * 1000;
-// A change the profiler wrote this close to the block may already be Core's
-// reaction to it: Core promotes the peer that delivered a block before ZMQ
-// tells us about the block, and the profiler stamps a change after its RPC
-// returns. Those peers are recorded as unknown rather than guessed.
-const HB_CHANGE_GUARD_MS = 2000;
-
-/**
- * Who Core kept as a high-bandwidth peer before this block, as the peer
- * profiler last saw it. Not from the snapshot this race was read from: by then
- * Core may already have promoted the peer that delivered this very block,
- * which would credit it with a head start it did not have.
- *
- * Returns address -> 0/1 for the peers whose place is known. Everything else -
- * a peer not polled yet, one whose place changed around the block, every peer
- * when the profiler has not polled recently - is recorded as unknown.
- */
-function highBandwidthBefore(database, detectedAtMs) {
-  const beat = health.read(db, 'peer-profiler');
-  const polledAt = beat && Number.isFinite(beat.lastPollAt) ? beat.lastPollAt : null;
-  if (polledAt == null || detectedAtMs - polledAt > HB_POLL_MAX_AGE_MS) return new Map();
-  const places = new Map(
-    database
-      .prepare(
-        `SELECT p.address, ps.hb_to FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
-         WHERE ps.ended_at IS NULL AND ps.hb_to IS NOT NULL`,
-      )
-      .all()
-      .map((r) => [r.address, r.hb_to]),
-  );
-  const changedNearBlock = database
-    .prepare(`SELECT DISTINCT address FROM hb_change WHERE at >= ?`)
-    .all(detectedAtMs - HB_CHANGE_GUARD_MS);
-  for (const { address } of changedNearBlock) places.delete(address);
-  return places;
-}
-
 function recordRace({ blockHash, detectedAtMs, peers }) {
   const database = db.instance;
 
@@ -162,9 +122,8 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
      VALUES (?, NULL, ?, ?, ?, ?)`,
   );
   const insertObservation = database.prepare(
-    `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first, hb) VALUES (?, ?, 1, ?, ?)`,
+    `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)`,
   );
-  const hbBefore = highBandwidthBefore(database, detectedAtMs);
 
   const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
   const nearestDeltaMs = nearestLastBlockDeltaMs(peers, detectedAtMs);
@@ -188,7 +147,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       // peer_relay_stats (the rollup peerRanking reads instead of aggregating
       // this table on every request) is updated by a database trigger on this
       // insert, in this same transaction - see db.js. Nothing to do here.
-      insertObservation.run(raceId, peerRow.id, isFirst ? 1 : 0, hbBefore.has(peer.addr) ? hbBefore.get(peer.addr) : null);
+      insertObservation.run(raceId, peerRow.id, isFirst ? 1 : 0);
     }
     return raceId;
   });
