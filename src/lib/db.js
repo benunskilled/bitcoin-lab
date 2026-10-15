@@ -640,22 +640,11 @@ function runMigrations() {
 
     // Core's high-bandwidth compact-block peers (BIP152): the place each session
     // holds now, as getpeerinfo reports it.
-    migrate('bip152_hb_v1_27_0', 'recorded Core\'s high-bandwidth peers', () => {
+    migrate('bip152_hb_v2_0_0', 'recorded Core\'s high-bandwidth peers', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
       );
       if (!existing.has('hb_to')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_to INTEGER`).run();
-    });
-
-    // Only the place held now is kept; the history the earlier versions wrote
-    // goes with the column and the table that held it.
-    migrate('drop_hb_history_v2_0_0', 'dropped the high-bandwidth history', () => {
-      const columns = new Set(
-        db.prepare(`SELECT name FROM pragma_table_info('relay_observation')`).all().map((r) => r.name),
-      );
-      db.prepare(`DROP INDEX IF EXISTS idx_relay_obs_first_hb`).run();
-      if (columns.has('hb')) db.prepare(`ALTER TABLE relay_observation DROP COLUMN hb`).run();
-      db.prepare(`DROP TABLE IF EXISTS hb_change`).run();
     });
 
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
