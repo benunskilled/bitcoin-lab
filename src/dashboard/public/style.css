@@ -193,7 +193,7 @@ tr:hover td { background: #17202a; }
 /* A peer that can never deliver a block first: dimmed, and its type cell
    says "never first" (statusPill). */
 tr.weak td { color: var(--muted); }
-.never { display: block; width: max-content; margin-top: 3px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; cursor: help; }
+.never { display: block; width: max-content; margin-top: 3px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
 
 .pill {
   display: inline-block;
@@ -208,13 +208,13 @@ tr.weak td { color: var(--muted); }
 .pill.umbrel { background: rgba(139,92,246,.15); color: var(--umbrel); }
 .pill.offline { background: rgba(138,153,168,.15); color: var(--muted); }
 /* ⚡ beside the pill: one of Core's high-bandwidth peers (see app.js, hbMark). */
-.hb { cursor: help; }
+
 /* Software that passes no blocks on. Struck through rather than recoloured:
    every hue in this table already means a connection type, and a fourth meaning
    on the same axis is one a colour-blind reader cannot separate - measured, not
    assumed. It is not a fault either; a wallet is doing what a wallet does, and
    the colour still says what kind of connection this is. */
-.pill.norelay { opacity: .7; cursor: help; }
+.pill.norelay { opacity: .7; }
 /* Peer Rotation's own action log - kick is a removal (bad-colored, even
    though it's working as intended), promote/swap add a manual peer
    (good-colored); swap gets the accent color since, unlike a plain
