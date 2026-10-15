@@ -165,9 +165,9 @@ function escapeHtml(str) {
 // too under auto table layout) - cap them visually with an ellipsis. The full
 // value goes into a tooltip only when the ellipsis actually cut it; a tooltip
 // that repeats the cell says nothing (see the mouseover handler below).
-function truncatedCell(text) {
+function truncatedCell(text, cls = '') {
   const safe = escapeHtml(text);
-  return `<td class="cell-truncate" data-full="${safe}">${safe}</td>`;
+  return `<td class="cell-truncate${cls ? ' ' + cls : ''}" data-full="${safe}">${safe}</td>`;
 }
 
 // A table that does not fit its panel turns each row into a small card of its
@@ -282,12 +282,12 @@ async function refreshStatus() {
     ['Total', s.live.total, ''],
     ['Inbound', s.live.inbound, 'inbound'],
     ['Outbound', s.live.outbound, 'outbound'],
-    ['Manual', s.live.manual, 'manual'],
+    ['Manual', s.live.manual, 'manual', `of ${MAX_MANUAL_PEERS}`],
     ['Full Relay', s.live.outboundFullRelay, 'outbound'],
     ['Block Relay Only', s.live.blockRelayOnly, 'outbound'],
   ];
   document.getElementById('live-stats').innerHTML = stats
-    .map(([label, n, k]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="n">${n}</div><div class="l">${label}</div></div>`)
+    .map(([label, n, k, sub]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="l">${label}</div><div class="n">${n}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`)
     .join('');
 }
 
@@ -332,14 +332,17 @@ function setBlockPool(race) {
   const known = race && race.pool;
   const raw = race && !known && race.poolTag ? race.poolTag : null;
   el.classList.toggle('raw', Boolean(raw));
-  if (known) {
-    el.textContent = race.pool;
-    el.title = `Mined by ${race.poolName}, from the block's coinbase`;
-  } else if (raw) {
-    el.textContent = `"${raw}"`;
-    el.title = 'No pool we know of. This is the text the miner wrote into the block.';
+  el.textContent = '';
+  if (known || raw) {
+    const name = document.createElement('b');
+    name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
+    el.append('mined by ', name);
+    // The transactions the template after this block carries - what the
+    // pools' jobs are built from, and why one block's job takes longer.
+    if (race.templateTx != null) el.append(` · ${race.templateTx.toLocaleString()} tx in the next template`);
+    el.title = known ? `Mined by ${race.poolName}, from the block's coinbase`
+      : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
-    el.textContent = '';
     el.removeAttribute('title');
   }
   el.hidden = !(known || raw);
@@ -480,7 +483,7 @@ function actionsCell(p, options = {}) {
 }
 
 function clientCell(p) {
-  return truncatedCell(p.client || '-');
+  return truncatedCell(p.client || '-', 'client');
 }
 
 // Session column: current connected duration when live, otherwise how long
@@ -525,7 +528,7 @@ function firstPctCell(p) {
   if (windowed && p.eligible > 0) lines.push(`Lifetime: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible})`);
   if (p.firstHbKnown > 0) lines.push(`As ⚡: ${p.firstAsHb} of ${p.firstHbKnown} firsts`);
   const title = lines.join('\n');
-  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}>${fmtPct(pct)}<span class="hint"> (${counts})</span>${hbMark(p)}</td>`;
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -790,7 +793,7 @@ function renderPeerTables(peers, options = {}) {
     const keptNote = keptCount > 0
       ? ` · ${keptCount === manualPeers.length ? 'all kept' : `${keptCount} kept`}`
       : '';
-    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total${keptNote})`;
+    slotsEl.textContent = `${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total${keptNote}`;
   }
 }
 
@@ -935,9 +938,9 @@ function renderPools(pools) {
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
     <tr>
-      <td>${escapeHtml(p.label)}${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
-      <td>${escapeHtml(`${p.host}:${p.port}`)}</td>
-      <td>${p.wins}</td>
+      <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
+      <td class="client">${escapeHtml(`${p.host}:${p.port}`)}</td>
+      <td><b>${p.wins}</b></td>
       <td>${fmtPct(p.winPct)}</td>
       <td>${fmtMs(p.avgMs)}</td>
       <td>${fmtMs(p.medianMs)}</td>
@@ -963,10 +966,11 @@ function axisBytes(v, unit) {
   return `${Number.isInteger(n) ? n : n.toFixed(1)} ${name}`;
 }
 
-// Bars per UTC day: sent in the accent, received beside it in grey. One scale
-// for both, so the two can be compared by eye.
+// Bars per UTC day, as in the approved design: sent as a rounded orange bar,
+// received in blue in front of it, on one scale so the two compare by eye.
+// The grid keeps its values, quietly; each day says its numbers on hover.
 function trafficChartSvg(days) {
-  const W = 720, H = 180, top = 10, bottom = 22, left = 54, right = 8;
+  const W = 1300, H = 220, top = 20, base = 200, left = 46;
   const max = Math.max(1, ...days.map((d) => Math.max(d.sent || 0, d.recv || 0)));
   // A round step for the grid: 1, 2 or 5 times a power of 1024-based units.
   const unit = 1024 ** Math.max(0, Math.floor(Math.log(max) / Math.log(1024)));
@@ -974,22 +978,23 @@ function trafficChartSvg(days) {
   const pow = 10 ** Math.floor(Math.log10(raw || 1));
   const step = [1, 2, 5, 10].map((m) => m * pow).find((m) => m >= raw) * unit;
   const top_ = Math.ceil(max / step) * step;
-  const y = (v) => top + (H - top - bottom) * (1 - v / top_);
-  const slot = (W - left - right) / days.length;
-  const bw = Math.max(2, slot * 0.36);
-  let g = '';
+  const y = (v) => base - (base - top) * (v / top_);
+  const slot = (W - left) / days.length;
+  const bw = slot * 0.64;
+  let g = '<defs><linearGradient id="traffic-sent" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb04a"/><stop offset="1" stop-color="#c26a06"/></linearGradient></defs>';
   for (let v = 0; v <= top_ + 1; v += step) {
-    g += `<line class="grid" x1="${left}" x2="${W - right}" y1="${y(v)}" y2="${y(v)}"/>`;
-    g += `<text class="axis" x="${left - 6}" y="${y(v) + 3}" text-anchor="end">${escapeHtml(axisBytes(v, unit))}</text>`;
+    g += `<line class="grid" x1="${left}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/>`;
+    g += `<text class="axis" x="${left - 8}" y="${y(v) + 4}" text-anchor="end">${escapeHtml(axisBytes(v, unit))}</text>`;
   }
   days.forEach((d, i) => {
-    const x = left + i * slot + slot / 2;
+    const x = left + i * slot + (slot - bw) / 2;
     if (d.sent != null) {
-      g += `<rect class="sent" x="${x - bw}" y="${y(d.sent)}" width="${bw}" height="${y(0) - y(d.sent)}"><title>${escapeHtml(`${d.day}: sent ${fmtBytes(d.sent)}`)}</title></rect>`;
-      g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${y(0) - y(d.recv)}"><title>${escapeHtml(`${d.day}: received ${fmtBytes(d.recv)}`)}</title></rect>`;
+      const tip = `<title>${escapeHtml(`${d.day}: ↑ ${fmtBytes(d.sent)} · ↓ ${fmtBytes(d.recv)}`)}</title>`;
+      g += `<rect class="sent" x="${x}" y="${y(d.sent)}" width="${bw}" height="${base - y(d.sent)}" rx="3">${tip}</rect>`;
+      g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${base - y(d.recv)}" rx="2">${tip}</rect>`;
     }
     if (i % 5 === 0 || i === days.length - 1) {
-      g += `<text class="axis" x="${x}" y="${H - 6}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
+      g += `<text class="axis" x="${left + i * slot + slot / 2}" y="${H - 2}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
     }
   });
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
@@ -998,11 +1003,13 @@ function trafficChartSvg(days) {
 async function refreshTraffic() {
   const t = await api('/api/traffic');
   const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
+  // The arrows carry the colours of the bars, so they are the legend too.
+  const arrows = (v) => `<span class="up">↑ ${escapeHtml(fmtBytes(v.sent))}</span><span class="down">↓ ${escapeHtml(fmtBytes(v.recv))}</span>`;
   document.getElementById('traffic-today').textContent = t.since ? `today ${both(t.today)}` : '';
   document.getElementById('traffic-totals').innerHTML = t.since
     ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
-      .map(([l, v]) => `<div class="t"><span class="l">${l}</span><span class="v">${escapeHtml(both(v))}</span></div>`)
-      .join('') + '<span class="traffic-legend"><span><i class="sent"></i>sent</span><span><i class="recv"></i>received</span></span>'
+      .map(([l, v]) => `<div class="t"><div class="l">${l}</div><div class="v">${arrows(v)}</div></div>`)
+      .join('')
     : '<p class="hint">Nothing recorded yet - the first numbers appear within an hour of the app starting.</p>';
   document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
 }
