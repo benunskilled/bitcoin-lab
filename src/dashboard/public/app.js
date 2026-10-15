@@ -531,12 +531,13 @@ function firstPctCell(p) {
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
-  // Only what the cell does not say already: the lifetime rate, when the cell
-  // shows the window.
-  const lines = [];
-  if (windowed && p.eligible > 0) lines.push(`Lifetime: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible})`);
-  const title = lines.join('\n');
-  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}</td>`;
+  // Under the window's rate, the lifetime one - once there is more lifetime
+  // than window - so a peer that lost its place shows what it used to do.
+  // The tooltip adds only what the cell does not say: the lifetime counts.
+  const lifetime = windowed && p.eligible > p.recentEligible;
+  const life = lifetime ? `<span class="life">lifetime ${fmtPct(p.firstPct)}</span>` : '';
+  const title = lifetime ? `Lifetime: ${p.first} of ${p.eligible} blocks first` : '';
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}${life}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -700,7 +701,7 @@ function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
   const weak = cannotRelayReason(p.client) || p.offersNothing ? ' weak' : '';
   return `
-    <tr class="${rowClassFor(p.address)}${weak}">
+    <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${addressCell(p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
