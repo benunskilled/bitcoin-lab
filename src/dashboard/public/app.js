@@ -178,6 +178,7 @@ function truncatedCell(text, cls = '') {
 // looked like two different pages. The rows are re-rendered all the time,
 // so the labels are put back after every change.
 function fitTables() {
+  const y = window.scrollY;
   const wraps = [...document.querySelectorAll('.table-wrap')];
   for (const w of wraps) {
     const ths = [...w.querySelectorAll('thead th')];
@@ -194,6 +195,7 @@ function fitTables() {
   }
   const tight = wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
   for (const w of wraps) w.classList.toggle('cards', tight);
+  if (window.scrollY !== y) window.scrollTo(0, y);
 }
 let fitTimer = null;
 const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
@@ -210,7 +212,15 @@ new MutationObserver(() => {
   fitTables();
   if (y - window.scrollY > 100) window.scrollTo(0, y);
 }).observe(document.body, { childList: true, subtree: true });
-window.addEventListener('resize', scheduleFit);
+// Only a change of width can change whether the tables fit. On an iPhone the
+// height changes all the time - Safari's toolbar shrinks and grows while the
+// page scrolls - and measuring on each of those threw the reader up the page.
+let fitWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  if (window.innerWidth === fitWidth) return;
+  fitWidth = window.innerWidth;
+  scheduleFit();
+});
 document.addEventListener('toggle', scheduleFit, true);
 
 // Whether a cell is cut off depends on the screen, so it is decided when the
