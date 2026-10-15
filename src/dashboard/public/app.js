@@ -276,17 +276,15 @@ async function refreshStatus() {
       : '';
   }
 
-  // The last field is the colour strip along the tile's foot: the group's
-  // own colour, and the outbound one for the two kinds of outbound connection.
-  // Outbound leaves out the manual peers, which have a tile of their own - as
-  // in Peer Map, so the three groups add up to the total in both apps.
+  // The last field is the colour strip along the tile's foot, in the group's
+  // own colour. Outbound leaves out the manual peers, which have a tile of
+  // their own - as in Peer Map, so the three groups add up to the total.
+  // Full relay and block relay are told apart in the Outbound table below.
   const stats = [
     ['Total', s.live.total, ''],
     ['Inbound', s.live.inbound, 'inbound'],
     ['Outbound', s.live.outbound - s.live.manual, 'outbound'],
     ['Manual', s.live.manual, 'manual', `of ${MAX_MANUAL_PEERS}`],
-    ['Full Relay', s.live.outboundFullRelay, 'outbound'],
-    ['Block Relay', s.live.blockRelayOnly, 'outbound'],
   ];
   document.getElementById('live-stats').innerHTML = stats
     .map(([label, n, k, sub]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="l">${label}</div><div class="n">${n}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`)
