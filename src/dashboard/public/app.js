@@ -482,7 +482,7 @@ function actionsCell(p, options = {}) {
   // though the peer had the wrong port open rather than the truth, which is
   // that this container has no way to reach that network at all.
   const primary = p.trusted
-    ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
+    ? `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
     : ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
