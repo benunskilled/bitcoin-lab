@@ -421,12 +421,31 @@ function rowClassFor(address) {
 
 // Somebody arrived from Peer Map asking about one peer. Put it in front of them
 // once, and only once - the tables re-render every twenty seconds.
+// On a phone the page is still changing when the row first exists: the tables
+// turn into cards and the panels above fill in, and a smooth scroll aimed at
+// the first position ended far from the row (Ben, iPhone, 16.10.2026). So jump
+// once the layout has settled, and for a few seconds keep the row in the middle
+// while things above it move - until the reader scrolls or touches the page.
+const FOCUS_HOLD_MS = 4000;
 function scrollToFocusOnce() {
   if (!FOCUS_ADDRESS || focusDone) return;
-  const row = document.querySelector('tr.row-focus');
-  if (!row) return;
+  if (!document.querySelector('tr.row-focus')) return;
   focusDone = true;
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const until = Date.now() + FOCUS_HOLD_MS;
+  let readerMoved = false;
+  const stop = () => { readerMoved = true; };
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, stop, { once: true, passive: true });
+  const place = () => {
+    if (readerMoved) return;
+    const row = document.querySelector('tr.row-focus');
+    if (row) {
+      const r = row.getBoundingClientRect();
+      const off = r.top + r.height / 2 - window.innerHeight / 2;
+      if (Math.abs(off) > 40) window.scrollTo(0, window.scrollY + off);
+    }
+    if (Date.now() < until) setTimeout(place, 250);
+  };
+  requestAnimationFrame(() => requestAnimationFrame(place));
 }
 
 function highlightClassFor(address) {
