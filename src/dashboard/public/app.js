@@ -742,8 +742,22 @@ function peerRow(p, { status = p.status, actions }) {
 // button did nothing. Worse, a second click (the natural response) flipped the
 // flag back and overwrote the deferred closure, so the button then did nothing
 // at all. A user-initiated, purely local re-render must never be deferred.
+// A peer just removed or disconnected stays in the server's data until the
+// next connection snapshot (every 15 s) - up to half a minute with the page's
+// own refresh. Leave it out of the tables straight away; once the server no
+// longer lists it as connected or manual, forget it. If it is still there
+// after the wait (the disconnect did not take), it shows again.
+const GONE_MS = 40000;
+const justGone = new Map(); // address -> time it was removed or disconnected
+
 function renderPeerTables(peers, options = {}) {
   if (!options.force && deferRender('peers', '.peer-table', () => renderPeerTables(peers))) return;
+  const now = Date.now();
+  for (const [address, at] of justGone) {
+    const row = peers.find((p) => p.address === address);
+    if (now - at > GONE_MS || !row || (!row.live && !row.trusted)) justGone.delete(address);
+  }
+  if (justGone.size) peers = peers.filter((p) => !justGone.has(p.address));
   const livePeers = peers.filter((p) => p.live);
   // Manuals get their own dedicated panel below - keep them out of Outbound
   // entirely rather than showing the same peer in two tables.
@@ -1325,10 +1339,16 @@ document.body.addEventListener('click', async (e) => {
     }
     if (action === 'untrust') {
       await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
+      justGone.set(address, Date.now());
+      setTimeout(refreshPeers, 17000); // just after the next connection snapshot
       showToast(`Removed ${address} as manual peer and disconnected it.`, 'success');
     }
     if (action === 'disconnect') {
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
+      // A manual peer stays manual and Core dials it again, so only a non-manual one leaves the tables.
+      const was = (lastPeerRanking || []).find((p) => p.address === address);
+      if (!was || !was.trusted) justGone.set(address, Date.now());
+      setTimeout(refreshPeers, 17000);
       showToast(`Disconnected ${address}.`, 'success');
     }
     if (action === 'keep') {
