@@ -1,5 +1,10 @@
 'use strict';
 
+// This window answers to a name, and links to Peer Map aim at Peer Map's name: clicking back and forth between the two
+// apps then reuses one window each instead of opening a new one per click. That needs the opener kept, so these links
+// carry no rel="noopener" - both windows are this Umbrel's own apps. Links to other sites keep noopener.
+window.name = 'bitcoin-lab';
+
 // Peer/pool ranking is a slow-moving, historical stat, not a live combat
 // feed - it doesn't need sub-10s freshness, and peerRanking() in particular
 // runs several joined aggregate queries. Manual actions (add/remove/
@@ -608,7 +613,7 @@ function addressCell(p) {
   // other question. Without it, a plain cell - no dead links.
   if (PEER_MAP_INSTALLED) {
     const safe = escapeHtml(p.address);
-    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
+    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="peer-map" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
   }
   return truncatedCell(p.address);
 }
