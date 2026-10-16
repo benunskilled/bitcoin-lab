@@ -4,6 +4,10 @@
 // apps then reuses one window each instead of opening a new one per click. That needs the opener kept, so these links
 // carry no rel="noopener" - both windows are this Umbrel's own apps. Links to other sites keep noopener.
 window.name = 'bitcoin-lab';
+// On a phone or tablet Safari loads a named tab in the background and stays where it is, so a tap seemed to do nothing
+// (Ben, iPhone, 16.10.2026). There the jump stays in the same tab, and Back returns.
+const TOUCH_ONLY = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+const PEER_MAP_TARGET = TOUCH_ONLY ? '_self' : 'peer-map';
 
 // Peer/pool ranking is a slow-moving, historical stat, not a live combat
 // feed - it doesn't need sub-10s freshness, and peerRanking() in particular
@@ -257,6 +261,7 @@ async function refreshStatus() {
   const rotationToggleBox = document.getElementById('rotation-toggle');
   if (rotationToggleBox && s.readOnly) rotationToggleBox.disabled = true;
   const siblingLink = document.getElementById('sibling-link');
+  if (siblingLink) siblingLink.target = PEER_MAP_TARGET;
   if (siblingLink) {
     siblingLink.hidden = !PEER_MAP_INSTALLED;
     if (PEER_MAP_INSTALLED) siblingLink.href = peerMapURL(null);
@@ -613,7 +618,7 @@ function addressCell(p) {
   // other question. Without it, a plain cell - no dead links.
   if (PEER_MAP_INSTALLED) {
     const safe = escapeHtml(p.address);
-    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="peer-map" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
+    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="${PEER_MAP_TARGET}" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
   }
   return truncatedCell(p.address);
 }
