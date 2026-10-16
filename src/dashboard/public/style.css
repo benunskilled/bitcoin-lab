@@ -206,7 +206,7 @@ tr.weak td { color: var(--muted); }
    though it's working as intended), promote/swap add a manual peer
    (good-colored); swap gets the accent color since, unlike a plain
    promote, it also displaces an existing manual peer. */
-.pill.rotation-kick { background: rgba(248,81,73,.15); color: var(--bad); }
+.pill.rotation-kick { background: rgba(248,81,73,.15); color: #e5534b; }
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
 .pill.rotation-swap { background: rgba(247,147,26,.15); color: var(--accent); }
 /* Parking is not a kick - the peer is kept and re-tested - so it gets the
@@ -694,7 +694,7 @@ td .life { display: block; color: var(--faint); font-size: 11.5px; margin-top: 1
 /* Buttons in rows: smaller than a form button, the destructive ones tinted red. */
 .action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
 .row-actions > .action-slot[data-action="disconnect"], .row-actions > span.action-slot:last-child { min-width: 92px; }
-button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: var(--bad); background: rgba(248,81,73,.08); border-color: rgba(248,81,73,.45); }
+button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: #e5534b; background: rgba(248,81,73,.08); border-color: rgba(229,83,75,.4); }
 /* "Add as Manual" in the blue that means manual everywhere in both apps - red removes, blue adds. Laid over the
    panel colour so it reads the same on a plain, green or orange row. */
 .action-slot[data-action="add-manual"] { color: #6aa8f0; background: linear-gradient(rgba(57,135,229,.12), rgba(57,135,229,.12)), var(--panel); border-color: rgba(57,135,229,.55); }
@@ -702,7 +702,7 @@ button.danger, table button.secondary.danger, .action-slot[data-action="disconne
    panel colour instead, it is the same red as on a plain row. */
 tr:is(.row-delivered, .row-first-block, .row-focus) :is(button.danger, .action-slot[data-action="disconnect"]) {
   background: linear-gradient(rgba(248,81,73,.08), rgba(248,81,73,.08)), var(--panel);
-  border-color: #7a3334;
+  border-color: #673132;
 }
 /* "Show all" is a link under the table, not a button. */
 button.link { background: none; border: 0; padding: 10px 0 0; color: var(--muted); font-weight: 400; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
