@@ -7,12 +7,12 @@ const path = require('path');
 const vm = require('vm');
 
 /**
- * The dashboard strikes through a peer whose software cannot pass a block on.
+ * The dashboard marks a peer whose software cannot pass a block on "never first".
  * Peer Map, the app next door, paints the same peers on a map from the same
  * node and makes the same judgement in kinds.go. The two lists drifted: the
  * Go side had learned about mempool/electrum indexers, university scanners
  * (.ac., uni-) and Bitcoin XT, and the Lab had not - so one node's peer could
- * be a live relay in one window and a struck-through wallet in the other.
+ * be a live relay in one window and a "never first" wallet in the other.
  *
  * This reads the real Go file rather than a copy of its patterns, so the two
  * cannot drift again without something failing here.

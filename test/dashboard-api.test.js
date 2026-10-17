@@ -163,7 +163,7 @@ test('GET /api/peers/ranking answers with an array the tables can render', async
 });
 
 test('a peer offering no services is flagged, whatever it calls itself', async () => {
-  // The table strikes it through like a wallet: it has no blocks to pass on.
+  // The table marks it "never first" like a wallet: it has no blocks to pass on.
   // Same rule as Peer Map. An empty services list is the peer saying so;
   // NULL is Core not saying, and proves nothing.
   const now = Date.now();

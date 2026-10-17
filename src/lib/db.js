@@ -49,6 +49,12 @@ CREATE TABLE IF NOT EXISTS peer_session (
   -- fixed for the life of a connection. -1 means Core has never seen a header
   -- from this peer and has no idea what chain it is on.
   synced_headers INTEGER,
+  -- hb_to: Core's bip152_hb_to - whether Core has picked this peer as one of
+  -- its (at most three) high-bandwidth compact-block peers, which send a new
+  -- block straight away instead of announcing it first. Overwritten on every
+  -- poll; it changes whenever another peer delivers a block first. NULL for
+  -- rows written before this column existed, or when Core did not report it.
+  hb_to INTEGER,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
   min_ping_ms REAL,
@@ -630,6 +636,15 @@ function runMigrations() {
       for (const name of ['pool_name', 'pool_tag', 'pool_source']) {
         if (!existing.has(name)) db.prepare(`ALTER TABLE relay_race ADD COLUMN ${name} TEXT`).run();
       }
+    });
+
+    // Core's high-bandwidth compact-block peers (BIP152): the place each session
+    // holds now, as getpeerinfo reports it.
+    migrate('bip152_hb_v2_0_0', 'recorded Core\'s high-bandwidth peers', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
+      );
+      if (!existing.has('hb_to')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_to INTEGER`).run();
     });
 
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
