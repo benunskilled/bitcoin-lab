@@ -106,3 +106,29 @@ test('a peer the app dropped while Core refused the remove is removed again, not
   assert.deepEqual(retried, ['remove 198.51.100.30:8333']);
   db.instance.exec(`DELETE FROM meta WHERE key = 'pending_addnode_removal'`);
 });
+
+test('a read-only copy mirrors Core: a manual peer Core dropped leaves, a new one gets its slot', async () => {
+  // The test-store copy never removes anything itself, so without this its
+  // table only grew: removed peers stayed as offline manuals, and once the
+  // limit was full the new ones were never adopted at all.
+  const config = require('../src/lib/config');
+  const insert = db.instance.prepare(`INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, NULL, 0, 1)`);
+  insert.run('203.0.113.1:8333');
+  insert.run('203.0.113.2:8333');
+  mock.method(rpc, 'getAddedNodeInfo', async () => [{ addednode: '203.0.113.2:8333' }, { addednode: '198.51.100.7:8333' }]);
+  config.readOnly = true;
+  try {
+    const result = await adoptExternalManualPeers();
+    assert.equal(result.adopted, 1);
+    assert.deepEqual(rows().map((r) => r.address), ['198.51.100.7:8333', '203.0.113.2:8333']);
+  } finally {
+    config.readOnly = false;
+  }
+});
+
+test('the real app keeps a manual peer Core has forgotten (it re-adds it after a Core restart)', async () => {
+  db.instance.prepare(`INSERT INTO trusted_peer (address, label, kept, created_at) VALUES ('203.0.113.1:8333', NULL, 0, 1)`).run();
+  mock.method(rpc, 'getAddedNodeInfo', async () => []);
+  await adoptExternalManualPeers();
+  assert.deepEqual(rows().map((r) => r.address), ['203.0.113.1:8333']);
+});
