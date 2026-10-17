@@ -82,16 +82,12 @@ function liveSummary() {
     inbound: 0,
     outbound: 0,
     manual: 0,
-    outboundFullRelay: 0,
-    blockRelayOnly: 0,
   };
   for (const r of rows) {
     summary.total += r.cnt;
     if (r.direction === 'inbound') summary.inbound += r.cnt;
     if (r.direction === 'outbound') summary.outbound += r.cnt;
     if (r.connectionType === 'manual') summary.manual += r.cnt;
-    if (r.connectionType === 'outbound-full-relay') summary.outboundFullRelay += r.cnt;
-    if (r.connectionType === 'block-relay-only') summary.blockRelayOnly += r.cnt;
   }
   return summary;
 }

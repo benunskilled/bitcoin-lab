@@ -170,6 +170,8 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
       // never yet seen connecting has no latestEndedAt at all).
       offlineSinceMs: !r.liveDirection && r.latestEndedAt != null ? now - r.latestEndedAt : null,
       minPingMs: r.liveMinPingMs,
+      // One of Core's high-bandwidth peers right now (see db.js, hb_to).
+      hb: r.liveHb === 1,
       lastPingMs: r.liveLastPingMs,
       sessionsCount: r.sessionsCount,
       totalConnectionMs: r.totalMs,

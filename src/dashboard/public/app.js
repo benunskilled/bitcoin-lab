@@ -1,5 +1,14 @@
 'use strict';
 
+// This window answers to a name, and links to Peer Map aim at Peer Map's name: clicking back and forth between the two
+// apps then reuses one window each instead of opening a new one per click. That needs the opener kept, so these links
+// carry no rel="noopener" - both windows are this Umbrel's own apps.
+window.name = 'bitcoin-lab';
+// On a phone or tablet Safari loads a named tab in the background and stays where it is, so a tap seemed to do nothing.
+// There the jump stays in the same tab, and Back returns.
+const TOUCH_ONLY = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+const PEER_MAP_TARGET = TOUCH_ONLY ? '_self' : 'peer-map';
+
 // Peer/pool ranking is a slow-moving, historical stat, not a live combat
 // feed - it doesn't need sub-10s freshness, and peerRanking() in particular
 // runs several joined aggregate queries. Manual actions (add/remove/
@@ -89,8 +98,10 @@ function fmtBytes(bytes) {
 }
 
 // The colour says what kind of connection this is, and nothing else. Manual,
-// inbound, outbound - the same three colours Peer Map paints its markers with.
+// inbound, outbound - the same three colours Peer Map paints its markers with;
+// an app on this Umbrel gets a fourth of its own.
 function statusPillClass(status) {
+  if (status === UMBREL_APP) return 'umbrel';
   if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
   if (status.includes('MANUAL')) return 'manual';
   if (status.includes('INBOUND')) return 'inbound';
@@ -113,7 +124,7 @@ function statusPillClass(status) {
 //
 // This is Peer Map's kindRules (peer-map/kinds.go), same patterns in the same
 // order, and it has to stay that way. The two apps show the same node's peers
-// in two windows, and a peer that is struck through in one and not the other
+// in two windows, and a peer that is marked in one and not the other
 // is worse than no marking at all. The Go side names each family; here only
 // the answer to "can this thing pass a block on" is needed, so a family that
 // relays carries a null reason and is simply a stop.
@@ -161,12 +172,78 @@ function escapeHtml(str) {
 
 // Address and Client can both be long enough to blow up the whole table's
 // width (a long subver string in particular forces every other column wide
-// too under auto table layout) - cap them visually with an ellipsis and put
-// the full value in a title tooltip instead of just letting them run wide.
-function truncatedCell(text) {
+// too under auto table layout) - cap them visually with an ellipsis. The full
+// value goes into a tooltip only when the ellipsis actually cut it; a tooltip
+// that repeats the cell says nothing (see the mouseover handler below).
+function truncatedCell(text, cls = '') {
   const safe = escapeHtml(text);
-  return `<td class="cell-truncate" title="${safe}">${safe}</td>`;
+  return `<td class="cell-truncate${cls ? ' ' + cls : ''}" data-full="${safe}">${safe}</td>`;
 }
+
+// A table that does not fit its panel turns each row into a small card of its
+// own (see .table-wrap.cards in style.css) instead of scrolling sideways:
+// every value stays, below each other rather than beside, each with its
+// column's name in front. Decided by measuring, not by a fixed screen width,
+// and for all tables together - one panel as cards and the next as a table
+// looked like two different pages. The rows are re-rendered all the time,
+// so the labels are put back after every change.
+function fitTables() {
+  const y = window.scrollY;
+  const wraps = [...document.querySelectorAll('.table-wrap')];
+  for (const w of wraps) {
+    const ths = [...w.querySelectorAll('thead th')];
+    for (const tr of w.querySelectorAll('tbody tr')) {
+      [...tr.children].forEach((td, i) => {
+        const th = ths[i];
+        if (!th || td.dataset.label != null) return;
+        td.dataset.label = th.textContent.trim();
+        const col = [...th.classList].find((c) => c.startsWith('col-'));
+        if (col) td.dataset.col = col;
+      });
+    }
+    w.classList.remove('cards');
+  }
+  const tight = wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
+  for (const w of wraps) w.classList.toggle('cards', tight);
+  if (window.scrollY !== y) window.scrollTo(0, y);
+}
+let fitTimer = null;
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
+// Re-rendered rows are cards without their labels until fitTables runs, and
+// fitTables takes the cards away for a moment to measure: either way the page
+// is shorter for an instant, and Safari clamps the scroll position to it and
+// keeps it there - a reader far down was thrown up on every refresh. The
+// position from the last frame is put back before anything is painted. Only a
+// jump upwards of more than a flick, so a scroll in progress is left alone.
+let lastScrollY = window.scrollY;
+window.addEventListener('scroll', () => { lastScrollY = window.scrollY; }, { passive: true });
+new MutationObserver(() => {
+  const y = lastScrollY;
+  fitTables();
+  if (y - window.scrollY > 100) window.scrollTo(0, y);
+}).observe(document.body, { childList: true, subtree: true });
+// Only a change of width can change whether the tables fit. On an iPhone the
+// height changes all the time - Safari's toolbar shrinks and grows while the
+// page scrolls - and measuring on each of those threw the reader up the page.
+let fitWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+  if (window.innerWidth === fitWidth) return;
+  fitWidth = window.innerWidth;
+  scheduleFit();
+});
+document.addEventListener('toggle', scheduleFit, true);
+
+// Whether a cell is cut off depends on the screen, so it is decided when the
+// pointer gets there. A link inside keeps its own hint and gets the full
+// value in front of it.
+document.addEventListener('mouseover', (e) => {
+  const td = e.target.closest && e.target.closest('td[data-full]');
+  if (!td) return;
+  const cut = td.scrollWidth > td.clientWidth;
+  const link = td.querySelector('a[data-tip]');
+  if (link) link.title = (cut ? td.dataset.full + '\n' : '') + link.dataset.tip;
+  else td.title = cut ? td.dataset.full : '';
+});
 
 async function refreshStatus() {
   const s = await api('/api/status');
@@ -186,6 +263,7 @@ async function refreshStatus() {
   if (rotationToggleBox && s.readOnly) rotationToggleBox.disabled = true;
   const siblingLink = document.getElementById('sibling-link');
   if (siblingLink) {
+    siblingLink.target = PEER_MAP_TARGET;
     siblingLink.hidden = !PEER_MAP_INSTALLED;
     if (PEER_MAP_INSTALLED) siblingLink.href = peerMapURL(null);
   }
@@ -231,16 +309,18 @@ async function refreshStatus() {
       : '';
   }
 
+  // The last field is the colour strip along the tile's foot, in the group's
+  // own colour. Outbound leaves out the manual peers, which have a tile of
+  // their own - as in Peer Map, so the three groups add up to the total.
+  // Full relay and block relay are told apart in the Outbound table below.
   const stats = [
-    ['Total', s.live.total],
-    ['Inbound', s.live.inbound],
-    ['Outbound', s.live.outbound],
-    ['Manual', s.live.manual],
-    ['Full Relay', s.live.outboundFullRelay],
-    ['Block Relay Only', s.live.blockRelayOnly],
+    ['Total', s.live.total, ''],
+    ['Inbound', s.live.inbound, 'inbound'],
+    ['Outbound', s.live.outbound - s.live.manual, 'outbound'],
+    ['Manual', s.live.manual, 'manual', `of ${MAX_MANUAL_PEERS}`],
   ];
   document.getElementById('live-stats').innerHTML = stats
-    .map(([label, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${label}</div></div>`)
+    .map(([label, n, k, sub]) => `<div class="stat${k ? ' s-' + k : ''}"><div class="l">${label}</div><div class="n">${n}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`)
     .join('');
 }
 
@@ -253,7 +333,7 @@ function setBlockHeight(height) {
   // The height is Core's own getblockcount, so it is there from the first
   // status response - it does not wait for a block. Null means Core did not
   // answer, and until one ever does, the slot says so in small type rather
-  // than showing a 42px dash that reads as a fault in this app. The markup
+  // than showing a big dash that reads as a fault in this app. The markup
   // starts as "–" instead: that is the fraction of a second before the first
   // response, which is not the same thing as no answer.
   if (height == null) {
@@ -276,7 +356,7 @@ function setBlockHeight(height) {
 }
 
 // Who mined the block that just landed. Three states, and the difference
-// matters: a pool we recognise gets its short name, an unknown miner gets the
+// matters: a pool we recognise gets its name, an unknown miner gets the
 // text he wrote into his own coinbase (in quotes, so it never reads as a name
 // we are vouching for), and a block that says neither shows nothing at all.
 function setBlockPool(race) {
@@ -285,14 +365,14 @@ function setBlockPool(race) {
   const known = race && race.pool;
   const raw = race && !known && race.poolTag ? race.poolTag : null;
   el.classList.toggle('raw', Boolean(raw));
-  if (known) {
-    el.textContent = race.pool;
-    el.title = `Mined by ${race.poolName}, from the block's coinbase`;
-  } else if (raw) {
-    el.textContent = `"${raw}"`;
-    el.title = 'No pool we know of. This is the text the miner wrote into the block.';
+  el.textContent = '';
+  if (known || raw) {
+    const name = document.createElement('b');
+    name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
+    el.append('mined by ', name);
+    el.title = known ? `Mined by ${race.poolName}, from the block's coinbase`
+      : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
-    el.textContent = '';
     el.removeAttribute('title');
   }
   el.hidden = !(known || raw);
@@ -342,12 +422,37 @@ function rowClassFor(address) {
 
 // Somebody arrived from Peer Map asking about one peer. Put it in front of them
 // once, and only once - the tables re-render every twenty seconds.
+// On a phone the page is still changing when the row first exists: the tables
+// turn into cards and the panels above fill in, and a smooth scroll aimed at
+// the first position ended far from the row. So jump
+// once the layout has settled, and for a few seconds keep the row in the middle
+// while things above it move - until the reader scrolls or touches the page.
+const FOCUS_HOLD_MS = 4000;
 function scrollToFocusOnce() {
   if (!FOCUS_ADDRESS || focusDone) return;
-  const row = document.querySelector('tr.row-focus');
-  if (!row) return;
+  if (!document.querySelector('tr.row-focus')) return;
   focusDone = true;
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const until = Date.now() + FOCUS_HOLD_MS;
+  let readerMoved = false;
+  const listening = new AbortController();
+  const stop = () => { readerMoved = true; listening.abort(); };
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, stop, { passive: true, signal: listening.signal });
+  const place = () => {
+    if (readerMoved) return;
+    const row = document.querySelector('tr.row-focus');
+    if (row) {
+      const r = row.getBoundingClientRect();
+      const off = r.top + r.height / 2 - window.innerHeight / 2;
+      if (Math.abs(off) > 40) {
+        window.scrollTo(0, window.scrollY + off);
+        // Our own jump, not the clamp the observer below undoes.
+        lastScrollY = window.scrollY;
+      }
+    }
+    if (Date.now() < until) setTimeout(place, 250);
+    else listening.abort();
+  };
+  requestAnimationFrame(() => requestAnimationFrame(place));
 }
 
 function highlightClassFor(address) {
@@ -413,7 +518,7 @@ function actionsCell(p, options = {}) {
   // though the peer had the wrong port open rather than the truth, which is
   // that this container has no way to reach that network at all.
   const primary = p.trusted
-    ? `<button class="secondary action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
+    ? `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
     : ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
@@ -433,7 +538,7 @@ function actionsCell(p, options = {}) {
 }
 
 function clientCell(p) {
-  return truncatedCell(p.client || '-');
+  return truncatedCell(p.client || '-', 'client');
 }
 
 // Session column: current connected duration when live, otherwise how long
@@ -445,14 +550,11 @@ function clientCell(p) {
 function sessionCell(p) {
   if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
   if (p.offlineSinceMs != null) {
-    return `<td class="hint" title="Last seen connected ${fmtDuration(p.offlineSinceMs)} ago">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+    return `<td class="hint">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
   }
   return `<td>-</td>`;
 }
 
-// Single combined "how good is this peer" column: percentage first, with
-// the raw first/eligible counts as a tooltip - replaces the previous
-// separate First/Elig + First % columns (redundant, and wasted width).
 /**
  * The rate over the window the ranking actually sorts by - not the lifetime
  * rate it used to show.
@@ -463,7 +565,8 @@ function sessionCell(p) {
  * they were 33.8% and 33.4% - level, and in exactly the order shown. The
  * deciding number appeared nowhere.
  *
- * The lifetime pair is not dropped, it moves into the tooltip. It is still the
+ * The lifetime rate is not dropped: it sits under the window's, with its counts
+ * in the tooltip. It is still the
  * right number for what a peer has been worth over its life, and it is still
  * what the offline grace, the parking retention and the re-probe interval are
  * scaled by - so the parked table and the rotation log keep showing it.
@@ -472,13 +575,13 @@ function firstPctCell(p) {
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
-  const lifetime = p.eligible > 0
-    ? `Over its whole record: ${fmtPct(p.firstPct)} (${p.first}/${p.eligible}).`
-    : 'No lifetime record yet.';
-  const title = windowed
-    ? `${p.recentFirst} of the ${p.recentEligible} blocks this peer was connected for inside the ranking window. ${lifetime}`
-    : `${p.first} of ${p.eligible} eligible blocks`;
-  return `<td title="${escapeHtml(title)}">${fmtPct(pct)}<span class="hint"> (${counts})</span></td>`;
+  // Under the window's rate, the lifetime one - once there is more lifetime
+  // than window - so a peer that lost its place shows what it used to do.
+  // The tooltip adds only what the cell does not say: the lifetime counts.
+  const lifetime = windowed && p.eligible > p.recentEligible;
+  const life = lifetime ? `<span class="life">lifetime ${fmtPct(p.firstPct)}</span>` : '';
+  const title = lifetime ? `Lifetime: ${p.first} of ${p.eligible} blocks first` : '';
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}${life}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -516,7 +619,7 @@ async function refreshPeers() {
 // honestly instead.
 function addressCell(p) {
   if (p.sourceObscured) {
-    return `<td class="cell-truncate hint" title="Core reports this connection's address as ${escapeHtml(p.address)} - Docker's inbound IPv6 relay (docker-proxy) re-originates the connection from its own internal gateway, so the peer's real address is never visible to Core itself, let alone to us. This is a Docker networking limitation, not an error.">IPv6 peer (address hidden by Docker)</td>`;
+    return `<td class="cell-truncate hint" title="Inbound IPv6 passes through Docker, which puts its own address in place of the peer's.">IPv6 peer (address hidden by Docker)</td>`;
   }
   // Not a real external peer at all - another app on this same Umbrel host
   // (electrs, mempool's indexer, etc.) connecting to Core's P2P port
@@ -533,13 +636,13 @@ function addressCell(p) {
   // neighbour of ours and said nothing about the peer - the word Tor appeared
   // only as a note in the actions column, at the far end of the row.
   if (p.proxiedPrivatePeer) {
-    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - this peer reached your node over ${escapeHtml(p.privateNetwork)}, so the address Bitcoin Core sees is your own ${escapeHtml(p.privateNetwork)} proxy's, not the peer's. Its real address is never visible to Core, and this app dials out over plain TCP only - so it can never be made a manual peer. It still ranks normally and can still deliver a block first.">${escapeHtml(p.privateNetwork)} peer</td>`;
+    return `<td class="cell-truncate hint" title="Core only sees your own ${escapeHtml(p.privateNetwork)} proxy, not the peer. It still ranks, but cannot be made a manual peer.">${escapeHtml(p.privateNetwork)} peer</td>`;
   }
   // With Peer Map installed the address becomes the way over: same peer, the
   // other question. Without it, a plain cell - no dead links.
   if (PEER_MAP_INSTALLED) {
     const safe = escapeHtml(p.address);
-    return `<td class="cell-truncate" title="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="_blank" rel="noopener" title="Show this peer in Peer Map">${safe}</a></td>`;
+    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="${PEER_MAP_TARGET}" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
   }
   return truncatedCell(p.address);
 }
@@ -604,24 +707,48 @@ document.addEventListener('focusout', () => {
  *   actions  what may be done to this peer here - the live table alone offers
  *            Disconnect, and only the manual table carries the lock.
  */
-// The pill is struck through when the peer cannot deliver a block: software
-// that does not relay, or a peer that offers no services at all - whatever it
-// calls itself. Peer Map strikes the same peers. The explanation lives in the
-// tooltip, not in the table: a dashboard is not the place for a paragraph.
-function statusPill(p, status) {
-  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
-  if (!reason) return `<span class="pill ${statusPillClass(status)}">${status}</span>`;
-  const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
-  // The type colour stays; the strike is what says "never in the running".
-  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${status}</span>`;
+// A peer that cannot deliver a block - software that does not relay, or a
+// peer that offers no services at all, whatever it calls itself - reads
+// "never first" beside its pill. Peer Map marks the same peers. The
+// explanation lives in the tooltip, not in the table: a dashboard is not the
+// place for a paragraph.
+// ⚡ in the First % cell: one of the (at most three) peers Core lets send a new
+// block straight away. Whoever holds such a place wins First far more easily,
+// so it says why a peer is ahead, not only that it is.
+const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new block without being asked first, which gives it a head start of at least one ping.";
+// At the end of the First % cell: the Type column is too narrow for it next to
+// the longest pill, and the ⚡ is often the reason the number is high.
+function hbMark(p) {
+  return p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '';
 }
 
+// Core's names for the two automatic outbound kinds, said as Peer Map and the
+// tiles say them.
+const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 'BLOCK RELAY' };
+const statusLabel = (status) => STATUS_LABEL[status] || status;
+
+function statusPill(p, status) {
+  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
+  if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
+  const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
+  // The pill is dimmed and the cell says it in words, so the fact stays
+  // visible at a glance.
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${statusLabel(status)}</span><span class="never" title="${title}">never first</span>`;
+}
+
+// An app on this same Umbrel (electrs, Fulcrum, a Lightning node) connects to
+// Core like any inbound peer, but it is the owner's own software, not a peer
+// out on the network - so it gets a pill of its own instead of "INBOUND".
+const UMBREL_APP = 'UMBREL APP';
+
 function peerRow(p, { status = p.status, actions }) {
+  if (p.localUmbrelPeer) status = UMBREL_APP;
+  const weak = cannotRelayReason(p.client) || p.offersNothing ? ' weak' : '';
   return `
-    <tr class="${rowClassFor(p.address)}">
+    <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${addressCell(p)}
       ${clientCell(p)}
-      <td class="col-status">${statusPill(p, status)}</td>
+      <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
@@ -639,8 +766,25 @@ function peerRow(p, { status = p.status, actions }) {
 // button did nothing. Worse, a second click (the natural response) flipped the
 // flag back and overwrote the deferred closure, so the button then did nothing
 // at all. A user-initiated, purely local re-render must never be deferred.
+// A peer just removed or disconnected stays in the server's data until the
+// next connection snapshot (every 15 s) - up to half a minute with the page's
+// own refresh. Leave it out of the tables straight away; once the server no
+// longer lists it as connected or manual, forget it. If it is still there
+// after the wait (the disconnect did not take), it shows again.
+const GONE_MS = 40000;
+// The page asks again just after Core's next connection snapshot has landed.
+const GONE_RECHECK_MS = 17000;
+const justGone = new Map(); // address -> time it was removed or disconnected
+const recheckGone = () => setTimeout(() => refreshPeers().catch(() => {}), GONE_RECHECK_MS);
+
 function renderPeerTables(peers, options = {}) {
   if (!options.force && deferRender('peers', '.peer-table', () => renderPeerTables(peers))) return;
+  const now = Date.now();
+  for (const [address, at] of justGone) {
+    const row = peers.find((p) => p.address === address);
+    if (now - at > GONE_MS || !row || (!row.live && !row.trusted)) justGone.delete(address);
+  }
+  if (justGone.size) peers = peers.filter((p) => !justGone.has(p.address));
   const livePeers = peers.filter((p) => p.live);
   // Manuals get their own dedicated panel below - keep them out of Outbound
   // entirely rather than showing the same peer in two tables.
@@ -725,7 +869,7 @@ function renderPeerTables(peers, options = {}) {
     const keptNote = keptCount > 0
       ? ` · ${keptCount === manualPeers.length ? 'all kept' : `${keptCount} kept`}`
       : '';
-    slotsEl.textContent = `(${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total${keptNote})`;
+    slotsEl.textContent = `${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total${keptNote}`;
   }
 }
 
@@ -825,7 +969,7 @@ function renderRotationLog(log) {
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
-      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(replaced ${fmtPct(entry.replacedFirstPct)} peer)</span>` : ''}</td>
+      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
     </tr>
   `).join('') || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
 }
@@ -870,9 +1014,9 @@ function renderPools(pools) {
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
     <tr>
-      <td>${escapeHtml(p.label)}${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
-      <td>${escapeHtml(`${p.host}:${p.port}`)}</td>
-      <td>${p.wins}</td>
+      <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
+      <td class="client">${escapeHtml(`${p.host}:${p.port}`)}</td>
+      <td><b>${p.wins}</b></td>
       <td>${fmtPct(p.winPct)}</td>
       <td>${fmtMs(p.avgMs)}</td>
       <td>${fmtMs(p.medianMs)}</td>
@@ -898,10 +1042,11 @@ function axisBytes(v, unit) {
   return `${Number.isInteger(n) ? n : n.toFixed(1)} ${name}`;
 }
 
-// Bars per UTC day: sent in the accent, received beside it in grey. One scale
-// for both, so the two can be compared by eye.
+// Bars per UTC day, as in the approved design: sent as a rounded orange bar,
+// received in blue in front of it, on one scale so the two compare by eye.
+// The grid keeps its values, quietly; each day says its numbers on hover.
 function trafficChartSvg(days) {
-  const W = 720, H = 180, top = 10, bottom = 22, left = 54, right = 8;
+  const W = 1300, H = 220, top = 20, base = 200, left = 46;
   const max = Math.max(1, ...days.map((d) => Math.max(d.sent || 0, d.recv || 0)));
   // A round step for the grid: 1, 2 or 5 times a power of 1024-based units.
   const unit = 1024 ** Math.max(0, Math.floor(Math.log(max) / Math.log(1024)));
@@ -909,22 +1054,23 @@ function trafficChartSvg(days) {
   const pow = 10 ** Math.floor(Math.log10(raw || 1));
   const step = [1, 2, 5, 10].map((m) => m * pow).find((m) => m >= raw) * unit;
   const top_ = Math.ceil(max / step) * step;
-  const y = (v) => top + (H - top - bottom) * (1 - v / top_);
-  const slot = (W - left - right) / days.length;
-  const bw = Math.max(2, slot * 0.36);
-  let g = '';
+  const y = (v) => base - (base - top) * (v / top_);
+  const slot = (W - left) / days.length;
+  const bw = slot * 0.64;
+  let g = '<defs><linearGradient id="traffic-sent" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb04a"/><stop offset="1" stop-color="#c26a06"/></linearGradient></defs>';
   for (let v = 0; v <= top_ + 1; v += step) {
-    g += `<line class="grid" x1="${left}" x2="${W - right}" y1="${y(v)}" y2="${y(v)}"/>`;
-    g += `<text class="axis" x="${left - 6}" y="${y(v) + 3}" text-anchor="end">${escapeHtml(axisBytes(v, unit))}</text>`;
+    g += `<line class="grid" x1="${left}" x2="${W}" y1="${y(v)}" y2="${y(v)}"/>`;
+    g += `<text class="axis" x="${left - 8}" y="${y(v) + 4}" text-anchor="end">${escapeHtml(axisBytes(v, unit))}</text>`;
   }
   days.forEach((d, i) => {
-    const x = left + i * slot + slot / 2;
+    const x = left + i * slot + (slot - bw) / 2;
     if (d.sent != null) {
-      g += `<rect class="sent" x="${x - bw}" y="${y(d.sent)}" width="${bw}" height="${y(0) - y(d.sent)}"><title>${escapeHtml(`${d.day}: sent ${fmtBytes(d.sent)}`)}</title></rect>`;
-      g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${y(0) - y(d.recv)}"><title>${escapeHtml(`${d.day}: received ${fmtBytes(d.recv)}`)}</title></rect>`;
+      const tip = `<title>${escapeHtml(`${d.day}: ↑ ${fmtBytes(d.sent)} · ↓ ${fmtBytes(d.recv)}`)}</title>`;
+      g += `<rect class="sent" x="${x}" y="${y(d.sent)}" width="${bw}" height="${base - y(d.sent)}" rx="3">${tip}</rect>`;
+      g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${base - y(d.recv)}" rx="2">${tip}</rect>`;
     }
     if (i % 5 === 0 || i === days.length - 1) {
-      g += `<text class="axis" x="${x}" y="${H - 6}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
+      g += `<text class="axis" x="${left + i * slot + slot / 2}" y="${H - 2}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
     }
   });
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
@@ -933,11 +1079,13 @@ function trafficChartSvg(days) {
 async function refreshTraffic() {
   const t = await api('/api/traffic');
   const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
+  // The arrows carry the colours of the bars, so they are the legend too.
+  const arrows = (v) => `<span class="up">↑ ${escapeHtml(fmtBytes(v.sent))}</span><span class="down">↓ ${escapeHtml(fmtBytes(v.recv))}</span>`;
   document.getElementById('traffic-today').textContent = t.since ? `today ${both(t.today)}` : '';
   document.getElementById('traffic-totals').innerHTML = t.since
     ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
-      .map(([l, v]) => `<div class="t"><span class="l">${l}</span><span class="v">${escapeHtml(both(v))}</span></div>`)
-      .join('') + '<span class="traffic-legend"><span><i class="sent"></i>sent</span><span><i class="recv"></i>received</span></span>'
+      .map(([l, v]) => `<div class="t"><div class="l">${l}</div><div class="v">${arrows(v)}</div></div>`)
+      .join('')
     : '<p class="hint">Nothing recorded yet - the first numbers appear within an hour of the app starting.</p>';
   document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
 }
@@ -1050,6 +1198,7 @@ document.getElementById('manual-add-form').addEventListener('submit', async (e) 
   manualAddBusy(true, 'connecting…');
   try {
     const result = await api('/api/peers/manual-add', { method: 'POST', body: JSON.stringify({ host: input.value }) });
+    justGone.delete(result.address);
     manualAddResult(result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`, 'ok');
     input.value = '';
     refreshPeers();
@@ -1209,6 +1358,9 @@ document.body.addEventListener('click', async (e) => {
   try {
     if (action === 'add-manual') {
       const result = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+      // Added back within the wait after a removal: it belongs in the tables again.
+      justGone.delete(address);
+      justGone.delete(result.address);
       showToast(
         result.warning
           ? `Added as manual peer: ${result.address} - ${result.warning}`
@@ -1218,10 +1370,16 @@ document.body.addEventListener('click', async (e) => {
     }
     if (action === 'untrust') {
       await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
+      justGone.set(address, Date.now());
+      recheckGone();
       showToast(`Removed ${address} as manual peer and disconnected it.`, 'success');
     }
     if (action === 'disconnect') {
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
+      // A manual peer stays manual and Core dials it again, so only a non-manual one leaves the tables.
+      const was = (lastPeerRanking || []).find((p) => p.address === address);
+      if (!was || !was.trusted) justGone.set(address, Date.now());
+      recheckGone();
       showToast(`Disconnected ${address}.`, 'success');
     }
     if (action === 'keep') {
