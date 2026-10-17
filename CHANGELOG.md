@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.0.0 – 2026-10-17
+
+Bitcoin Lab 2.0.0 has a new design: four tiles in the header, calmer tables that turn into cards on narrow screens instead of scrolling sideways, and "never first" instead of a strike-through. The ranking marks with ⚡ the peers Core has chosen right now to send it new blocks without asking (BIP152 high-bandwidth). Peers that have delivered a block first show their address in green. Removed or disconnected peers leave the tables at once, and the rotation log shows the recent record that decided a swap. Links between Bitcoin Lab and Peer Map reuse one window per app; on phones they open in the same tab and land on the peer.
+
 ## 1.26.0 – 2026-10-12
 
 Bitcoin Lab now notices pool apps installed on your Umbrel. With Stratum Race on, if it finds GoBrrr, Bassin, Public Pool, DATUM or Pogolo and they are not in Stratum Race yet, it offers to add them, once in each browser. The quick-fill buttons stay for later, now including DATUM and Pogolo. Finding them is only a name lookup: nothing connects to a pool until you add it.
