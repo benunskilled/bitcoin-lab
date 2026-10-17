@@ -136,7 +136,9 @@ async function promoteBestCandidate(ranking) {
       eligible: candidate.eligible,
       replacedAddress: weakest.address,
       replacedFirstPct: weakest.firstPct,
-      note: 'replaced the weakest current manual peer',
+      // The recent window is what decided it, so it is what the note shows;
+      // the lifetime rate rides along in replacedFirstPct and reads as such.
+      note: `replaced the weakest current manual peer: ${weakest.recentFirst}/${weakest.recentEligible} recent blocks first`,
     });
     logger.info('rotation: swapped a stronger candidate in for the weakest manual peer', {
       address: resolved,

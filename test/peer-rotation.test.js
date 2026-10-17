@@ -280,6 +280,9 @@ test('swaps a strictly-better candidate in for the weakest manual peer once slot
   const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('swap');
   assert.equal(logRow.address, candidate);
   assert.equal(logRow.replaced_address, weak);
+  // The recent window decided the swap, so the note says what it held; the
+  // lifetime rate stays in replaced_first_pct and is labelled as such.
+  assert.match(logRow.note, /: \d+\/\d+ recent blocks first$/);
 });
 
 test('does nothing when no non-trusted candidate beats the weakest manual peer', async () => {

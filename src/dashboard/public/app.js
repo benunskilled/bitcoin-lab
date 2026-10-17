@@ -961,7 +961,7 @@ function renderRotationLog(log) {
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
-      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(replaced ${fmtPct(entry.replacedFirstPct)} peer)</span>` : ''}</td>
+      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
     </tr>
   `).join('') || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
 }
