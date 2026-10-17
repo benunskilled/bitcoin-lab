@@ -76,9 +76,9 @@ Incoming Tor and I2P connections are fine.
 
 Manual peers you set in Core yourself, for example in Umbrel's Bitcoin Node settings, are protected: rotation never disconnects or replaces them, and a reset keeps them even while they are offline.
 
-## High-bandwidth peers
+## Reading the ranking
 
-Core picks up to three peers to send it new blocks without being asked first (BIP152, high-bandwidth compact blocks). Bitcoin Lab marks the ones that hold a place right now with ⚡ in the ranking. A peer in one of these places starts each block with a head start of at least one ping. Only Core decides these places; Bitcoin Lab observes them.
+A green address is a peer that has delivered at least one block first. ⚡ marks the peers Core has chosen right now to send it new blocks without being asked first (BIP152 high-bandwidth compact blocks, up to three). A peer in one of these places starts each block with a head start of at least one ping. Only Core decides these places; Bitcoin Lab observes them.
 
 ## Who mined it
 
