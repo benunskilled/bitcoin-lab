@@ -224,13 +224,7 @@ tr.weak td { color: var(--muted); }
 .result-error { color: var(--bad); }
 
 .parked-peers { margin-top: 14px; }
-.parked-peers h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-.parked-peers h3 .hint { font-weight: 400; margin-left: 6px; }
+.parked-peers h3 { color: var(--text); }
 
 .inline-form {
   display: flex;
@@ -248,8 +242,8 @@ tr.weak td { color: var(--muted); }
   background: #0f151b;
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 6px 10px;
-  border-radius: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
   font-size: 13px;
 }
 .inline-form input#pool-port { width: 90px; }
@@ -272,13 +266,11 @@ button.secondary {
   padding: 4px 10px;
   font-weight: 500;
 }
-button.danger { color: var(--bad); }
 
 /* The storage panel. Both groups here delete data permanently, so the warning
    is a step of its own rather than a modal - it has room to say what goes. */
 .reset-group { margin: 0 0 22px; max-width: 72ch; }
 .reset-group:last-child { margin-bottom: 4px; }
-.reset-group h3 { margin: 0 0 4px; }
 .reset-group p { margin: 0 0 10px; }
 .reset-confirm {
   margin-top: 10px;
@@ -291,9 +283,7 @@ button.danger { color: var(--bad); }
 
 .hint { font-size: 12px; color: var(--muted); }
 
-/* Plain native checkbox + label, same convention as the Stratum Race
-   "Enabled" column - no custom switch widget, this app doesn't build one
-   anywhere else either. */
+/* A checkbox with its label; the box itself is drawn as a switch further down. */
 .switch-label {
   display: flex;
   align-items: center;
@@ -358,8 +348,7 @@ span.action-slot { visibility: hidden; } /* reserves the height, shows nothing *
    so it is as wide as the longer one - otherwise Disconnect beside it jumps
    from row to row. The Manual table only ever holds Remove there, so its
    slot is narrower, which leaves its row room for the lock. */
-.row-actions > .action-slot:first-child,
-.row-actions > .keep-star + .action-slot { min-width: 112px; }
+.row-actions > .action-slot:first-child { min-width: 112px; }
 #manual-peer-table .row-actions > .action-slot { min-width: 92px; }
 
 /* Manual Peers: unused capacity (below the app's manual-connection cap)
@@ -383,7 +372,7 @@ table.peer-table {
      with the window instead of the wrapper scrolling: .table-wrap's overflow-x
      never engages. At 390px all nine cells were clipped and Ping/Session/Total
      overprinted each other. The nine columns need roughly this much to stay
-     readable; below it the wrapper scrolls, which is what it was always for. */
+     readable; a table that does not get it turns into cards (fitTables). */
   min-width: 900px;
 }
 
@@ -448,16 +437,18 @@ th.col-actions { padding-left: 20px; }
 
 .hero-l {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--faint);
   text-transform: uppercase;
-  letter-spacing: .06em;
+  letter-spacing: .05em;
 }
 
 .hero-n {
-  font-size: 42px;
+  font-size: 34px;
   font-weight: 700;
   color: var(--accent);
-  line-height: 1.15;
+  letter-spacing: -.01em;
+  line-height: 1.2;
+  margin-top: 2px;
   font-variant-numeric: tabular-nums;
   transition: text-shadow .3s ease;
 }
@@ -467,7 +458,7 @@ th.col-actions { padding-left: 20px; }
 }
 
 /* Core has not answered yet, said in the number's own slot: sentence-sized
-   rather than 42px, and muted, so it reads as a state rather than as a fault
+   rather than number-sized, and muted, so it reads as a state rather than as a fault
    in this app. Dropped the moment a height arrives. */
 /* Quiet by design: the height is the number, this is a footnote to it. The
    raw variant is what the miner wrote about himself rather than a pool we
@@ -564,12 +555,12 @@ th.col-actions { padding-left: 20px; }
 }
 
 /* Row of the peer(s) that delivered the newest block first - fades in,
-   stays tinted for ~2 minutes (see app.js HIGHLIGHT_MS), fades out. */
-/* A connected peer that has delivered a block first at least once: its
+   stays tinted for ~2 minutes (see app.js HIGHLIGHT_MS), fades out. It stays a
+   whole row: it is brief and meant to catch the eye.
+   A connected peer that has delivered a block first at least once: its
    address in green, the same as in Peer Map. Only the address - near the top
    of the ranking almost every row has delivered, and whole green rows were a
-   lot of colour for one bit (Ben, 16.10.2026). The orange row of the newest
-   block's deliverer stays a whole row: it is brief and meant to catch the eye. */
+   lot of colour for one bit. */
 .table-wrap table tbody tr.row-first-block {
   background: rgba(247, 147, 26, .22);
   transition: background 1.2s ease;
@@ -667,12 +658,10 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { flex: 1 1 100%; white-space: normal; }
 
-/* ---- V2 as in the approved design (Claude outputs/lab-design) ---- */
+/* ---- V2 design ---- */
 
 /* Tiles: the label on top, the number under it; the block height twice as
    wide as a count, with who mined it. */
-.hero-l { color: var(--faint); letter-spacing: .05em; }
-.hero-n { font-size: 34px; letter-spacing: -.01em; line-height: 1.2; margin-top: 2px; }
 .stat .s { font-size: 12px; color: var(--muted); }
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -724,7 +713,6 @@ button.link:hover { color: var(--text); filter: none; }
 input[type="checkbox"] { accent-color: var(--accent); }
 
 select { background: #1b2531; color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; font: inherit; font-size: 12px; }
-.inline-form input { border-radius: 8px; padding: 7px 10px; }
 #manual-add-input { min-width: 240px; }
 /* On a phone the status line goes under the title instead of squeezing it. */
 @media (max-width: 600px) {
