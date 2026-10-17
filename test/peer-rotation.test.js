@@ -579,6 +579,7 @@ test('a returning peer that beats the weakest manual peer swaps in, and the lose
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
   const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('revive');
   assert.equal(logRow.replaced_address, weak);
+  assert.match(logRow.note, /: \d+\/\d+ recent blocks first$/);
 });
 
 test('at most one peer joins the manual set per tick, revival or promotion', async () => {

@@ -2,10 +2,10 @@
 
 // This window answers to a name, and links to Peer Map aim at Peer Map's name: clicking back and forth between the two
 // apps then reuses one window each instead of opening a new one per click. That needs the opener kept, so these links
-// carry no rel="noopener" - both windows are this Umbrel's own apps. Links to other sites keep noopener.
+// carry no rel="noopener" - both windows are this Umbrel's own apps.
 window.name = 'bitcoin-lab';
-// On a phone or tablet Safari loads a named tab in the background and stays where it is, so a tap seemed to do nothing
-// (Ben, iPhone, 16.10.2026). There the jump stays in the same tab, and Back returns.
+// On a phone or tablet Safari loads a named tab in the background and stays where it is, so a tap seemed to do nothing.
+// There the jump stays in the same tab, and Back returns.
 const TOUCH_ONLY = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
 const PEER_MAP_TARGET = TOUCH_ONLY ? '_self' : 'peer-map';
 
@@ -98,7 +98,8 @@ function fmtBytes(bytes) {
 }
 
 // The colour says what kind of connection this is, and nothing else. Manual,
-// inbound, outbound - the same three colours Peer Map paints its markers with.
+// inbound, outbound - the same three colours Peer Map paints its markers with;
+// an app on this Umbrel gets a fourth of its own.
 function statusPillClass(status) {
   if (status === UMBREL_APP) return 'umbrel';
   if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
@@ -261,8 +262,8 @@ async function refreshStatus() {
   const rotationToggleBox = document.getElementById('rotation-toggle');
   if (rotationToggleBox && s.readOnly) rotationToggleBox.disabled = true;
   const siblingLink = document.getElementById('sibling-link');
-  if (siblingLink) siblingLink.target = PEER_MAP_TARGET;
   if (siblingLink) {
+    siblingLink.target = PEER_MAP_TARGET;
     siblingLink.hidden = !PEER_MAP_INSTALLED;
     if (PEER_MAP_INSTALLED) siblingLink.href = peerMapURL(null);
   }
@@ -332,7 +333,7 @@ function setBlockHeight(height) {
   // The height is Core's own getblockcount, so it is there from the first
   // status response - it does not wait for a block. Null means Core did not
   // answer, and until one ever does, the slot says so in small type rather
-  // than showing a 42px dash that reads as a fault in this app. The markup
+  // than showing a big dash that reads as a fault in this app. The markup
   // starts as "–" instead: that is the fraction of a second before the first
   // response, which is not the same thing as no answer.
   if (height == null) {
@@ -355,7 +356,7 @@ function setBlockHeight(height) {
 }
 
 // Who mined the block that just landed. Three states, and the difference
-// matters: a pool we recognise gets its short name, an unknown miner gets the
+// matters: a pool we recognise gets its name, an unknown miner gets the
 // text he wrote into his own coinbase (in quotes, so it never reads as a name
 // we are vouching for), and a block that says neither shows nothing at all.
 function setBlockPool(race) {
@@ -423,7 +424,7 @@ function rowClassFor(address) {
 // once, and only once - the tables re-render every twenty seconds.
 // On a phone the page is still changing when the row first exists: the tables
 // turn into cards and the panels above fill in, and a smooth scroll aimed at
-// the first position ended far from the row (Ben, iPhone, 16.10.2026). So jump
+// the first position ended far from the row. So jump
 // once the layout has settled, and for a few seconds keep the row in the middle
 // while things above it move - until the reader scrolls or touches the page.
 const FOCUS_HOLD_MS = 4000;
@@ -433,17 +434,23 @@ function scrollToFocusOnce() {
   focusDone = true;
   const until = Date.now() + FOCUS_HOLD_MS;
   let readerMoved = false;
-  const stop = () => { readerMoved = true; };
-  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, stop, { once: true, passive: true });
+  const listening = new AbortController();
+  const stop = () => { readerMoved = true; listening.abort(); };
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, stop, { passive: true, signal: listening.signal });
   const place = () => {
     if (readerMoved) return;
     const row = document.querySelector('tr.row-focus');
     if (row) {
       const r = row.getBoundingClientRect();
       const off = r.top + r.height / 2 - window.innerHeight / 2;
-      if (Math.abs(off) > 40) window.scrollTo(0, window.scrollY + off);
+      if (Math.abs(off) > 40) {
+        window.scrollTo(0, window.scrollY + off);
+        // Our own jump, not the clamp the observer below undoes.
+        lastScrollY = window.scrollY;
+      }
     }
     if (Date.now() < until) setTimeout(place, 250);
+    else listening.abort();
   };
   requestAnimationFrame(() => requestAnimationFrame(place));
 }
@@ -548,9 +555,6 @@ function sessionCell(p) {
   return `<td>-</td>`;
 }
 
-// Single combined "how good is this peer" column: percentage first, with
-// the raw first/eligible counts as a tooltip - replaces the previous
-// separate First/Elig + First % columns (redundant, and wasted width).
 /**
  * The rate over the window the ranking actually sorts by - not the lifetime
  * rate it used to show.
@@ -561,7 +565,8 @@ function sessionCell(p) {
  * they were 33.8% and 33.4% - level, and in exactly the order shown. The
  * deciding number appeared nowhere.
  *
- * The lifetime pair is not dropped, it moves into the tooltip. It is still the
+ * The lifetime rate is not dropped: it sits under the window's, with its counts
+ * in the tooltip. It is still the
  * right number for what a peer has been worth over its life, and it is still
  * what the offline grace, the parking retention and the re-probe interval are
  * scaled by - so the parked table and the rotation log keep showing it.
@@ -767,7 +772,10 @@ function peerRow(p, { status = p.status, actions }) {
 // longer lists it as connected or manual, forget it. If it is still there
 // after the wait (the disconnect did not take), it shows again.
 const GONE_MS = 40000;
+// The page asks again just after Core's next connection snapshot has landed.
+const GONE_RECHECK_MS = 17000;
 const justGone = new Map(); // address -> time it was removed or disconnected
+const recheckGone = () => setTimeout(() => refreshPeers().catch(() => {}), GONE_RECHECK_MS);
 
 function renderPeerTables(peers, options = {}) {
   if (!options.force && deferRender('peers', '.peer-table', () => renderPeerTables(peers))) return;
@@ -1190,6 +1198,7 @@ document.getElementById('manual-add-form').addEventListener('submit', async (e) 
   manualAddBusy(true, 'connecting…');
   try {
     const result = await api('/api/peers/manual-add', { method: 'POST', body: JSON.stringify({ host: input.value }) });
+    justGone.delete(result.address);
     manualAddResult(result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`, 'ok');
     input.value = '';
     refreshPeers();
@@ -1349,6 +1358,9 @@ document.body.addEventListener('click', async (e) => {
   try {
     if (action === 'add-manual') {
       const result = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+      // Added back within the wait after a removal: it belongs in the tables again.
+      justGone.delete(address);
+      justGone.delete(result.address);
       showToast(
         result.warning
           ? `Added as manual peer: ${result.address} - ${result.warning}`
@@ -1359,7 +1371,7 @@ document.body.addEventListener('click', async (e) => {
     if (action === 'untrust') {
       await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address }) });
       justGone.set(address, Date.now());
-      setTimeout(refreshPeers, 17000); // just after the next connection snapshot
+      recheckGone();
       showToast(`Removed ${address} as manual peer and disconnected it.`, 'success');
     }
     if (action === 'disconnect') {
@@ -1367,7 +1379,7 @@ document.body.addEventListener('click', async (e) => {
       // A manual peer stays manual and Core dials it again, so only a non-manual one leaves the tables.
       const was = (lastPeerRanking || []).find((p) => p.address === address);
       if (!was || !was.trusted) justGone.set(address, Date.now());
-      setTimeout(refreshPeers, 17000);
+      recheckGone();
       showToast(`Disconnected ${address}.`, 'success');
     }
     if (action === 'keep') {
