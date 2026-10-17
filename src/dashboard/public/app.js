@@ -565,8 +565,8 @@ function sessionCell(p) {
  * they were 33.8% and 33.4% - level, and in exactly the order shown. The
  * deciding number appeared nowhere.
  *
- * The lifetime rate is not dropped: it sits under the window's, with its counts
- * in the tooltip. It is still the
+ * The lifetime rate is not dropped: it is in the cell's tooltip, and in the
+ * rotation log, where a swap is traced back. It is still the
  * right number for what a peer has been worth over its life, and it is still
  * what the offline grace, the parking retention and the re-probe interval are
  * scaled by - so the parked table and the rotation log keep showing it.
@@ -575,13 +575,11 @@ function firstPctCell(p) {
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
-  // Under the window's rate, the lifetime one - once there is more lifetime
-  // than window - so a peer that lost its place shows what it used to do.
-  // The tooltip adds only what the cell does not say: the lifetime counts.
+  // The lifetime rate only on hover, once there is more lifetime than window:
+  // a second number in every cell was noise in a table sorted by the first.
   const lifetime = windowed && p.eligible > p.recentEligible;
-  const life = lifetime ? `<span class="life">lifetime ${fmtPct(p.firstPct)}</span>` : '';
-  const title = lifetime ? `Lifetime: ${p.first} of ${p.eligible} blocks first` : '';
-  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}${life}</td>`;
+  const title = lifetime ? `Lifetime: ${fmtPct(p.firstPct)} (${p.first} of ${p.eligible} blocks first)` : '';
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
