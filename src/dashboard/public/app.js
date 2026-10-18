@@ -180,13 +180,20 @@ function truncatedCell(text, cls = '') {
   return `<td class="cell-truncate${cls ? ' ' + cls : ''}" data-full="${safe}">${safe}</td>`;
 }
 
-// A table that does not fit its panel turns each row into a small card of its
-// own (see .table-wrap.cards in style.css) instead of scrolling sideways:
-// every value stays, below each other rather than beside, each with its
-// column's name in front. Decided by measuring, not by a fixed screen width,
-// and for all tables together - one panel as cards and the next as a table
-// looked like two different pages. The rows are re-rendered all the time,
-// so the labels are put back after every change.
+// A table that does not fit its panel first gives up its least important
+// columns, a step at a time (data-drop="1".."3" on the <th>: sessions, then
+// total time and client, then session; for the pools seen/miss, then
+// median/p90, then host). Only when even that is too wide does each row turn
+// into a small card of its own (see
+// .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
+// in practice. Cards came too early before: a laptop window a little narrower
+// than usual already broke every table into ragged, wrapping lines.
+// Decided by measuring, not by a fixed screen width, and for all tables
+// together - one panel as cards and the next as a table looked like two
+// different pages. The rows are re-rendered all the time, so the labels are
+// put back after every change.
+const DROP_LEVELS = 3;
+
 function fitTables() {
   const y = window.scrollY;
   const wraps = [...document.querySelectorAll('.table-wrap')];
@@ -199,12 +206,19 @@ function fitTables() {
         td.dataset.label = th.textContent.trim();
         const col = [...th.classList].find((c) => c.startsWith('col-'));
         if (col) td.dataset.col = col;
+        if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
       });
     }
     w.classList.remove('cards');
   }
-  const tight = wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  for (const w of wraps) w.classList.toggle('cards', tight);
+  const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
+  let level = 0;
+  for (; ; level++) {
+    for (const w of wraps) w.dataset.drops = String(level);
+    if (level === DROP_LEVELS || !tight()) break;
+  }
+  const cards = level === DROP_LEVELS && tight();
+  for (const w of wraps) w.classList.toggle('cards', cards);
   if (window.scrollY !== y) window.scrollTo(0, y);
 }
 let fitTimer = null;
