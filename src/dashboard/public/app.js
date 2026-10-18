@@ -1614,10 +1614,17 @@ function startRefreshLoop() {
 }
 
 /**
- * Live block events. EventSource reconnects on its own (including after the
- * node or this app restarts), and the server replays the current block on
- * connect, so no state is lost across a drop.
+ * Live block events. EventSource reconnects on its own after a dropped or
+ * ended stream (the server ends each one after a few minutes), and the server
+ * replays the current block on connect, so no state is lost across a drop.
+ *
+ * What it does not retry is a refusal: an answer that is not a stream at all -
+ * 503 when every slot is taken, or the proxy's error page while the app
+ * restarts - closes the source for good. Without this the page went on showing
+ * new heights from the status poll but never played the wave again.
  */
+const EVENT_STREAM_RETRY_MS = 30 * 1000; // matches the server's Retry-After
+
 function startEventStream() {
   const source = new EventSource('/api/events');
   source.addEventListener('block', (e) => {
@@ -1626,6 +1633,10 @@ function startEventStream() {
     } catch (err) {
       /* malformed frame - the next event supersedes it */
     }
+  });
+  source.addEventListener('error', () => {
+    if (source.readyState !== EventSource.CLOSED) return; // reconnecting by itself
+    setTimeout(startEventStream, EVENT_STREAM_RETRY_MS);
   });
 }
 
