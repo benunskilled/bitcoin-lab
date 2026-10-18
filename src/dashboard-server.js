@@ -273,6 +273,20 @@ const SSE_KEEPALIVE_MS = 25_000;
 // that nobody reaches it by using the app, and small enough that the timers and
 // sockets behind it stay trivial.
 const MAX_SSE_CLIENTS = 32;
+// How long one stream is kept before the server ends it itself.
+//
+// A closed tab does not always reach this process: on Umbrel every request
+// goes through the app proxy, and a stream whose tab is gone can stay open on
+// the proxy's side with nothing at the other end. The keepalive below is still
+// accepted, so the 'close' handler never runs and the slot stays taken until
+// the app restarts - seen on a real node, where all 32 filled up and every
+// newly opened page was refused and never saw a block wave again.
+//
+// Ending each stream after a while frees such a slot within minutes. A page
+// that is still open loses nothing: EventSource reconnects by itself, the
+// current block is replayed on connect, and the page only plays the wave for
+// a block it had not seen. Overridable only so the tests need not wait.
+const SSE_MAX_AGE_MS = Number(process.env.SSE_MAX_AGE_MS) || 10 * 60 * 1000;
 // The pool a block was mined by arrives a moment after the race itself (the
 // relay profiler reads the coinbase once the race is written), so the same
 // race is worth sending twice: once when it lands, once when it has a name.
@@ -339,19 +353,27 @@ function handleEventStream(req, res) {
     logger.debug('initial block event failed', { error: err.message });
   }
 
+  const cleanup = () => {
+    clearInterval(keepalive);
+    clearTimeout(maxAge);
+    sseClients.delete(res);
+  };
+
   const keepalive = setInterval(() => {
     try {
       res.write(': keepalive\n\n');
     } catch {
-      clearInterval(keepalive);
+      cleanup();
     }
   }, SSE_KEEPALIVE_MS);
   keepalive.unref?.();
 
-  const cleanup = () => {
-    clearInterval(keepalive);
-    sseClients.delete(res);
-  };
+  const maxAge = setTimeout(() => {
+    cleanup();
+    try { res.end(); } catch { /* client already gone */ }
+  }, SSE_MAX_AGE_MS);
+  maxAge.unref?.();
+
   req.on('close', cleanup);
   req.on('error', cleanup);
 }
@@ -927,6 +949,7 @@ function main() {
       for (const res of sseClients) {
         try { res.end(); } catch { /* client already gone */ }
       }
+      sseClients.clear(); // so a late broadcast cannot write to an ended stream
       server.close();
     },
   });

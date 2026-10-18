@@ -180,13 +180,20 @@ function truncatedCell(text, cls = '') {
   return `<td class="cell-truncate${cls ? ' ' + cls : ''}" data-full="${safe}">${safe}</td>`;
 }
 
-// A table that does not fit its panel turns each row into a small card of its
-// own (see .table-wrap.cards in style.css) instead of scrolling sideways:
-// every value stays, below each other rather than beside, each with its
-// column's name in front. Decided by measuring, not by a fixed screen width,
-// and for all tables together - one panel as cards and the next as a table
-// looked like two different pages. The rows are re-rendered all the time,
-// so the labels are put back after every change.
+// A table that does not fit its panel first gives up its least important
+// columns, a step at a time (data-drop="1".."3" on the <th>: sessions, then
+// total time and client, then session; for the pools seen/miss, then
+// median/p90, then host). Only when even that is too wide does each row turn
+// into a small card of its own (see
+// .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
+// in practice. Cards came too early before: a laptop window a little narrower
+// than usual already broke every table into ragged, wrapping lines.
+// Decided by measuring, not by a fixed screen width, and for all tables
+// together - one panel as cards and the next as a table looked like two
+// different pages. The rows are re-rendered all the time, so the labels are
+// put back after every change.
+const DROP_LEVELS = 3;
+
 function fitTables() {
   const y = window.scrollY;
   const wraps = [...document.querySelectorAll('.table-wrap')];
@@ -199,12 +206,19 @@ function fitTables() {
         td.dataset.label = th.textContent.trim();
         const col = [...th.classList].find((c) => c.startsWith('col-'));
         if (col) td.dataset.col = col;
+        if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
       });
     }
     w.classList.remove('cards');
   }
-  const tight = wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  for (const w of wraps) w.classList.toggle('cards', tight);
+  const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
+  let level = 0;
+  for (; ; level++) {
+    for (const w of wraps) w.dataset.drops = String(level);
+    if (level === DROP_LEVELS || !tight()) break;
+  }
+  const cards = level === DROP_LEVELS && tight();
+  for (const w of wraps) w.classList.toggle('cards', cards);
   if (window.scrollY !== y) window.scrollTo(0, y);
 }
 let fitTimer = null;
@@ -916,16 +930,21 @@ function renderParkedPeers(parked) {
   }
   panel.hidden = false;
   const now = Date.now();
-  tbody.innerHTML = parked.map((p) => `
-    <tr>
+  // Three columns only: who, why it is worth waiting for, and since when. The
+  // testing details are on hover - as small cards on a phone, six lines per
+  // parked peer made the panel far longer than what it has to say.
+  tbody.innerHTML = parked.map((p) => {
+    const tested = p.lastProbeAt == null ? 'not tested yet' : `last tested ${fmtDuration(now - p.lastProbeAt)} ago`;
+    const details = `${tested} · ${p.probeFailures} failed ${p.probeFailures === 1 ? 'test' : 'tests'} · `
+      + `kept for ${fmtDuration(Math.max(0, p.forgottenAt - now))} more (a good record is remembered for months, a weak one for days)`;
+    return `
+    <tr title="${escapeHtml(details)}">
       ${truncatedCell(p.address)}
       <td title="${p.eligible == null ? 'no record' : `over ${p.eligible} eligible blocks`}">${fmtPct(p.firstPct)}</td>
       <td class="hint">${fmtDuration(now - p.parkedAt)} ago</td>
-      <td class="hint">${p.lastProbeAt == null ? 'not yet' : `${fmtDuration(now - p.lastProbeAt)} ago`}</td>
-      <td class="hint">${p.probeFailures}</td>
-      <td class="hint" title="How long this peer's own record has earned - a good peer is remembered for months, a weak one for days">${fmtDuration(Math.max(0, p.forgottenAt - now))} left</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function refreshRotation() {
@@ -1614,10 +1633,17 @@ function startRefreshLoop() {
 }
 
 /**
- * Live block events. EventSource reconnects on its own (including after the
- * node or this app restarts), and the server replays the current block on
- * connect, so no state is lost across a drop.
+ * Live block events. EventSource reconnects on its own after a dropped or
+ * ended stream (the server ends each one after a few minutes), and the server
+ * replays the current block on connect, so no state is lost across a drop.
+ *
+ * What it does not retry is a refusal: an answer that is not a stream at all -
+ * 503 when every slot is taken, or the proxy's error page while the app
+ * restarts - closes the source for good. Without this the page went on showing
+ * new heights from the status poll but never played the wave again.
  */
+const EVENT_STREAM_RETRY_MS = 30 * 1000; // matches the server's Retry-After
+
 function startEventStream() {
   const source = new EventSource('/api/events');
   source.addEventListener('block', (e) => {
@@ -1626,6 +1652,10 @@ function startEventStream() {
     } catch (err) {
       /* malformed frame - the next event supersedes it */
     }
+  });
+  source.addEventListener('error', () => {
+    if (source.readyState !== EventSource.CLOSED) return; // reconnecting by itself
+    setTimeout(startEventStream, EVENT_STREAM_RETRY_MS);
   });
 }
 

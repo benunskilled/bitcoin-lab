@@ -37,7 +37,7 @@
     </section>
 
     <!--
-      Deliberately a plain section, not a <details> like the panels below.
+      Deliberately a plain section, not a <details>.
       This one already had its own top-10/show-all control, and having a
       second, outer collapse on top of it meant the same word - "collapse" -
       did two different things a few pixels apart: one narrowed the list, the
@@ -51,13 +51,13 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client">Client</th>
+              <th class="col-client" data-drop="2">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
               <th class="col-ping">Ping</th>
-              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total">Total Time</th>
-              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
@@ -69,8 +69,8 @@
       </div>
     </section>
 
-    <details class="card" open>
-      <summary><h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2></summary>
+    <section class="card panel">
+      <h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2>
       <!--
         The single setting that most affects whether any of this measures what
         it claims to. Over Tor the numbers are circuit latency, not peer
@@ -88,20 +88,20 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client">Client</th>
+              <th class="col-client" data-drop="2">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
               <th class="col-ping">Ping</th>
-              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total">Total Time</th>
-              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-    </details>
+    </section>
 
     <!--
       Its own section, sitting directly above the panel it writes into. It used
@@ -140,30 +140,30 @@
       <div id="manual-add-result" class="hint"></div>
     </section>
 
-    <details class="card" open>
-      <summary><h2>Manual Peers <span id="manual-slots" class="hint"></span></h2></summary>
+    <section class="card panel">
+      <h2>Manual Peers <span id="manual-slots" class="hint"></span></h2>
       <div class="table-wrap">
         <table id="manual-peer-table" class="peer-table">
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client">Client</th>
+              <th class="col-client" data-drop="2">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
               <th class="col-ping">Ping</th>
-              <th class="col-session" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total">Total Time</th>
-              <th class="col-sessions" title="Sessions">Sess.</th>
+              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-    </details>
+    </section>
 
-    <details class="card" open>
-      <summary><h2>Peer Rotation</h2></summary>
+    <section class="card panel">
+      <h2>Peer Rotation</h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
@@ -194,9 +194,6 @@
                 <th class="col-address">Address</th>
                 <th class="col-pct">First %</th>
                 <th>Parked</th>
-                <th>Last tested</th>
-                <th>Failed tests</th>
-                <th>Kept until</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -219,7 +216,7 @@
         </table>
       </div>
       <button type="button" id="rotation-log-limit-toggle" class="link" hidden></button>
-    </details>
+    </section>
 
     <section class="card">
       <h2>Stratum Race</h2>
@@ -289,14 +286,14 @@
           <thead>
             <tr>
               <th>Pool</th>
-              <th>Host:Port</th>
+              <th data-drop="3">Host:Port</th>
               <th>Wins</th>
               <th>Win %</th>
               <th>Avg</th>
-              <th>Median</th>
-              <th>P90</th>
-              <th>Seen</th>
-              <th>Miss</th>
+              <th data-drop="2">Median</th>
+              <th data-drop="2">P90</th>
+              <th data-drop="1">Seen</th>
+              <th data-drop="1">Miss</th>
               <th>Enabled</th>
               <th></th>
             </tr>
@@ -308,12 +305,12 @@
     </section>
 
     <!-- What the node sends and receives, per UTC day. -->
-    <details class="card" id="traffic-card" open>
-      <summary><h2>Traffic <span id="traffic-today" class="hint"></span></h2></summary>
+    <section class="card panel" id="traffic-card">
+      <h2>Traffic <span id="traffic-today" class="hint"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
       <p class="hint" id="traffic-note">Days are UTC days, updated hourly. Counted from Core's own byte counters while Bitcoin Lab runs; a day with no bar was not measured.</p>
-    </details>
+    </section>
 
     <!-- Closed by default and last on the page: nothing here is part of daily
          use, and both buttons destroy data that cannot be recovered. -->
