@@ -106,24 +106,37 @@ main {
   color: var(--text);
 }
 
-/* Collapsible sections (Live/Outbound/Manual peer panels) */
+/* Collapsible section - only Storage, closed by default. The other panels
+   never get long and stay open; the long list (Live Peer Ranking) has its own
+   top-10 toggle. The arrow is drawn as a chevron: the old 11px glyph read as
+   a dot. */
 details.card summary {
   cursor: pointer;
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 details.card summary::-webkit-details-marker { display: none; }
 details.card summary h2 { margin: 0; flex: 1; }
 details.card summary::before {
-  content: '▸';
-  color: var(--muted);
-  font-size: 11px;
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: 2px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
   transition: transform .15s ease;
 }
-details.card[open] summary::before { transform: rotate(90deg); }
+details.card summary:hover::before { border-color: var(--text); }
+details.card[open] summary::before { transform: translateY(-2px) rotate(45deg); }
 details.card > *:not(summary) { margin-top: 14px; }
+/* The panels that used to fold (Outbound, Manual, Rotation, Traffic) keep
+   the spacing they had then. */
+.card.panel > h2 { margin-bottom: 0; }
+.card.panel > *:not(h2) { margin-top: 14px; }
 
 .stat-grid {
   display: grid;
