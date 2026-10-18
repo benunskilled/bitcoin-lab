@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.0.2 – 2026-10-18
+
+Fixes a block wave that could stop after many tabs had been opened. Tables now fit narrower windows and phones. Only Storage folds; parked peers are shorter.
+
 ## 2.0.1 – 2026-10-17
 
 Bitcoin Lab 2.0.1 shows a single number under First %: the rate over the last 500 blocks, which the ranking sorts by. The lifetime rate is still there on hover, and in the rotation log.
