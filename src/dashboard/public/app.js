@@ -916,16 +916,21 @@ function renderParkedPeers(parked) {
   }
   panel.hidden = false;
   const now = Date.now();
-  tbody.innerHTML = parked.map((p) => `
-    <tr>
+  // Three columns only: who, why it is worth waiting for, and since when. The
+  // testing details are on hover - as small cards on a phone, six lines per
+  // parked peer made the panel far longer than what it has to say.
+  tbody.innerHTML = parked.map((p) => {
+    const tested = p.lastProbeAt == null ? 'not tested yet' : `last tested ${fmtDuration(now - p.lastProbeAt)} ago`;
+    const details = `${tested} · ${p.probeFailures} failed ${p.probeFailures === 1 ? 'test' : 'tests'} · `
+      + `kept for ${fmtDuration(Math.max(0, p.forgottenAt - now))} more (a good record is remembered for months, a weak one for days)`;
+    return `
+    <tr title="${escapeHtml(details)}">
       ${truncatedCell(p.address)}
       <td title="${p.eligible == null ? 'no record' : `over ${p.eligible} eligible blocks`}">${fmtPct(p.firstPct)}</td>
       <td class="hint">${fmtDuration(now - p.parkedAt)} ago</td>
-      <td class="hint">${p.lastProbeAt == null ? 'not yet' : `${fmtDuration(now - p.lastProbeAt)} ago`}</td>
-      <td class="hint">${p.probeFailures}</td>
-      <td class="hint" title="How long this peer's own record has earned - a good peer is remembered for months, a weak one for days">${fmtDuration(Math.max(0, p.forgottenAt - now))} left</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function refreshRotation() {
