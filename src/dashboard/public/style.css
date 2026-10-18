@@ -645,21 +645,51 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
   .traffic-chart .axis { font-size: 36px; }
 }
 
-/* A table too wide for its panel: each row becomes a small card, the address
-   on top, the other values wrapping below it with their column's name in
-   front. Nothing scrolls sideways (see fitTables in app.js). */
+/* A tight table gives up its least important columns first (fitTables sets
+   data-drops on the wrapper, data-drop on the cells). The peer tables' floor
+   comes down with each step, so the columns that stay keep their room. */
+.table-wrap[data-drops="1"] [data-drop="1"],
+.table-wrap[data-drops="2"] [data-drop="1"], .table-wrap[data-drops="2"] [data-drop="2"],
+.table-wrap[data-drops="3"] [data-drop] { display: none; }
+/* The two buttons need their width whatever the table's: as a share of a
+   narrower table they no longer fit side by side. */
+.table-wrap:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
+.table-wrap:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
+.table-wrap:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
+.table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 860px; }
+.table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
+.table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 720px; }
+
+/* Still too wide (a phone): each row becomes a small card. The name on top,
+   then the values in a grid of equal cells - the column's name small above
+   each value - so every card lines up with the next instead of wrapping
+   wherever a line runs out. The buttons share the last row. Nothing scrolls
+   sideways (see fitTables in app.js). */
 .table-wrap.cards { overflow-x: visible; }
 .table-wrap.cards table, .table-wrap.cards tbody { display: block; min-width: 0; }
 .table-wrap.cards thead { display: none; }
-.cards.cards table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.cards.cards table tr {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); align-items: end;
+  gap: 8px 12px; padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
 .cards.cards table tr td {
   display: block; padding: 0; border: 0; width: auto; max-width: 100%; min-width: 0;
   position: static; box-shadow: none; background: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.cards.cards table tr td:first-child,
 .cards.cards table tr td[data-col="col-address"],
-.cards.cards table tr td[data-col="col-actions"] { flex: 1 1 100%; }
+.cards.cards table tr td[data-col="col-actions"],
+.cards.cards table tr td[data-label=""] { grid-column: 1 / -1; }
+.cards.cards table tr td[data-col="col-client"] { grid-column: span 2; color: var(--muted); }
+/* The peer tables keep exactly three values on a phone - type, first %, ping
+   - so they get one row of their own: the same three columns on every card. */
+.cards.cards table.peer-table tr { grid-template-columns: 112px minmax(0, 1fr) 64px; }
+/* The pools likewise: wins, win %, avg in one row; enabled and remove under it. */
+.cards.cards #pool-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cards.cards #pool-table tr td[data-label=""]:last-child { grid-column: auto; }
 .cards.cards table tr td[data-label]:not([data-label=""]):not(:first-child):not([data-col="col-address"]):not([data-col="col-client"]):not([data-col="col-status"]):not([data-col="col-actions"])::before {
-  content: attr(data-label); margin-right: 5px;
+  content: attr(data-label); display: block; margin-bottom: 2px;
   color: var(--muted); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
 }
 .cards.cards tr.row-first-block { background: rgba(247, 147, 26, .22); }
@@ -669,7 +699,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards table tr td.row-actions { display: flex; gap: 6px; }
 .cards.cards table tr td.row-actions > * + * { margin-left: 0; }
 /* The rotation log's note is a sentence: on its own line, wrapping. */
-.cards.cards table tr td.hint { flex: 1 1 100%; white-space: normal; }
+.cards.cards table tr td.hint { grid-column: 1 / -1; white-space: normal; }
 
 /* ---- V2 design ---- */
 
