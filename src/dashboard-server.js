@@ -949,6 +949,7 @@ function main() {
       for (const res of sseClients) {
         try { res.end(); } catch { /* client already gone */ }
       }
+      sseClients.clear(); // so a late broadcast cannot write to an ended stream
       server.close();
     },
   });
