@@ -98,7 +98,7 @@ test('a stale heartbeat is reported as unhealthy', async () => {
   assert.ok(body.services['stratum-race'].ageMs > 120000);
 });
 
-test('GET /api/events streams the current block immediately and stays open', async () => {
+test('GET /api/events streams the current block immediately', async () => {
   const raceId = db.instance
     .prepare('INSERT INTO relay_race (block_hash, block_height, detected_at) VALUES (?, ?, ?)')
     .run('00000000000000000000feedface', 912345, Date.now()).lastInsertRowid;
