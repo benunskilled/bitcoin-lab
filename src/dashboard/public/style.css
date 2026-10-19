@@ -655,6 +655,8 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
+/* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 136px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
 .table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 860px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
