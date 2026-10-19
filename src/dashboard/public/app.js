@@ -203,7 +203,8 @@ function fitTables() {
       [...tr.children].forEach((td, i) => {
         const th = ths[i];
         if (!th || td.dataset.label != null) return;
-        td.dataset.label = th.textContent.trim();
+        // A card has no room for "(last 500)": the value next to it says x/500 anyway.
+        td.dataset.label = th.textContent.replace(/\s*\(.*\)\s*$/, '').trim();
         const col = [...th.classList].find((c) => c.startsWith('col-'));
         if (col) td.dataset.col = col;
         if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
