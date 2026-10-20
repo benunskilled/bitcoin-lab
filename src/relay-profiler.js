@@ -47,12 +47,16 @@ const FIRST_WINDOW_MS = 2500;
  * the log's copy had lost the upper bound and could report a higher "first"
  * count than was actually stored.
  *
- * More than one peer can match, and that is deliberate. Only one of them
- * really delivered the block, but when two fall inside the same second there
- * is nothing here that could tell them apart - so picking one would credit a
- * peer that did not deliver AND deny the one that did. Counting both is the
- * smaller error of the two, and it is self-correcting over a few hundred
- * blocks, which a wrong attribution is not.
+ * More than one peer can match, but only ever by mistake. Core sets
+ * last_block only when the block was new to it (ProcessBlock, `new_block`), so
+ * each block is credited to exactly one connection. Two matches mean another
+ * block arrived within the window - on the node this was written for, all
+ * three cases were the previous block 1.2 to 2.3 s earlier; on one restarted
+ * daily it is hundreds, because the first blocks after Core and this app start
+ * together slip past isCatchingUp - and one of the two last_blocks belongs to
+ * that other block. Which one cannot be told from here, so neither
+ * peer is credited: recordRace keeps the block, stores how many matched in
+ * first_count, and the status line counts it as unclear.
  *
  * It also barely happens. Measured on a listening node with ~200 peers, over
  * 1,487 recorded races: 1,486 had exactly one peer inside the window, one had
@@ -98,9 +102,8 @@ function nearestLastBlockDeltaMs(peers, detectedAtMs) {
 /**
  * The ping of the peer that delivered the block, from the same snapshot that
  * credited it: the lowest round trip Core ever measured to it, which is nearer
- * the line itself than the last one. With two credited, the shorter line -
- * that is the one the block most plausibly came over. Null when none was
- * credited or Core reported no ping.
+ * the line itself than the last one. Null when none was credited, when the
+ * block was unclear, or Core reported no ping.
  */
 function firstPeerPingMs(peers, detectedAtMs) {
   let best = null;
@@ -126,6 +129,9 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
   );
 
   const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
+  // More than one match is another block moments apart, not a shared
+  // delivery (see isFirstPeer): nobody is credited.
+  const unclear = firstCount > 1;
   const nearestDeltaMs = nearestLastBlockDeltaMs(peers, detectedAtMs);
 
   const tx = database.transaction(() => {
@@ -134,7 +140,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       detectedAtMs,
       firstCount,
       nearestDeltaMs === null ? null : Math.round(nearestDeltaMs),
-      firstPeerPingMs(peers, detectedAtMs),
+      unclear ? null : firstPeerPingMs(peers, detectedAtMs),
     );
     if (info.changes === 0) {
       // Already recorded (duplicate ZMQ delivery / reconnect replay) - skip.
@@ -143,7 +149,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
     const raceId = info.lastInsertRowid;
     for (const peer of peers) {
       const peerRow = db.getOrCreatePeer(peer.addr);
-      const isFirst = isFirstPeer(peer, detectedAtMs);
+      const isFirst = !unclear && isFirstPeer(peer, detectedAtMs);
       // peer_relay_stats (the rollup peerRanking reads instead of aggregating
       // this table on every request) is updated by a database trigger on this
       // insert, in this same transaction - see db.js. Nothing to do here.
@@ -386,7 +392,8 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   logger.info('block race recorded', {
     blockHash,
     eligible: peers.length,
-    first: firstCount,
+    first: firstCount > 1 ? 0 : firstCount,
+    unclear: firstCount > 1,
     nearestLastBlockMs: nearestLastBlockDeltaMs(peers, detectedAtMs),
     processingMs: Number(elapsedMs.toFixed(2)),
   });

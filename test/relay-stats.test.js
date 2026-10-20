@@ -90,7 +90,7 @@ test('the rollup follows deletes and updates too', () => {
  * seconds against 32 milliseconds - several times a minute, and growing for as
  * long as the node runs.
  *
- * So assert the plan, the way first-ties.test.js asserts its own. The answer is
+ * So assert the plan. The answer is
  * identical either way, which is exactly why nothing else would catch it.
  */
 test('the recent window is a race_id range search, not a walk through every peer', () => {
