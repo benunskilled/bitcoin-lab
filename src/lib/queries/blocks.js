@@ -125,52 +125,43 @@ function stratumForBlock(blockHash) {
 }
 
 /**
- * How often two peers were credited with the same block.
+ * How many blocks could not be credited to one peer.
  *
- * First comes from Core's `last_block`, a Unix timestamp in whole seconds.
- * Two connections that hand the same block over inside one second cannot be
- * told apart, so both are credited - and both keep the credit rather than
- * sharing half of one, which is why First counts across a whole peer set can
- * add up to slightly more than the number of blocks.
+ * Core credits each block to exactly one connection (last_block, set only
+ * when the block was new to it), but in whole seconds. When a second block
+ * arrives inside the same second - typically while the node catches up after
+ * a restart or a crash, or a competing block at the same height - two peers
+ * match and nothing here can tell which last_block belongs to which block.
+ * Since this version neither is credited (relay-profiler.js); the block is
+ * kept and counted here. Blocks recorded before first_count existed have no
+ * count, so for those the doubled First rows are what says so.
  *
- * How often that happens is a property of the node, not of this app: it
- * depends on how tightly the first copies of a block arrive, which is a
- * question of where the node sits and who it is connected to. Measured on the
- * node this app is built against it is close to never - 2 of 2,206 blocks over
- * sixteen days - but there is no reason to believe that number travels, which
- * is exactly why it is counted here rather than written into the docs as a
- * constant.
+ * A property of the node rather than of the app: close to never on one that
+ * runs steadily (3 of 4,994 blocks on the node this was written for, each
+ * with another block 1-2 s away), often on one that keeps restarting.
  *
- * Lifetime rather than a recent window: at this rate a 500-block window would
- * read zero almost always, and a number that never says anything else is not
- * worth the space it takes.
- *
- * Returns null before the first block is recorded - a fresh install has
- * nothing to report and should not show "0 in 0".
- *
- * Cached against the newest block like routeMedian() below, because it is
- * asked on every /api/status poll and both halves of it are counts over tables
- * that only ever grow - and a tie is recorded with the block or not at all, so
- * between two blocks there is nothing new to count.
+ * Lifetime rather than a recent window, and null before the first block - a
+ * fresh install should not show "0 in 0". Cached against the newest block,
+ * because it is asked on every /api/status poll and only a block changes it.
  */
-let tiesCache = { raceId: null, value: null };
+let unclearCache = { raceId: null, value: null };
 
-function firstTies() {
+function unclearFirsts() {
   const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
   if (newest == null) return null;
-  if (tiesCache.raceId === newest) return tiesCache.value;
+  if (unclearCache.raceId === newest) return unclearCache.value;
 
   const races = db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_race`).get().n;
-  const ties = db.instance
+  const unclear = db.instance
     .prepare(
-      `SELECT COUNT(*) AS n FROM (
-         SELECT race_id FROM relay_observation WHERE first = 1
-          GROUP BY race_id HAVING COUNT(*) > 1
-       )`,
+      `SELECT COUNT(*) AS n FROM relay_race r
+        WHERE r.first_count > 1
+           OR (r.first_count IS NULL
+               AND (SELECT COUNT(*) FROM relay_observation o WHERE o.race_id = r.id AND o.first = 1) > 1)`,
     )
     .get().n;
-  const value = { races, ties };
-  tiesCache = { raceId: newest, value };
+  const value = { races, unclear };
+  unclearCache = { raceId: newest, value };
   return value;
 }
 
@@ -350,6 +341,6 @@ function attributionHealth() {
 }
 
 module.exports = {
-  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, firstTies, attributionHealth,
+  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, unclearFirsts, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };

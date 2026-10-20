@@ -161,3 +161,23 @@ test('nearestLastBlockDeltaMs ignores peers with no usable last_block', () => {
   assert.equal(delta, -1000, 'the second-resolution floor, not the raw 900ms');
   assert.equal(relay.nearestLastBlockDeltaMs([{ addr: 'a' }], now), null, 'nothing usable is null, not zero');
 });
+
+// Core credits each block to one connection only (last_block is set when the
+// block was new to it). Two matches mean a second block landed in the same
+// second - here block B 800 ms after block A, as while catching up - so one of
+// the two last_blocks is A's. Neither peer gets the First for B.
+test('two peers matching one block credits neither, and keeps the block as unclear', () => {
+  const a = Date.UTC(2026, 1, 1, 12, 0, 0, 100);
+  const b = a + 800;
+  relay.recordRace({ blockHash: 'b'.repeat(64), detectedAtMs: b, peers: [
+    peer('198.51.100.1:8333', a), // delivered A
+    peer('198.51.100.2:8333', b), // delivered B
+    peer('198.51.100.3:8333', b - 600_000),
+  ] });
+  const race = db.instance.prepare(`SELECT id, first_count AS fc, first_ping_ms AS ping FROM relay_race WHERE block_hash = ?`).get('b'.repeat(64));
+  assert.equal(race.fc, 2, 'both matches are counted');
+  assert.equal(race.ping, null, 'no delivering line to time');
+  const credited = db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_observation WHERE race_id = ? AND first = 1`).get(race.id).n;
+  assert.equal(credited, 0, 'nobody is credited');
+  assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_observation WHERE race_id = ?`).get(race.id).n, 3, 'all three were still there for it');
+});

@@ -297,15 +297,14 @@ async function refreshStatus() {
   // one second both get the credit; how often that happens depends on the
   // node, so it is counted rather than claimed. Its own element because it is
   // the only part of this line that needs explaining.
-  if (s.firstTies) {
-    const ties = document.createElement('span');
-    ties.className = 'status-ties';
-    ties.textContent = ` · ${s.firstTies.ties.toLocaleString()} ${s.firstTies.ties === 1 ? 'tie' : 'ties'}`
-      + ` in ${s.firstTies.races.toLocaleString()} ${s.firstTies.races === 1 ? 'block' : 'blocks'}`;
-    ties.title = 'Two peers credited with the same block. Core reports last_block in whole'
-      + ' seconds, so peers that hand a block over within the same second cannot be told'
-      + ' apart - both keep the First.';
-    el.appendChild(ties);
+  if (s.unclearFirsts) {
+    const unclear = document.createElement('span');
+    unclear.className = 'status-ties';
+    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString()} unclear`
+      + ` in ${s.unclearFirsts.races.toLocaleString()} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
+    unclear.title = 'Another block arrived in the same second, usually while the node was catching up.'
+      + " Who delivered which one can't be told apart, so neither peer gets the First.";
+    el.appendChild(unclear);
   }
 
   setBlockHeight(s.blockHeight);
