@@ -907,7 +907,8 @@ function rotationActionClass(action) {
 function rotationActionLabel(action) {
   if (action === 'kick') return 'Kicked';
   if (action === 'promote') return 'Promoted';
-  if (action === 'swap') return 'Swapped in';
+  // A swap is a promotion too; the note beside it says whom it replaced.
+  if (action === 'swap') return 'Promoted';
   if (action === 'park') return 'Parked';
   if (action === 'revive') return 'Back';
   return action;
