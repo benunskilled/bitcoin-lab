@@ -121,9 +121,8 @@
         finding anyone new.
       -->
       <p class="panel-note">
-        <strong>Add &amp; Keep</strong> adds a peer as manual and protects it from the rotation - the
-        lock in the list below switches that off. <strong>Caution:</strong> with all eight locked,
-        the rotation has nothing left to promote.
+        <strong>Add &amp; Keep</strong> makes a peer manual and protects it from the rotation; the lock
+        below undoes that. <strong>Caution:</strong> with all eight locked, the rotation can't promote anyone.
       </p>
       <form id="manual-add-form" class="inline-form">
         <input
@@ -177,13 +176,13 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Every ~10 minutes, at most one promotion per pass:</p>
+        <p>Every ~10 minutes, at most one change:</p>
         <ul>
-          <li>Makes the best peer that really delivers manual - into a free slot, or in place of a manual peer it clearly beats.</li>
-          <li>Drops an outbound peer that has been connected through 50 of the last 500 blocks without delivering one first. Core replaces it with a new random one.</li>
-          <li>Frees the slot of a manual peer that has gone offline. The better its record, the longer it keeps the slot first.</li>
+          <li>Promotes the best deliverer to manual, into a free slot or in place of a weaker one.</li>
+          <li>Drops an outbound peer that was connected for 50 blocks without delivering one first; Core picks a new one.</li>
+          <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
         </ul>
-        <p>A new slot holder is safe for its first 50 blocks. A peer that loses a slot is parked below, re-tested, and back as soon as it answers.</p>
+        <p>New slot holders are safe for 50 blocks. Peers that lose their slot are parked below and come back when they answer.</p>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
         <h3>Parked <span class="hint">peers that lost their slot while offline - still being tested, back as soon as they answer</span></h3>
@@ -309,7 +308,7 @@
       <h2>Traffic <span id="traffic-today" class="hint"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
-      <p class="hint" id="traffic-note">Updated hourly. Counted from Core's own byte counters while Bitcoin Lab runs; a day with no bar was not measured.</p>
+      <p class="hint" id="traffic-note">Updated hourly from Core's byte counters. No bar means not measured.</p>
     </section>
 
     <!-- Closed by default and last on the page: nothing here is part of daily
