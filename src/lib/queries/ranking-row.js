@@ -38,7 +38,9 @@ function localAppNameFromSubver(subver) {
 function statusFor(r, trusted) {
   const live = Boolean(r.liveDirection);
   if (trusted && live) return 'MANUAL LIVE';
-  if (trusted && !live) return 'MANUAL OFFLINE';
+  // Only the manual table shows an offline manual peer, so "manual" goes
+  // without saying - and the shorter pill fits a phone card (Lab 2.0.3).
+  if (trusted && !live) return 'OFFLINE';
   if (live) return `${(r.liveConnectionType || r.liveDirection || 'LIVE').toUpperCase()}`;
   return 'OFFLINE';
 }

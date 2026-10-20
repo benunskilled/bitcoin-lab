@@ -147,7 +147,7 @@ const KIND_RULES = [
   [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
-  [/bitnodes|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut/i, 'a network crawler'],
+  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|mempool/i, 'an address indexer'],
   [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
@@ -203,7 +203,8 @@ function fitTables() {
       [...tr.children].forEach((td, i) => {
         const th = ths[i];
         if (!th || td.dataset.label != null) return;
-        td.dataset.label = th.textContent.trim();
+        // A card has no room for "(last 500)": the value next to it says x/500 anyway.
+        td.dataset.label = th.textContent.replace(/\s*\(.*\)\s*$/, '').trim();
         const col = [...th.classList].find((c) => c.startsWith('col-'));
         if (col) td.dataset.col = col;
         if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
@@ -290,21 +291,19 @@ async function refreshStatus() {
   const parts = [s.network, `${s.live.total} peers connected`];
   if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
   el.textContent = parts.join(' · ');
-  // How sharp the First measurement actually is on THIS node, in the line
-  // that already exists rather than a new one. Core's last_block has
-  // one-second resolution, so two peers handing the same block over inside
-  // one second both get the credit; how often that happens depends on the
-  // node, so it is counted rather than claimed. Its own element because it is
-  // the only part of this line that needs explaining.
-  if (s.firstTies) {
-    const ties = document.createElement('span');
-    ties.className = 'status-ties';
-    ties.textContent = ` · ${s.firstTies.ties.toLocaleString()} ${s.firstTies.ties === 1 ? 'tie' : 'ties'}`
-      + ` in ${s.firstTies.races.toLocaleString()} ${s.firstTies.races === 1 ? 'block' : 'blocks'}`;
-    ties.title = 'Two peers credited with the same block. Core reports last_block in whole'
-      + ' seconds, so peers that hand a block over within the same second cannot be told'
-      + ' apart - both keep the First.';
-    el.appendChild(ties);
+  // How often a block could not be credited to one peer, in the line that
+  // already exists rather than a new one: Core's last_block has one-second
+  // resolution, and when the block before arrived only a moment earlier two
+  // peers match and neither is credited (relay-profiler.js). Counted rather
+  // than claimed, and its own element because it needs explaining.
+  if (s.unclearFirsts) {
+    const unclear = document.createElement('span');
+    unclear.className = 'status-ties';
+    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString()} unclear`
+      + ` in ${s.unclearFirsts.races.toLocaleString()} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
+    unclear.title = 'The block before arrived only a moment earlier, often right after a restart,'
+      + " so who delivered which one can't be told apart. Neither peer gets the First.";
+    el.appendChild(unclear);
   }
 
   setBlockHeight(s.blockHeight);
@@ -558,7 +557,7 @@ function clientCell(p) {
 // Session column: current connected duration when live, otherwise how long
 // a trusted peer has been offline. Core keeps trying to reconnect a manual
 // peer on its own, but that can silently stall (peer went dark, network
-// hiccup, slot contention) - a flat "MANUAL OFFLINE" pill doesn't say
+// hiccup, slot contention) - a flat "OFFLINE" pill doesn't say
 // whether that happened 30 seconds or 3 days ago, so show the duration
 // instead of just '-'.
 function sessionCell(p) {

@@ -404,8 +404,8 @@ table.peer-table {
 .panel-note strong { color: var(--text); font-weight: 600; }
 .col-address { width: 16%; }
 .col-client { width: 10%; }
-/* Widest of the remaining columns on purpose - "MANUAL OFFLINE" is the
-   longest pill value and needs real room, which is exactly what was
+/* Widest of the remaining columns on purpose - "BLOCK RELAY" and "MANUAL LIVE"
+   are the longest pill values and needs real room, which is exactly what was
    missing before (the pill visibly ran into First Seen %). overflow:hidden
    is belt-and-suspenders alongside that width - applied to both the <th>
    and (via the same class on its <td>, see app.js) the data cell, so even
@@ -655,6 +655,8 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
+/* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 136px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
 .table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 860px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
@@ -686,7 +688,13 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards table tr td[data-col="col-client"] { grid-column: span 2; color: var(--muted); }
 /* The peer tables keep exactly three values on a phone - type, first %, ping
    - so they get one row of their own: the same three columns on every card. */
-.cards.cards table.peer-table tr { grid-template-columns: 128px minmax(0, 1fr) 64px; }
+/* Fixed outer columns, so first % starts at the same place on every card; the
+   widest type pills (MANUAL LIVE, BLOCK RELAY) just fit. */
+.cards.cards table.peer-table tr { grid-template-columns: 100px minmax(0, 1fr) 64px; }
+/* First % is the point of the card: when its cell gets too narrow, the count
+   (312/500) goes and the share and the bolt stay - never cut off. */
+.cards.cards table.peer-table td[data-col="col-pct"] { container-type: inline-size; }
+@container (max-width: 125px) { .cards.cards table.peer-table td[data-col="col-pct"] .cnt { display: none; } }
 /* The pools likewise: wins, win %, avg in one row; enabled and remove under it. */
 .cards.cards #pool-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cards.cards #pool-table tr td[data-label=""]:last-child { grid-column: auto; }
@@ -702,6 +710,16 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards table tr td.row-actions > * + * { margin-left: 0; }
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { grid-column: 1 / -1; white-space: normal; }
+/* The rotation log is a log, not a table to compare: no labels, three short
+   lines - when, what, first % on top, the address under it, the note last. */
+.cards.cards #rotation-log-table tr { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 8px 14px; }
+.cards.cards #rotation-log-table tr td[data-label]::before { content: none; }
+.cards.cards #rotation-log-table tr td:first-child { grid-column: auto; order: 1; }
+.cards.cards #rotation-log-table tr td:nth-child(2) { order: 2; }
+.cards.cards #rotation-log-table tr td:nth-child(4) { order: 3; justify-self: end; }
+.cards.cards #rotation-log-table tr td:nth-child(3) { order: 4; }
+.cards.cards #rotation-log-table tr td:nth-child(5) { order: 5; font-size: 12px; }
+.cards.cards #rotation-log-table tr td[colspan] { grid-column: 1 / -1; }
 
 /* ---- V2 design ---- */
 
