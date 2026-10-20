@@ -49,10 +49,12 @@ const FIRST_WINDOW_MS = 2500;
  *
  * More than one peer can match, but only ever by mistake. Core sets
  * last_block only when the block was new to it (ProcessBlock, `new_block`), so
- * each block is credited to exactly one connection. Two matches mean a second
- * block arrived inside the same second - usually while the node catches up, or
- * a competing block at the same height - and one of the two last_blocks
- * belongs to that other block. Which one cannot be told from here, so neither
+ * each block is credited to exactly one connection. Two matches mean another
+ * block arrived within the window - on the node this was written for, all
+ * three cases were the previous block 1.2 to 2.3 s earlier; on one restarted
+ * daily it is hundreds, because the first blocks after Core and this app start
+ * together slip past isCatchingUp - and one of the two last_blocks belongs to
+ * that other block. Which one cannot be told from here, so neither
  * peer is credited: recordRace keeps the block, stores how many matched in
  * first_count, and the status line counts it as unclear.
  *
@@ -127,7 +129,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
   );
 
   const firstCount = peers.filter((p) => isFirstPeer(p, detectedAtMs)).length;
-  // More than one match is a second block in the same second, not a shared
+  // More than one match is another block moments apart, not a shared
   // delivery (see isFirstPeer): nobody is credited.
   const unclear = firstCount > 1;
   const nearestDeltaMs = nearestLastBlockDeltaMs(peers, detectedAtMs);
@@ -390,7 +392,8 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   logger.info('block race recorded', {
     blockHash,
     eligible: peers.length,
-    first: firstCount,
+    first: firstCount > 1 ? 0 : firstCount,
+    unclear: firstCount > 1,
     nearestLastBlockMs: nearestLastBlockDeltaMs(peers, detectedAtMs),
     processingMs: Number(elapsedMs.toFixed(2)),
   });

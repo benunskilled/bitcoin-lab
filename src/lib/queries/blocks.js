@@ -128,17 +128,17 @@ function stratumForBlock(blockHash) {
  * How many blocks could not be credited to one peer.
  *
  * Core credits each block to exactly one connection (last_block, set only
- * when the block was new to it), but in whole seconds. When a second block
- * arrives inside the same second - typically while the node catches up after
- * a restart or a crash, or a competing block at the same height - two peers
- * match and nothing here can tell which last_block belongs to which block.
+ * when the block was new to it), but in whole seconds. When another block
+ * arrives moments apart - on the node this was written for, each time the
+ * previous block 1-2 s earlier - two peers match and nothing here can tell
+ * which last_block belongs to which block.
  * Since this version neither is credited (relay-profiler.js); the block is
  * kept and counted here. Blocks recorded before first_count existed have no
  * count, so for those the doubled First rows are what says so.
  *
  * A property of the node rather than of the app: close to never on one that
  * runs steadily (3 of 4,994 blocks on the node this was written for, each
- * with another block 1-2 s away), often on one that keeps restarting.
+ * with another block 1-2 s away).
  *
  * Lifetime rather than a recent window, and null before the first block - a
  * fresh install should not show "0 in 0". Cached against the newest block,
