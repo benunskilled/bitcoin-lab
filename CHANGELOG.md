@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.0.3 – 2026-10-20
+
+Fixes the phone and tablet view: First % is no longer cut off, the rotation log fits in three short lines and the type pill stays on narrower tables. A block that two peers seem to have delivered in the same second, usually while Bitcoin Core was catching up after a restart, now credits neither peer; the status line counts these as "unclear" instead of "ties". Shorter texts for the rotation, Add a Peer and Traffic.
+
 ## 2.0.2 – 2026-10-18
 
 Fixes a block wave that could stop after many tabs had been opened. Tables now fit narrower windows and phones. Only Storage folds; parked peers are shorter.
