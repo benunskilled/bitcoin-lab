@@ -302,8 +302,8 @@ async function refreshStatus() {
     unclear.className = 'status-ties';
     unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString()} unclear`
       + ` in ${s.unclearFirsts.races.toLocaleString()} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
-    unclear.title = 'Another block arrived in the same second, usually while the node was catching up.'
-      + " Who delivered which one can't be told apart, so neither peer gets the First.";
+    unclear.title = 'Another block arrived in the same second, usually while Bitcoin Core was catching up'
+      + " after a restart. Who delivered which one can't be told apart, so neither peer gets the First.";
     el.appendChild(unclear);
   }
 
