@@ -729,8 +729,13 @@ document.addEventListener('focusout', () => {
 const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new block without being asked first, which gives it a head start of at least one ping.";
 // At the end of the First % cell: the Type column is too narrow for it next to
 // the longest pill, and the ⚡ is often the reason the number is high.
+// 📡 after it: the other way round, this peer has picked this node, so Core
+// sends it new blocks without it asking. Says what the node gives, not why a
+// peer is ahead, but it belongs next to ⚡: an outbound peer is often both.
+const HB_FROM_TITLE = "This peer has picked your node as one of its three high-bandwidth peers: your node sends it new blocks without being asked first.";
 function hbMark(p) {
-  return p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '';
+  return (p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
+    + (p.hbFrom ? ` <span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
 }
 
 // Core's names for the two automatic outbound kinds, said as Peer Map and the
@@ -817,9 +822,13 @@ function renderPeerTables(peers, options = {}) {
   const limitToggle = document.getElementById('live-peer-limit-toggle');
   const countLabel = document.getElementById('live-peer-count');
   if (countLabel) {
-    countLabel.textContent = livePeers.length <= LIVE_PEER_LIMIT
+    // How many peers take new blocks from this node first (📡), whatever the
+    // table shows: it is about the node, not the visible rows.
+    const fed = livePeers.filter((p) => p.hbFrom).length;
+    countLabel.textContent = (livePeers.length <= LIVE_PEER_LIMIT
       ? `${livePeers.length} connected`
-      : `showing ${visibleLivePeers.length} of ${livePeers.length} connected`;
+      : `showing ${visibleLivePeers.length} of ${livePeers.length} connected`)
+      + (fed ? ` · 📡 ${fed} take new blocks from you first` : '');
   }
   if (limitToggle) {
     if (livePeers.length <= LIVE_PEER_LIMIT) {

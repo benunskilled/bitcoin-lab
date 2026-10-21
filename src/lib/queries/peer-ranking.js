@@ -159,6 +159,7 @@ function peerRankingSql() {
          os.min_ping_ms AS liveMinPingMs,
          os.last_ping_ms AS liveLastPingMs,
          os.hb_to AS liveHb,
+         os.hb_from AS liveHbFrom,
          -- Correlated rather than a derived table: as a GROUP BY over the
          -- whole of peer_session it was computed for every peer that table
          -- has ever held, then thrown away by the join.
