@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS peer_session (
   -- poll; it changes whenever another peer delivers a block first. NULL for
   -- rows written before this column existed, or when Core did not report it.
   hb_to INTEGER,
+  -- hb_from: Core's bip152_hb_from - the other way round: this peer has picked
+  -- this node as one of its own high-bandwidth peers, so Core sends it a new
+  -- block straight away. Overwritten on every poll like hb_to; no history.
+  hb_from INTEGER,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
   min_ping_ms REAL,
@@ -645,6 +649,14 @@ function runMigrations() {
         db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
       );
       if (!existing.has('hb_to')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_to INTEGER`).run();
+    });
+
+    // The other way round: peers that have picked this node as one of theirs.
+    migrate('bip152_hb_from_v2_0_4', 'recorded which peers take new blocks from this node first', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
+      );
+      if (!existing.has('hb_from')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_from INTEGER`).run();
     });
 
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
