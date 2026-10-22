@@ -667,9 +667,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops="1"] [data-drop="1"],
 .table-wrap[data-drops="2"] [data-drop="1"], .table-wrap[data-drops="2"] [data-drop="2"],
 .table-wrap[data-drops="3"] [data-drop]:not([data-drop="4"]),
-.table-wrap[data-drops="4"] [data-drop]:not([data-drop="4"]) { display: none; }
-/* Ping goes last, and only from the table: the phone card keeps it (below). */
-.table-wrap[data-drops="4"]:not(.cards) [data-drop="4"] { display: none; }
+.table-wrap[data-drops="4"] [data-drop] { display: none; }
 /* The two buttons need their width whatever the table's: as a share of a
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
@@ -709,11 +707,13 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards table tr td[data-col="col-actions"],
 .cards.cards table tr td[data-label=""] { grid-column: 1 / -1; }
 .cards.cards table tr td[data-col="col-client"] { grid-column: span 2; color: var(--muted); }
-/* The peer tables keep exactly three values on a phone - type, first %, ping
-   - so they get one row of their own: the same three columns on every card. */
-/* Fixed outer columns, so first % starts at the same place on every card; the
-   widest type pills (MANUAL LIVE, BLOCK RELAY) just fit. */
-.cards.cards table.peer-table tr { grid-template-columns: 100px minmax(0, 1fr) 64px; }
+/* The peer tables keep two values on a phone - type and first % - side by
+   side, the same two columns on every card. Ping went with the last drop: on
+   a wide card it stood alone at the far edge, and it is not what the card is
+   about. */
+/* A fixed first column, so first % starts at the same place on every card;
+   the widest type pills (MANUAL LIVE, BLOCK RELAY) just fit. */
+.cards.cards table.peer-table tr { grid-template-columns: 100px minmax(0, 1fr); }
 /* First % is the point of the card: when its cell gets too narrow, the count
    (312/500) goes and the share and the bolt stay - never cut off. */
 .cards.cards table.peer-table td[data-col="col-pct"] { container-type: inline-size; }
