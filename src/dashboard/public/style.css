@@ -674,6 +674,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 136px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
+/* "Total time" may break, as "First %" does: in one line at 7% of a narrower
+   table it ran into "Actions". */
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-total { white-space: normal; }
 .table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 860px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
 .table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 720px; }
@@ -724,6 +727,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards tr.empty-slot::before { content: "Free slot"; color: var(--muted); font-size: 12px; }
 .cards.cards table tr td.row-actions { display: flex; gap: 6px; }
 .cards.cards table tr td.row-actions > * + * { margin-left: 0; }
+/* On a card the buttons start at the left edge: an empty slot keeps the
+   columns of a table in line, on a card it only pushes Remove off to nowhere. */
+.cards.cards table tr td.row-actions > span.action-slot { display: none; }
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { grid-column: 1 / -1; white-space: normal; }
 /* The rotation log is a log, not a table to compare: no labels, three short
@@ -760,7 +766,7 @@ td .cnt { color: var(--faint); font-size: 12px; margin-left: 4px; }
 
 /* Buttons in rows: smaller than a form button, the destructive ones tinted red. */
 .action-slot, table button.secondary { font-size: 12px; font-weight: 500; padding: 5px 9px; border-radius: 7px; background: #1b2531; border: 1px solid var(--border); color: var(--text); }
-.row-actions > .action-slot[data-action="disconnect"], .row-actions > span.action-slot:last-child { min-width: 92px; }
+.row-actions > .action-slot:last-child { min-width: 92px; }
 button.danger, table button.secondary.danger, .action-slot[data-action="disconnect"] { color: #e5534b; background: rgba(248,81,73,.08); border-color: rgba(229,83,75,.4); }
 /* "Add as Manual" in the blue that means manual everywhere in both apps - red removes, blue adds. Laid over the
    panel colour so it reads the same on a plain, green or orange row. */
