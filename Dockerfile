@@ -9,7 +9,7 @@
 # Debian security fixes) arrive only when this digest is moved on, together
 # with the tag, as part of a release.
 
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS builder
+FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS builder
 WORKDIR /app
 
 # Only needed as a fallback if a native dependency has no prebuilt binary
@@ -51,7 +51,7 @@ RUN rm -rf node_modules/zeromq/build/win32 \
 
 COPY src ./src
 
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 WORKDIR /app
 ENV NODE_ENV=production
 
