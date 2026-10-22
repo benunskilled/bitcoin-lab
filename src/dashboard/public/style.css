@@ -221,7 +221,7 @@ tr.weak td { color: var(--muted); }
    promote, it also displaces an existing manual peer. */
 .pill.rotation-kick { background: rgba(248,81,73,.15); color: #e5534b; }
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
-.pill.rotation-swap { background: rgba(247,147,26,.15); color: var(--accent); }
+.pill.rotation-swap { background: rgba(63,185,80,.15); color: var(--good); }
 /* Parking is not a kick - the peer is kept and re-tested - so it gets the
    neutral treatment rather than the red one a removal gets. */
 .pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
