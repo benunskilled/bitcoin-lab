@@ -666,7 +666,10 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    comes down with each step, so the columns that stay keep their room. */
 .table-wrap[data-drops="1"] [data-drop="1"],
 .table-wrap[data-drops="2"] [data-drop="1"], .table-wrap[data-drops="2"] [data-drop="2"],
-.table-wrap[data-drops="3"] [data-drop] { display: none; }
+.table-wrap[data-drops="3"] [data-drop]:not([data-drop="4"]),
+.table-wrap[data-drops="4"] [data-drop]:not([data-drop="4"]) { display: none; }
+/* Ping goes last, and only from the table: the phone card keeps it (below). */
+.table-wrap[data-drops="4"]:not(.cards) [data-drop="4"] { display: none; }
 /* The two buttons need their width whatever the table's: as a share of a
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
@@ -680,6 +683,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 860px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
 .table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 720px; }
+.table-wrap[data-drops="4"]:not(.cards) table.peer-table { min-width: 640px; }
 
 /* Still too wide (a phone): each row becomes a small card. The name on top,
    then the values in a grid of equal cells - the column's name small above
