@@ -78,7 +78,7 @@ Manual peers you set in Core yourself, for example in Umbrel's Bitcoin Node sett
 
 ## Reading the ranking
 
-A green address is a peer that has delivered at least one block first. ⚡ marks the peers Core has chosen right now to send it new blocks without being asked first (BIP152 high-bandwidth compact blocks, up to three). A peer in one of these places starts each block with a head start of at least one ping. Only Core decides these places; Bitcoin Lab observes them.
+A green address is a peer that has delivered at least one block first. ⚡ marks the peers Core has chosen right now to send it new blocks without being asked first (BIP152 high-bandwidth compact blocks, up to three). A peer in one of these places starts each block with a head start of at least one ping. 📡 is the other way round: a peer that has picked your node as one of its own, so your node sends it new blocks without being asked; the heading counts them. Core and its peers decide these places; Bitcoin Lab only observes them.
 
 ## Who mined it
 

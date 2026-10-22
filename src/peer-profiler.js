@@ -54,7 +54,7 @@ const PING_DRIFT_MS = 5;
 // `stored` is the open session as it is in the database, `next` the values
 // this poll would write - already merged with what is stored, so a field Core
 // did not report this time compares equal instead of looking like a change to
-// null. The three COALESCE columns (services, relay_txes, synced_headers)
+// null. The COALESCE columns (services, relay_txes, synced_headers, hb_to, hb_from)
 // follow the statement's own rule: a null from Core is "not reported", which
 // changes nothing, so it is not a reason to write.
 function needsWrite(stored, next) {
@@ -68,6 +68,7 @@ function needsWrite(stored, next) {
   if (next.relayTxes !== null && stored.relay_txes !== next.relayTxes) return true;
   if (next.syncedHeaders !== null && stored.synced_headers !== next.syncedHeaders) return true;
   if (next.hbTo !== null && stored.hb_to !== next.hbTo) return true;
+  if (next.hbFrom !== null && stored.hb_from !== next.hbFrom) return true;
   if (stored.last_ping_ms == null || next.lastPingMs == null) return stored.last_ping_ms !== next.lastPingMs;
   return Math.abs(next.lastPingMs - stored.last_ping_ms) >= PING_DRIFT_MS;
 }
@@ -83,7 +84,7 @@ function upsertSessions(peers) {
     .prepare(
       `SELECT ps.id, ps.peer_id, ps.core_peer_id, ps.started_at, ps.direction, ps.connection_type,
               ps.network, ps.subver, ps.min_ping_ms, ps.last_ping_ms, ps.services, ps.relay_txes,
-              ps.synced_headers, ps.hb_to, p.address
+              ps.synced_headers, ps.hb_to, ps.hb_from, p.address
        FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
        WHERE ps.ended_at IS NULL`,
     )
@@ -129,8 +130,8 @@ function upsertSessions(peers) {
   const insertSession = database.prepare(
     `INSERT INTO peer_session
        (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, min_ping_ms, last_ping_ms,
-        services, relay_txes, synced_headers, hb_to)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        services, relay_txes, synced_headers, hb_to, hb_from)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   // COALESCE on these columns, not plain assignment: a poll where Core
   // omits a field must not erase what an earlier poll recorded. It also
@@ -139,7 +140,8 @@ function upsertSessions(peers) {
     `UPDATE peer_session
      SET core_peer_id = ?, direction = ?, connection_type = ?, network = ?, subver = ?, min_ping_ms = ?, last_ping_ms = ?,
          services = COALESCE(?, services), relay_txes = COALESCE(?, relay_txes),
-         synced_headers = COALESCE(?, synced_headers), hb_to = COALESCE(?, hb_to)
+         synced_headers = COALESCE(?, synced_headers), hb_to = COALESCE(?, hb_to),
+         hb_from = COALESCE(?, hb_from)
      WHERE id = ?`,
   );
 
@@ -163,6 +165,7 @@ function upsertSessions(peers) {
       const syncedHeaders = typeof peer.synced_headers === 'number' ? peer.synced_headers : null;
       // Core 22.0+ reports it; anything older leaves it out, and that stays NULL.
       const hbTo = typeof peer.bip152_hb_to === 'boolean' ? (peer.bip152_hb_to ? 1 : 0) : null;
+      const hbFrom = typeof peer.bip152_hb_from === 'boolean' ? (peer.bip152_hb_from ? 1 : 0) : null;
 
       const stored = openByAddress.get(peer.addr);
       if (stored) {
@@ -190,17 +193,18 @@ function upsertSessions(peers) {
           relayTxes,
           syncedHeaders,
           hbTo,
+          hbFrom,
         };
         if (needsWrite(stored, next)) {
           updateSession.run(next.corePeerId, next.direction, next.connectionType, next.network, next.subver,
-            next.minPingMs, next.lastPingMs, next.services, next.relayTxes, next.syncedHeaders, next.hbTo, stored.id);
+            next.minPingMs, next.lastPingMs, next.services, next.relayTxes, next.syncedHeaders, next.hbTo, next.hbFrom, stored.id);
         }
       } else {
         // conntime is Core's own unix-second connection start - more
         // accurate than "now" for a connection we're only just noticing.
         const startedAt = typeof peer.conntime === 'number' ? peer.conntime * 1000 : nowMs;
         insertSession.run(peerRow.id, peer.id, direction, connectionType, network, peer.subver || null, startedAt, minPingMs, lastPingMs,
-          services, relayTxes, syncedHeaders, hbTo);
+          services, relayTxes, syncedHeaders, hbTo, hbFrom);
       }
     }
   });
