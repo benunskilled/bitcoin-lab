@@ -714,6 +714,15 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* A fixed first column, so first % starts at the same place on every card;
    the widest type pills (MANUAL LIVE, BLOCK RELAY) just fit. */
 .cards.cards table.peer-table tr { grid-template-columns: 100px minmax(0, 1fr); }
+/* A wide card (a narrow laptop window, an iPad on its side) has room for the
+   buttons beside type and first %: one row less per peer, and the buttons end
+   at the right edge, one above the other, as in the table. Decided by the
+   card's own width, not the screen's. */
+.table-wrap.cards { container: cards / inline-size; }
+@container cards (min-width: 460px) {
+  .cards.cards table.peer-table tr { grid-template-columns: 100px minmax(0, 1fr) auto; }
+  .cards.cards table.peer-table td.row-actions { grid-column: 3; grid-row: 2; justify-content: flex-end; }
+}
 /* First % is the point of the card: when its cell gets too narrow, the count
    (312/500) goes and the share and the bolt stay - never cut off. */
 .cards.cards table.peer-table td[data-col="col-pct"] { container-type: inline-size; }
