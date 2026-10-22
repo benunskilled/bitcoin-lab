@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.0.4 – 2026-10-22
+
+📡 marks the peers that take new blocks from your node first: they picked it as one of their high-bandwidth peers. The heading counts them. A swap in the rotation log is labelled Promoted. Built on Node 22.23.4 with its October security fixes.
+
 ## 2.0.3 – 2026-10-20
 
 Fixes the phone and tablet view: First % is no longer cut off, the rotation log fits in three short lines and the type pill stays on narrower tables. A block that two peers seem to have delivered at almost the same time, often right after a restart, now credits neither peer; the status line counts these as "unclear" instead of "ties". Shorter texts for the rotation, Add a Peer and Traffic.
