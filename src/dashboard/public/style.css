@@ -740,9 +740,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards tr.empty-slot::before { content: "Free slot"; color: var(--muted); font-size: 12px; }
 .cards.cards table tr td.row-actions { display: flex; gap: 6px; }
 .cards.cards table tr td.row-actions > * + * { margin-left: 0; }
-/* On a card the buttons start at the left edge: an empty slot keeps the
-   columns of a table in line, on a card it only pushes Remove off to nowhere. */
-.cards.cards table tr td.row-actions > span.action-slot { display: none; }
+
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { grid-column: 1 / -1; white-space: normal; }
 /* The rotation log is a log, not a table to compare: no labels, three short
