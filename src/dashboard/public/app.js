@@ -181,8 +181,8 @@ function truncatedCell(text, cls = '') {
 }
 
 // A table that does not fit its panel first gives up its least important
-// columns, a step at a time (data-drop="1".."3" on the <th>: sessions, then
-// total time and client, then session; for the pools seen/miss, then
+// columns, a step at a time (data-drop="1".."4" on the <th>: sessions, then
+// total time and client, then session, then ping; for the pools seen/miss, then
 // median/p90, then host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
@@ -192,7 +192,7 @@ function truncatedCell(text, cls = '') {
 // together - one panel as cards and the next as a table looked like two
 // different pages. The rows are re-rendered all the time, so the labels are
 // put back after every change.
-const DROP_LEVELS = 3;
+const DROP_LEVELS = 4;
 
 function fitTables() {
   const y = window.scrollY;
