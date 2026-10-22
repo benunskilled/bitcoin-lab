@@ -174,6 +174,8 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
       minPingMs: r.liveMinPingMs,
       // One of Core's high-bandwidth peers right now (see db.js, hb_to).
       hb: r.liveHb === 1,
+      // The other way round: this peer has picked this node (hb_from).
+      hbFrom: r.liveHbFrom === 1,
       lastPingMs: r.liveLastPingMs,
       sessionsCount: r.sessionsCount,
       totalConnectionMs: r.totalMs,
