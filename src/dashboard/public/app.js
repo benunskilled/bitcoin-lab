@@ -502,7 +502,10 @@ function keepStar(p) {
   return `<button class="keep-star${on ? ' on' : ''}" data-action="keep" data-address="${escapeHtml(p.address)}" data-kept="${on ? '1' : '0'}" title="${title}" aria-pressed="${on}"><span aria-hidden="true">🔒</span><span class="sr-only">Keep this peer</span></button>`;
 }
 
-function actionsCell(p) {
+// In the lists above, a manual peer's Remove takes the second slot, under
+// Disconnect: the red buttons stand in one line, the blue Add as Manual in
+// the other. The manual list has the lock in front and keeps Remove first.
+function actionsCell(p, { removeFirst = false } = {}) {
   const placeholder = `<span class="action-slot" aria-hidden="true"></span>`;
 
   // Three kinds of peer have nothing this app can do to them, and all three
@@ -523,9 +526,9 @@ function actionsCell(p) {
   // always failed with "no node answering on 8333 or 9333", which reads as
   // though the peer had the wrong port open rather than the truth, which is
   // that this container has no way to reach that network at all.
-  const primary = p.trusted
-    ? `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
-    : ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
+  const remove = `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`;
+  if (p.trusted) return removeFirst ? remove + placeholder : placeholder + remove;
+  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
@@ -535,7 +538,7 @@ function actionsCell(p) {
   // different - deliberately disconnecting it could interrupt whatever that
   // app is doing, and Core would likely just let it right back in anyway,
   // so there's no real action to offer there either.
-  const canDisconnect = p.live && !p.localUmbrelPeer && !p.trusted;
+  const canDisconnect = p.live && !p.localUmbrelPeer;
   const disconnect = canDisconnect
     ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${escapeHtml(p.address)}">Disconnect</button>`
     : placeholder;
@@ -862,7 +865,7 @@ function renderPeerTables(peers, options = {}) {
   `).join('');
 
   const manualRows = manualPeers
-    .map((p) => peerRow(p, { actions: keepStar(p) + actionsCell(p) }))
+    .map((p) => peerRow(p, { actions: keepStar(p) + actionsCell(p, { removeFirst: true }) }))
     .join('');
   const noManualPeersHint = manualPeers.length === 0
     ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
