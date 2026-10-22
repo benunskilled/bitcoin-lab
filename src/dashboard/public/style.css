@@ -329,6 +329,12 @@ button.secondary {
 .rotation-log-table .col-rot-action { width: 12%; }
 .rotation-log-table .col-address { width: 20%; }
 .rotation-log-table .col-pct { width: 10%; }
+/* The note is a sentence ("outbound-full-relay, 0/53 recent blocks ..."). Kept
+   on one line it made this table about 900px wide, and as fitTables decides
+   for all tables together, a laptop window of that width turned every panel
+   into cards. It wraps instead - not cut with an ellipsis, as a tablet has
+   no hover to show the rest. */
+.rotation-log-table td:last-child { white-space: normal; min-width: 12em; }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
@@ -608,6 +614,16 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 
 .keep-star:disabled {
   cursor: default;
+}
+
+/* Without a pointer the lock never appears, so an open one is out of reach
+   there: a tap on the empty spot would switch it unseen. On a card it also
+   took room and pushed Remove off its line, so there it goes entirely; in a
+   table it keeps its room, so the buttons stay aligned. A closed lock stays
+   in both, to be seen and opened. */
+@media (hover: none) {
+  .keep-star:not(.on) { pointer-events: none; }
+  .cards.cards .keep-star:not(.on) { display: none; }
 }
 
 /* Visible to screen readers only - the lock needs a real name, and the title
