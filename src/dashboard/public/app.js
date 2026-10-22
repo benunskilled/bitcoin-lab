@@ -479,17 +479,11 @@ function highlightClassFor(address) {
 }
 
 // Trusted/manual peers show "Remove" (forgets the peer AND force-disconnects
-// it - see peer-sync.js removeTrustedPeer) instead of "Add as Manual": as
-// long as a peer is still addnode'd, Core just reconnects it right back, so
-// a bare Disconnect on a manual peer normally wouldn't accomplish anything
-// lasting - that's still true in the dedicated Manual Peers panel below,
-// which is why it only ever gets "Remove" there (options.allowDisconnect
-// stays false for that table). The Live Peer Ranking overview is different:
-// it's the "what's actually connected right now" view, and someone watching
-// it may well want to kick a manual peer's current connection (e.g. to
-// force a reconnect) without forgetting it entirely - so that table passes
-// allowDisconnect: true to also offer Disconnect there even for a trusted
-// peer.
+// it - see peer-sync.js removeTrustedPeer) instead of "Add as Manual", and no
+// Disconnect, in every table: as long as a peer is still addnode'd, Core
+// reconnects it within a minute or two, so a bare Disconnect changed nothing
+// that lasted. The Live Peer Ranking used to offer it anyway, to force a
+// reconnect; Core does that by itself when a connection really hangs.
 //
 // Both actions always render into a fixed two-slot layout (primary action,
 // then Disconnect) using an empty placeholder - never an omitted element -
@@ -508,8 +502,7 @@ function keepStar(p) {
   return `<button class="keep-star${on ? ' on' : ''}" data-action="keep" data-address="${escapeHtml(p.address)}" data-kept="${on ? '1' : '0'}" title="${title}" aria-pressed="${on}"><span aria-hidden="true">🔒</span><span class="sr-only">Keep this peer</span></button>`;
 }
 
-function actionsCell(p, options = {}) {
-  const { allowDisconnect = false } = options;
+function actionsCell(p) {
   const placeholder = `<span class="action-slot" aria-hidden="true"></span>`;
 
   // Three kinds of peer have nothing this app can do to them, and all three
@@ -542,7 +535,7 @@ function actionsCell(p, options = {}) {
   // different - deliberately disconnecting it could interrupt whatever that
   // app is doing, and Core would likely just let it right back in anyway,
   // so there's no real action to offer there either.
-  const canDisconnect = p.live && !p.localUmbrelPeer && (allowDisconnect || !p.trusted);
+  const canDisconnect = p.live && !p.localUmbrelPeer && !p.trusted;
   const disconnect = canDisconnect
     ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${escapeHtml(p.address)}">Disconnect</button>`
     : placeholder;
@@ -842,7 +835,7 @@ function renderPeerTables(peers, options = {}) {
   }
 
   document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers
-    .map((p) => peerRow(p, { actions: actionsCell(p, { allowDisconnect: true }) }))
+    .map((p) => peerRow(p, { actions: actionsCell(p) }))
     .join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers
