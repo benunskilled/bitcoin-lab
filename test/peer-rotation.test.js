@@ -1438,3 +1438,15 @@ test('a returning peer whose addnode Core refuses leaves the weakest manual peer
   assert.equal(await peerRotation.reviveParkedPeers(ranking()), 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(weak).n, 1);
 });
+
+test('no kick while the app cannot tell who was first, and at most two per pass', async () => {
+  // If attribution breaks every peer reads 0 first; kicking on that would empty
+  // Core's outbound slots one pass after another.
+  const peers = [1, 2, 3].map(() => seedLivePeer({ connectionType: 'outbound-full-relay', eligible: config.minEligibleForJudgement, first: 0 }));
+  assert.equal(peers.length, 3);
+  db.instance.prepare('UPDATE relay_race SET first_count = 0').run();
+  assert.equal(await peerRotation.kickDeadWeight(ranking()), 0);
+
+  db.instance.prepare('UPDATE relay_race SET first_count = 1').run();
+  assert.equal(await peerRotation.kickDeadWeight(ranking()), 2);
+});

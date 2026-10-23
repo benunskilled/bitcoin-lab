@@ -1,6 +1,7 @@
 'use strict';
 
 const rpc = require('../rpc');
+const db = require('../db');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
 const { MIN_ELIGIBLE_FOR_JUDGEMENT } = require('./rules');
@@ -37,7 +38,28 @@ const { MIN_ELIGIBLE_FOR_JUDGEMENT } = require('./rules');
  *     eligible blocks in the first place, so the eligible gate below already
  *     excludes them; the connection_type check is a second, explicit guard.
  */
+// A safety catch. "Never first" only means something while the app can tell
+// who was first: if that breaks (a clock off, a Core that stops reporting),
+// every peer reads 0 and would be kicked in turn. So no kick unless most of the
+// newest blocks went to exactly one peer, and never more than two per pass.
+const ATTRIBUTION_WINDOW = 50;
+const ATTRIBUTION_MIN_SHARE = 0.8;
+const MAX_KICKS_PER_PASS = 2;
+
+function attributionWorks() {
+  const r = db.instance
+    .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(first_count = 1), 0) AS ok
+                FROM (SELECT first_count FROM relay_race WHERE first_count IS NOT NULL ORDER BY id DESC LIMIT ?)`)
+    .get(ATTRIBUTION_WINDOW);
+  // Too few blocks with a count (a fresh install, old data) to judge either way.
+  return r.n < 20 || r.ok / r.n >= ATTRIBUTION_MIN_SHARE;
+}
+
 async function kickDeadWeight(ranking) {
+  if (!attributionWorks()) {
+    logger.warn('rotation: not kicking - most recent blocks have no single first peer', { window: ATTRIBUTION_WINDOW });
+    return 0;
+  }
   const candidates = ranking.filter(
     (p) =>
       p.live &&
@@ -45,7 +67,7 @@ async function kickDeadWeight(ranking) {
       p.connectionType === 'outbound-full-relay' &&
       p.recentEligible >= MIN_ELIGIBLE_FOR_JUDGEMENT &&
       p.recentFirst === 0,
-  );
+  ).slice(0, MAX_KICKS_PER_PASS);
 
   let kicked = 0;
   for (const peer of candidates) {
