@@ -299,8 +299,8 @@ async function refreshStatus() {
   if (s.unclearFirsts) {
     const unclear = document.createElement('span');
     unclear.className = 'status-ties';
-    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString()} unclear`
-      + ` in ${s.unclearFirsts.races.toLocaleString()} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
+    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString('en-US')} unclear`
+      + ` in ${s.unclearFirsts.races.toLocaleString('en-US')} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
     unclear.title = 'The block before arrived only a moment earlier, often right after a restart,'
       + " so who delivered which one can't be told apart. Neither peer gets the First.";
     el.appendChild(unclear);
@@ -359,7 +359,7 @@ function setBlockHeight(height) {
   if (lastKnownHeight != null && height < lastKnownHeight) return;
 
   heightEl.classList.remove('waiting');
-  heightEl.textContent = height.toLocaleString();
+  heightEl.textContent = height.toLocaleString('en-US');
   if (lastKnownHeight != null && height > lastKnownHeight) {
     heightEl.classList.remove('bump');
     void heightEl.offsetWidth; // restart the CSS transition
@@ -861,9 +861,12 @@ function renderPeerTables(peers, options = {}) {
   // the same way the filled rows above it do, at a glance. Plain dashes,
   // same as any other empty cell in this app - no banner, no border
   // treatment, just an empty-looking row.
+  // One cell per column, like any row: a single cell spanning eight kept its
+  // span when columns were dropped, and pushed the table out of line with the
+  // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td colspan="8">-</td>
+      <td>Free slot</td>${'<td></td>'.repeat(7)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
@@ -1071,8 +1074,11 @@ function axisBytes(v, unit) {
 // Bars per UTC day, as in the approved design: sent as a rounded orange bar,
 // received in blue in front of it, on one scale so the two compare by eye.
 // The grid keeps its values, quietly; each day says its numbers on hover.
-function trafficChartSvg(days) {
-  const W = 1300, H = 220, top = 20, base = 200, left = 46;
+// Drawn at the size it is shown, in pixels: a fixed 1300-wide picture scaled
+// down to a phone made its 11px labels 3px, and scaled-up labels then no
+// longer fitted beside the axis.
+function trafficChartSvg(days, W) {
+  const H = W < 600 ? 170 : 220, top = 14, base = H - 20;
   const max = Math.max(1, ...days.map((d) => Math.max(d.sent || 0, d.recv || 0)));
   // A round step for the grid: 1, 2 or 5 times a power of 1024-based units.
   const unit = 1024 ** Math.max(0, Math.floor(Math.log(max) / Math.log(1024)));
@@ -1081,7 +1087,10 @@ function trafficChartSvg(days) {
   const step = [1, 2, 5, 10].map((m) => m * pow).find((m) => m >= raw) * unit;
   const top_ = Math.ceil(max / step) * step;
   const y = (v) => base - (base - top) * (v / top_);
+  const left = 10 + 6.5 * Math.max(...[0, step, top_].map((v) => axisBytes(v, unit).length));
   const slot = (W - left) / days.length;
+  // A date label every 5 days, or every 10 where 5 would run into each other.
+  const every = slot * 5 >= 44 ? 5 : 10;
   const bw = slot * 0.64;
   let g = '<defs><linearGradient id="traffic-sent" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb04a"/><stop offset="1" stop-color="#c26a06"/></linearGradient></defs>';
   for (let v = 0; v <= top_ + 1; v += step) {
@@ -1095,26 +1104,41 @@ function trafficChartSvg(days) {
       g += `<rect class="sent" x="${x}" y="${y(d.sent)}" width="${bw}" height="${base - y(d.sent)}" rx="3">${tip}</rect>`;
       g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${base - y(d.recv)}" rx="2">${tip}</rect>`;
     }
-    if (i % 5 === 0 || i === days.length - 1) {
-      g += `<text class="axis" x="${left + i * slot + slot / 2}" y="${H - 2}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
+    const last = i === days.length - 1;
+    if ((i % every === 0 && days.length - 1 - i >= every / 2) || last) {
+      // The newest date ends at the right edge rather than past it.
+      g += `<text class="axis" x="${last ? W : left + i * slot + slot / 2}" y="${H - 4}" text-anchor="${last ? 'end' : 'middle'}">${escapeHtml(d.day.slice(5))}</text>`;
     }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
 async function refreshTraffic() {
   const t = await api('/api/traffic');
-  const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
   // The arrows carry the colours of the bars, so they are the legend too.
   const arrows = (v) => `<span class="up">↑ ${escapeHtml(fmtBytes(v.sent))}</span><span class="down">↓ ${escapeHtml(fmtBytes(v.recv))}</span>`;
-  document.getElementById('traffic-today').textContent = t.since ? `today ${both(t.today)}` : '';
   document.getElementById('traffic-totals').innerHTML = t.since
     ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
       .map(([l, v]) => `<div class="t"><div class="l">${l}</div><div class="v">${arrows(v)}</div></div>`)
       .join('')
     : '<p class="hint">Nothing recorded yet - the first numbers appear within an hour of the app starting.</p>';
-  document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
+  lastTrafficDays = t.since ? t.days : null;
+  drawTrafficChart();
 }
+
+let lastTrafficDays = null;
+function drawTrafficChart() {
+  const el = document.getElementById('traffic-chart');
+  if (!el) return;
+  el.innerHTML = lastTrafficDays && el.clientWidth ? trafficChartSvg(lastTrafficDays, el.clientWidth) : '';
+}
+let trafficWidth = 0;
+window.addEventListener('resize', () => {
+  const el = document.getElementById('traffic-chart');
+  if (!el || el.clientWidth === trafficWidth) return;
+  trafficWidth = el.clientWidth;
+  drawTrafficChart();
+});
 
 async function refreshAll() {
   // Block updates are not in here: they arrive on their own via the
@@ -1685,10 +1709,10 @@ async function refreshStorage() {
     if (el) el.textContent = text;
   };
   set('storage-total', fmtBytes(s.totalBytes));
-  set('reset-peers-size', `${fmtBytes(s.peerData.bytes)} · ${s.peerData.rows.toLocaleString()} rows`);
-  set('reset-pools-size', `${fmtBytes(s.poolHistory.bytes)} · ${s.poolHistory.rows.toLocaleString()} rows`);
-  set('reset-peers-detail', `${s.peerData.rows.toLocaleString()} rows, ${fmtBytes(s.peerData.bytes)}, will be deleted.`);
-  set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString()} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
+  set('reset-peers-size', `${fmtBytes(s.peerData.bytes)} · ${s.peerData.rows.toLocaleString('en-US')} rows`);
+  set('reset-pools-size', `${fmtBytes(s.poolHistory.bytes)} · ${s.poolHistory.rows.toLocaleString('en-US')} rows`);
+  set('reset-peers-detail', `${s.peerData.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.peerData.bytes)}, will be deleted.`);
+  set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
 }
 
 // Two steps rather than a browser confirm(): the warning can then say what is
