@@ -156,9 +156,14 @@ const KIND_RULES = [
   [/neutrino|BIP-157|kyoto/i, 'a light client'],
 ];
 
+// The first two rules read the whole agent: a pool or another chain may be
+// named in the brackets. The rest read only the name outside them - a word
+// like "monitor" or "electrs" in an operator's label does not make a Core
+// node a crawler or an indexer. Peer Map's classify does the same.
 function cannotRelayReason(client) {
   if (!client) return null;
-  for (const [re, what] of KIND_RULES) if (re.test(client)) return what;
+  const bare = client.replace(/\([^)]*\)/g, '');
+  for (const [i, [re, what]] of KIND_RULES.entries()) if (re.test(i < 2 ? client : bare)) return what;
   return null;
 }
 
