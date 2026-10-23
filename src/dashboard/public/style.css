@@ -724,6 +724,16 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
   .cards.cards table.peer-table tr { grid-template-columns: 100px minmax(0, 1fr) auto; }
   .cards.cards table.peer-table td.row-actions { grid-column: 3; grid-row: 2; justify-content: flex-end; }
 }
+/* A manual card has only Remove: it goes beside the address, two rows instead
+   of three, and first % stands right under it, starting where it starts. */
+.cards.cards #manual-peer-table tr { grid-template-columns: minmax(100px, 1fr) minmax(96px, 130px); }
+.cards.cards #manual-peer-table td[data-col="col-address"] { grid-column: 1; grid-row: 1; }
+.cards.cards #manual-peer-table td.row-actions { grid-column: 2; grid-row: 1; justify-content: flex-start; align-items: center; }
+.cards.cards #manual-peer-table td[data-col="col-status"] { grid-column: 1; grid-row: 2; }
+.cards.cards #manual-peer-table td[data-col="col-pct"] { grid-column: 2; grid-row: 2; }
+/* The lock hangs in front of Remove, outside the line Remove and first % share. */
+.cards.cards #manual-peer-table td.row-actions { position: relative; }
+.cards.cards #manual-peer-table .lock-slot { position: absolute; left: -6px; transform: translateX(-100%); min-width: 0; padding: 0; }
 /* First % is the point of the card: when its cell gets too narrow, the count
    (312/500) goes and the share and the bolt stay - never cut off. */
 .cards.cards table.peer-table td[data-col="col-pct"] { container-type: inline-size; }
