@@ -323,7 +323,11 @@ const CATCHUP_TAIL_MS = 30 * 1000;
 let lastCatchUpAt = null;
 
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
-  const template = stratumRaceOn() ? timeTemplate(detectedAtMs) : Promise.resolve(null);
+  // Not while catching up: a full block template for every old block is load
+  // on Core exactly when it is busiest, and measures nothing. The first block
+  // of a burst is only known as one afterwards; the rest are skipped.
+  const inCatchUp = lastCatchUpAt != null && detectedAtMs - lastCatchUpAt < CATCHUP_TAIL_MS;
+  const template = stratumRaceOn() && !inCatchUp ? timeTemplate(detectedAtMs) : Promise.resolve(null);
   let peers;
   let chain;
   let header;

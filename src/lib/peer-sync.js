@@ -280,6 +280,9 @@ async function dropDuplicateInboundSessions(peers) {
   let dropped = 0;
   for (const peer of peers) {
     if (peer.connection_type === 'manual') continue;
+    // Inbound only, as the name says. An outbound connection to the same IP is
+    // Core's own choice, and often a second node behind one shared address.
+    if (peer.connection_type !== 'inbound') continue;
     if (SHARED_PROXY_NETWORKS.has(String(peer.network || '').toLowerCase())) continue;
     if (!manualHosts.has(hostFromAddress(peer.addr))) continue;
     if (await disconnectSession(peer)) dropped += 1;

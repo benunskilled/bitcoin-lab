@@ -1167,12 +1167,14 @@ test('the rotation drops an inbound session to a host it already holds as manual
     { id: 11, addr: '198.51.100.60:49812', connection_type: 'inbound', network: 'ipv4' },
     { id: 12, addr: '198.51.100.61:41000', connection_type: 'inbound', network: 'ipv4' },
     { id: 13, addr: '10.21.22.10:52690', connection_type: 'inbound', network: 'onion' },
+    // Core's own outbound choice to the same IP: often a second node behind it.
+    { id: 14, addr: '198.51.100.60:8334', connection_type: 'outbound-full-relay', network: 'ipv4' },
   ]);
 
   const result = await peerRotation.tick();
 
   assert.equal(result.deduped, 1);
-  assert.deepEqual(disconnects, [11], 'only the twin of a manual peer - not other inbound peers, not Tor');
+  assert.deepEqual(disconnects, [11], 'only the inbound twin of a manual peer - not other inbound peers, not Tor, not outbound');
 });
 
 test('a displaced peer is disconnected but not parked', async () => {
