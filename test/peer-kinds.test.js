@@ -47,13 +47,18 @@ function goRules() {
 }
 
 // The Go side's own answer, by its own rules, in its own order.
-// The kinds classify reads with the brackets taken out (see classify in kinds.go).
-const GO_NAME_ONLY = new Set(['Research scanner', 'Crawler', 'Indexer', 'Wallet', 'Light client']);
+// The kinds classify reads with the brackets taken out, from kinds.go itself.
+function goBareKinds() {
+  const m = fs.readFileSync(KINDS_GO, 'utf8').match(/var readsBareName = map\[string\]bool\{([^}]*)\}/);
+  assert.ok(m, 'kinds.go must still define readsBareName');
+  return new Set([...m[1].matchAll(/"([^"]+)":\s*true/g)].map((x) => x[1]));
+}
 
 function goRelaysBlocks(rules, subver) {
   if (!subver) return true;
   const bare = subver.replace(/\([^)]*\)/g, '');
-  for (const rule of rules) if (rule.re.test(GO_NAME_ONLY.has(rule.name) ? bare : subver)) return rule.relays;
+  const bareKinds = goBareKinds();
+  for (const rule of rules) if (rule.re.test(bareKinds.has(rule.name) ? bare : subver)) return rule.relays;
   return true; // "Other" - unrecognised software still relays
 }
 
@@ -97,7 +102,7 @@ const AGENTS = [
   // really runs is unknown.
   '/Sat0shi:31.0.0/', '/Satoshi2:0.18.3/', '/SatoshiX:0.18.0/', 'Satoshi:22.0.0',
   // Bitcoin Cash under another name, forks, more watchers, other node software.
-  '/Classic:1.3.4(EB8)/', '/SuperBitcoin:0.16.0.2/', '/iriumd:1.9.66/', 'vds_0.9.53',
+  '/Classic:1.3.4(EB8)/', '/BitcoinUnlimited:1.0.3(EB16; AD12)/', '/SuperBitcoin:0.16.0.2/', '/iriumd:1.9.66/', 'vds_0.9.53',
   '/NodeWatch-BTC:0.2/', '/aver-btc-listener:0.1/', 'bitdash.io', '/BitArgus:0.1/',
   '/btcwire:0.5.0/btcd:0.25.0/', '/libbitcoin:4.0.0/', '/bcoin:v1.0.0-beta.14/', '/Gocoin:1.10.0pre/',
   // A Utreexo node: named in Peer Map, relaying in both.
