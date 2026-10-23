@@ -138,10 +138,10 @@ function statusPillClass(status) {
 const KIND_RULES = [
   // Mining pool software speaking p2p, or a node whose operator says in the
   // bracketed comment that it belongs to a pool. Relays.
-  [/ckp2p|ckpool|\([^)]*pool[^)]*\)/i, null],
+  [/ckp2p|ckpool|\([^)]*pool[^)]*\)/i, null, 'whole'],
   // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
   // Irium and VDS are forks and altcoins of their own.
-  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds_/i, 'a client of another chain'],
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds_/i, 'a client of another chain', 'whole'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
   [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],
@@ -156,14 +156,14 @@ const KIND_RULES = [
   [/neutrino|BIP-157|kyoto/i, 'a light client'],
 ];
 
-// The first two rules read the whole agent: a pool or another chain may be
+// Rules marked 'whole' read the whole agent: a pool or another chain may be
 // named in the brackets. The rest read only the name outside them - a word
 // like "monitor" or "electrs" in an operator's label does not make a Core
 // node a crawler or an indexer. Peer Map's classify does the same.
 function cannotRelayReason(client) {
   if (!client) return null;
   const bare = client.replace(/\([^)]*\)/g, '');
-  for (const [i, [re, what]] of KIND_RULES.entries()) if (re.test(i < 2 ? client : bare)) return what;
+  for (const [re, what, reads] of KIND_RULES) if (re.test(reads === 'whole' ? client : bare)) return what;
   return null;
 }
 
