@@ -138,7 +138,11 @@ function statusPillClass(status) {
 const KIND_RULES = [
   // Mining pool software speaking p2p, or a node whose operator says in the
   // bracketed comment that it belongs to a pool. Relays.
-  [/ckp2p|ckpool|\([^)]*pool[^)]*\)/i, null, 'whole'],
+  // Core's name misspelt ("/Sat0shi:", "/Satoshi2:"): Peer Map's Disguised.
+  // What it runs is unknown, so it is not struck - and it comes first, so the
+  // rest of its agent is not read as a crawler or a wallet either.
+  [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:/, null, 'whole'],
+  [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)/i, null, 'no-mempool'],
   // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
   // Irium and VDS are forks and altcoins of their own.
   [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds_/i, 'a client of another chain', 'whole'],
@@ -149,7 +153,7 @@ const KIND_RULES = [
   // "scan", "seeder", "census" or "monitor".
   [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
-  [/electrs|electrum|esplora|mempool/i, 'an address indexer'],
+  [/electrs|electrum|esplora|\/mempool/i, 'an address indexer'],
   [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
   // BIP157 light clients: neutrino (Lightning wallets on lnd) and Kyoto,
   // which says "Rust BIP-157".
@@ -157,13 +161,18 @@ const KIND_RULES = [
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
-// named in the brackets. The rest read only the name outside them - a word
+// named in the brackets (the pool rule without the word "mempool"). The rest read only the name outside them - a word
 // like "monitor" or "electrs" in an operator's label does not make a Core
 // node a crawler or an indexer. Peer Map's classify does the same.
 function cannotRelayReason(client) {
   if (!client) return null;
   const bare = client.replace(/\([^)]*\)/g, '');
-  for (const [re, what, reads] of KIND_RULES) if (re.test(reads === 'whole' ? client : bare)) return what;
+  // "pool" inside "mempool" is no pool: "(mempool.guide)" is a node's label.
+  const noMempool = client.replace(/mempool/gi, '');
+  for (const [re, what, reads] of KIND_RULES) {
+    const s = reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare;
+    if (re.test(s)) return what;
+  }
   return null;
 }
 
