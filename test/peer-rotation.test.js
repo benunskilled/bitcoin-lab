@@ -1391,7 +1391,8 @@ test('typing in a peer displaces the weakest unprotected one, even when a protec
   const result = await peerSync.addTrustedPeer('198.51.100.211:8333', 'typed', { evictToFit: true, kept: true });
   assert.equal(result.ok, true);
   assert.equal(result.evicted.address, free);
-  assert.equal(result.evicted.parked, true);
+  // Still connected: not parked, as after a swap by the rotation.
+  assert.equal(result.evicted.parked, false);
   const rows = db.instance.prepare('SELECT address FROM trusted_peer').all().map((r) => r.address);
   assert.ok(rows.includes(keptWeak) && !rows.includes(free));
 });
@@ -1402,4 +1403,13 @@ test('a peer displaced without any record is reported as not kept for re-testing
   const result = await peerSync.addTrustedPeer('198.51.100.212:8333', 'typed', { evictToFit: true, kept: true });
   assert.equal(result.ok, true);
   assert.equal(result.evicted.parked, false);
+});
+
+test('a manual peer displaced by hand while offline is parked', async () => {
+  const offline = seedOfflineTrustedPeer({ eligible: 144, first: 2 });
+  seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 40 });
+  const result = await peerSync.addTrustedPeer('198.51.100.213:8333', 'typed', { evictToFit: true, kept: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.evicted.address, offline);
+  assert.equal(result.evicted.parked, true);
 });

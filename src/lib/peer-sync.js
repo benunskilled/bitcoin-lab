@@ -468,7 +468,10 @@ async function addTrustedPeer(address, label, options = {}) {
     await removeTrustedPeer(toEvict.address);
     // parkPeer declines a peer with no record; then it is simply gone, and
     // the caller must not tell anyone it will be re-tested.
-    if (parkEvicted) evictedParked = parkPeer(toEvict);
+    // Parking is for a peer that is gone. One still connected keeps being
+    // measured as an ordinary peer and earns a slot again like any other;
+    // parked, it would come back on the record it just lost on.
+    if (parkEvicted && !toEvict.live) evictedParked = parkPeer(toEvict);
     evicted = toEvict;
     logger.info('freed a manual slot to stay within the cap', {
       removed: evicted.address,
@@ -482,7 +485,7 @@ async function addTrustedPeer(address, label, options = {}) {
     ok: true,
     count: countTrusted(),
     max: config.maxManualPeers,
-    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct, parked: evictedParked } : null,
+    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct, parked: evictedParked, live: Boolean(evicted.live) } : null,
   };
 }
 
