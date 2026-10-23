@@ -32,7 +32,8 @@ test.before(() => {
   rpc.timeCall = async () => { templateCalls += 1; return { count: 3 }; };
 });
 
-const block = (i) => ({ blockHash: String(i).padStart(64, 'd'), detectedAtMs: now, t0: process.hrtime.bigint() });
+// Ten minutes apart, like real blocks: blocks seconds apart are a backlog.
+const block = (i) => ({ blockHash: String(i).padStart(64, 'd'), detectedAtMs: now + i * 600_000, t0: process.hrtime.bigint() });
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 test('with Stratum Race off, no block template is requested', async () => {

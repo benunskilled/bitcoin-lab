@@ -3,11 +3,11 @@
 const db = require('../db');
 const config = require('../config');
 
-// Caps unbounded growth WITHOUT touching the two things that give this app
-// its long-term value: relay_race/relay_observation (the actual
-// peer-ranking data - never time-pruned, see config.js) and any peer that
-// has ever appeared in it, or is manually trusted (kept forever, sessions
-// included). Only "feeler" peers - no relay history, ever, not trusted -
+// Caps unbounded growth WITHOUT touching what gives this app its long-term
+// value: every block (relay_race), and every peer that delivered one first,
+// is manual or parked, or was an outbound choice (kept forever, sessions
+// included). Inbound peers that never delivered first go after a month, see
+// pruneNeverFirstPeers below. Only "feeler" peers - no relay history, ever, not trusted -
 // and old stratum-pool history are pruned by age. Runs as one transaction,
 // in dependency order, so a crash mid-prune never leaves an orphaned or
 // FK-violating row behind. Returns how many rows of each kind were
@@ -73,27 +73,40 @@ function pruneOldData({
   return tx();
 }
 
-// Peers that were around for blocks but never delivered one first, and have
-// not been seen for neverFirstPeerRetentionDays (see config.js). In small
-// batches, each its own transaction: the other processes wait on the same
-// write lock with a 10 s timeout, and a backlog of months must not hold it
-// in one go. Everything goes through indexes on peer_id.
-function pruneNeverFirstPeers({
-  days = config.neverFirstPeerRetentionDays,
-  batch = 500,
-  maxBatches = 40,
-} = {}) {
+// Inbound peers that were around for blocks but never delivered one first,
+// and have not been seen for neverFirstPeerRetentionDays (see config.js).
+// Only inbound: an outbound peer was Core's or the rotation's choice, and the
+// outbound funnel counts every one it ever tried. Each step is its own
+// transaction with the choice inside it - the relay profiler writes from
+// another process - and a step holds at most about 20,000 observation rows,
+// so the write lock the other processes wait on (10 s) is never held long.
+const MAX_ROWS_PER_STEP = 20000;
+
+function pruneNeverFirstPeers({ days = config.neverFirstPeerRetentionDays, maxSteps = 40 } = {}) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const pick = db.instance.prepare(
-    `SELECT p.id FROM peer_relay_stats s JOIN peer p ON p.id = s.peer_id
+    `SELECT p.id, s.eligible FROM peer_relay_stats s JOIN peer p ON p.id = s.peer_id
       WHERE s.first = 0
+        AND p.first_seen_at < @cutoff
         AND p.address NOT IN (SELECT address FROM trusted_peer)
         AND p.address NOT IN (SELECT address FROM parked_peer)
-        AND NOT EXISTS (SELECT 1 FROM peer_session ps
-                         WHERE ps.peer_id = p.id AND (ps.ended_at IS NULL OR ps.ended_at >= ?))
-      LIMIT ?`,
+        AND NOT EXISTS (SELECT 1 FROM peer_session x WHERE x.peer_id = p.id
+                         AND (x.direction <> 'inbound' OR x.ended_at IS NULL OR x.ended_at >= @cutoff))
+        -- Around for a block lately (a peer back after a month has no session
+        -- row for its first seconds), or a first the totals do not show yet.
+        AND NOT EXISTS (SELECT 1 FROM relay_observation o WHERE o.peer_id = p.id
+                         AND (o.first = 1 OR o.race_id >= (SELECT COALESCE(MIN(id), 1e18) FROM relay_race WHERE detected_at >= @cutoff)))
+      LIMIT 500`,
   );
-  const drop = db.instance.transaction((ids) => {
+  const step = db.instance.transaction(() => {
+    const ids = [];
+    let rows = 0;
+    for (const r of pick.all({ cutoff })) {
+      if (ids.length && rows + r.eligible > MAX_ROWS_PER_STEP) break;
+      ids.push(r.id);
+      rows += r.eligible;
+    }
+    if (!ids.length) return 0;
     const list = ids.map(() => '?').join(',');
     db.instance.prepare(`DELETE FROM relay_observation WHERE peer_id IN (${list})`).run(...ids);
     db.instance.prepare(`DELETE FROM peer_session WHERE peer_id IN (${list})`).run(...ids);
@@ -101,10 +114,10 @@ function pruneNeverFirstPeers({
     return db.instance.prepare(`DELETE FROM peer WHERE id IN (${list})`).run(...ids).changes;
   });
   let removed = 0;
-  for (let i = 0; i < maxBatches; i += 1) {
-    const ids = pick.all(cutoff, batch).map((r) => r.id);
-    if (!ids.length) break;
-    removed += drop(ids);
+  for (let i = 0; i < maxSteps; i += 1) {
+    const n = step();
+    if (!n) break;
+    removed += n;
   }
   return removed;
 }
