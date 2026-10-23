@@ -31,6 +31,7 @@ function good(overrides = {}) {
     feelerPeerRetentionDays: 14,
     peerPollIntervalMs: 15000,
     rotationLogEntries: 30,
+    neverFirstPeerRetentionDays: 30,
     ...overrides,
   };
 }
