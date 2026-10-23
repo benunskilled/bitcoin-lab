@@ -47,9 +47,13 @@ function goRules() {
 }
 
 // The Go side's own answer, by its own rules, in its own order.
+// The kinds classify reads with the brackets taken out (see classify in kinds.go).
+const GO_NAME_ONLY = new Set(['Research scanner', 'Crawler', 'Indexer', 'Wallet', 'Light client']);
+
 function goRelaysBlocks(rules, subver) {
   if (!subver) return true;
-  for (const rule of rules) if (rule.re.test(subver)) return rule.relays;
+  const bare = subver.replace(/\([^)]*\)/g, '');
+  for (const rule of rules) if (rule.re.test(GO_NAME_ONLY.has(rule.name) ? bare : subver)) return rule.relays;
   return true; // "Other" - unrecognised software still relays
 }
 
@@ -78,7 +82,9 @@ const AGENTS = [
   // Other chains.
   '/Bitcoin ABC:28.0.0/', '/BUCash:1.9.0/', '/Bitcoin SV:1.1.0/', '/BCHUnlimited:1.10.0/', '/Bitcoin XT:0.11.0/',
   // Scanners, as a service and as a university department.
-  '/bitcoin@dsn.tm.kit.edu/', '/dsn.kastel:1/', '/Satoshi:25.0.0(node.cs.ac.uk)/', '/uni-goettingen.de/',
+  '/bitcoin@dsn.tm.kit.edu/', '/dsn.kastel:1/', '/node.cs.ac.uk:1.0/', '/uni-goettingen.de/',
+  // A word in an operator's bracketed label: a Core node, in both apps.
+  '/Satoshi:25.0.0(node.cs.ac.uk)/', '/Satoshi:29.0.0(my-monitor)/', '/Satoshi:29.0.0(electrum-backend)/',
   '/bitnodes.io:0.1/', '/metrika:1.0/', '/nodemap/', '/some-crawler:2/', '/portscanner/',
   // Indexers and wallets.
   '/electrs:0.10.0/', '/electrumx:1.16/', '/esplora/',
@@ -134,7 +140,7 @@ test('the reason shown names the family the Go side named', () => {
   const cannotRelayReason = labCannotRelayReason();
   const expectations = [
     ['/Bitcoin XT:0.11.0/', 'another chain'],
-    ['/Satoshi:25.0.0(node.cs.ac.uk)/', 'research scanner'],
+    ['/node.cs.ac.uk:1.0/', 'research scanner'],
     ['/uni-goettingen.de/', 'research scanner'],
     ['/mempool.space:1.0/', 'indexer'],
     ['/electrumx:1.16/', 'indexer'],
