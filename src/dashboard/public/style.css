@@ -725,6 +725,10 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    the buttons apart. Buttons a little tighter, so two fit beside the type. */
 .cards.cards table.peer-table td.row-actions > span.action-slot:not(.lock-slot) { display: none; }
 .cards.cards table.peer-table td.row-actions > .action-slot { min-width: 0; padding: 5px 8px; }
+/* A parked card: "Parked 6m ago" in one line under the address, where the
+   other cards have their type. */
+.cards.cards #parked-peer-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
+.cards.cards #parked-peer-table td:nth-child(3)::before { display: inline; margin: 0 6px 0 0; }
 /* A closed lock hangs in front of Remove, outside the shared edge. */
 .cards.cards #manual-peer-table .lock-slot { position: absolute; left: -6px; transform: translateX(-100%); padding: 0; }
 /* On the narrowest phones two buttons do not fit beside the type: they get
