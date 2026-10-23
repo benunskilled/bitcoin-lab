@@ -171,7 +171,7 @@ function evictionNote(result) {
       (result.evicted.parked
         ? 'was removed to make room - it will be re-tested and can come back on its own.'
         : result.evicted.live
-          ? 'was removed to make room. It stays connected as an ordinary peer.'
+          ? 'was disconnected to make room. It keeps its record and can win a slot again as an ordinary peer.'
           : 'was removed to make room. It had no record yet, so it is not kept for re-testing.'),
   };
 }
