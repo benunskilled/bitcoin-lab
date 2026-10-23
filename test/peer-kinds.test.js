@@ -57,8 +57,12 @@ function goBareKinds() {
 function goRelaysBlocks(rules, subver) {
   if (!subver) return true;
   const bare = subver.replace(/\([^)]*\)/g, '');
+  const noMempool = subver.replace(/mempool/gi, '');
   const bareKinds = goBareKinds();
-  for (const rule of rules) if (rule.re.test(bareKinds.has(rule.name) ? bare : subver)) return rule.relays;
+  for (const rule of rules) {
+    const s = rule.name === 'Pool node' ? noMempool : bareKinds.has(rule.name) ? bare : subver;
+    if (rule.re.test(s)) return rule.relays;
+  }
   return true; // "Other" - unrecognised software still relays
 }
 
@@ -109,6 +113,8 @@ const AGENTS = [
   '/Floresta:0.9.1/', '/Floresta:0.9.1/mandacaru:0.15.2/',
   // Software that does relay, and software nobody here has heard of.
   '/Satoshi:29.0.0/', '/Satoshi:28.1.0/Knots:20250903/', '/btcwire:0.5.0/', '/Sat0shi:31.0.0/', '',
+  // The three the apps used to judge differently.
+  '/Satoshi:27.0.0(mempool.guide)/electrs:0.10.0/', '/btc-mempool:1/', '/Sat0shi:31.0.0/crawler:1/', '/CKCoinD:1.0/',
 ];
 
 const SKIP_WITHOUT_SIBLING = fs.existsSync(KINDS_GO)
