@@ -275,6 +275,7 @@ module.exports = {
     call('getrawtransaction', [txid, true, blockHash], { timeoutMs: 20000 }),
   getBlockCount: () => call('getblockcount'),
   getBlockchainInfo: () => call('getblockchaininfo'),
+  getNetworkInfo: () => call('getnetworkinfo'),
   // In read-only mode (LAB_READ_ONLY=1, a test copy beside the real app) the
   // two calls that change Core's peers are never sent; everything else reads.
   addNode: (nodeAddr, command = 'add') => (config.readOnly ? Promise.resolve(null) : call('addnode', [nodeAddr, command])),
