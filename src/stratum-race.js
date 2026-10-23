@@ -478,8 +478,12 @@ function main() {
     openRaces: openRaces.size,
   }));
   applyToggle();
-  setInterval(applyToggle, TOGGLE_CHECK_INTERVAL_MS);
-  setInterval(syncConnections, POOL_REFRESH_INTERVAL_MS);
+  // A busy database on one tick is a warning, not a reason to exit the worker.
+  const guarded = (fn) => () => {
+    try { fn(); } catch (err) { logger.warn(`${fn.name} failed`, { error: err.message }); }
+  };
+  setInterval(guarded(applyToggle), TOGGLE_CHECK_INTERVAL_MS);
+  setInterval(guarded(syncConnections), POOL_REFRESH_INTERVAL_MS);
   logger.info('started', {
     enabled: toggle.isEnabled(),
     timeoutMs: config.stratumRaceTimeoutMs,

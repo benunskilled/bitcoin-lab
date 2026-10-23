@@ -20,6 +20,7 @@ const config = require('../config');
 const queries = require('../queries');
 const peerSync = require('../peer-sync');
 const manualPeer = require('../manual-peer');
+const rpc = require('../rpc');
 const { wilsonLowerBound, peerScore } = require('../score');
 const { recentRelayStats } = require('../queries/peer-ranking');
 const logger = require('../logger').make('peer-rotation');
@@ -34,6 +35,22 @@ const {
   fmtHours,
   fmtPct,
 } = require('./rules');
+
+// The knock on a parked peer is a plain TCP connection from this container,
+// past Core. On a node that sends clearnet through a proxy (Tor) that would
+// show its own address to the peer, so there it is not made: parked peers wait
+// until the node runs without one. Unknown counts as proxied.
+async function clearnetViaProxy() {
+  try {
+    const { networks = [] } = await rpc.getNetworkInfo();
+    // A proxy on clearnet, or no clearnet at all (onlynet=onion). A node that
+    // just has no IPv6 is neither.
+    return networks.some((n) => (n.name === 'ipv4' || n.name === 'ipv6') && n.proxy)
+      || networks.some((n) => n.name === 'ipv4' && !n.reachable);
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Pass 2: reclaim the slot of a manual peer that has been offline longer than
@@ -181,6 +198,8 @@ async function reviveParkedPeers(ranking) {
     .filter(isDue)
     .slice(0, config.parkedPeerProbesPerTick);
 
+  if (candidates.length && await clearnetViaProxy()) return 0;
+
   const trusted = ranking.filter((p) => p.trusted);
   let revived = 0;
 
@@ -219,17 +238,16 @@ async function reviveParkedPeers(ranking) {
         stillParked(parked.address, now);
         continue;
       }
-      await peerSync.removeTrustedPeer(weakest.address);
-      // Parking is for a peer that is gone, as in promote.js. A displaced peer
-      // that is still connected keeps being measured as an ordinary one and
-      // has to earn a slot again; parked, it would come back on its record.
-      if (!weakest.live) peerSync.parkPeer(weakest);
-      trusted.splice(trusted.indexOf(weakest), 1);
       replaced = weakest;
     }
 
+    // As in promote.js: the new peer goes in first and the weakest leaves only
+    // once that has worked, so a refused add does not leave the slot empty.
+    // Parking is for a peer that is gone; one still connected keeps being
+    // measured as an ordinary peer and has to earn a slot again.
     const label = parked.label || `back from parking (${fmtPct(parked.firstPct)} first)`;
-    const result = await peerSync.addTrustedPeer(parked.address, label);
+    const result = await peerSync.addTrustedPeer(parked.address, label,
+      replaced ? { replace: replaced, parkEvicted: !replaced.live } : {});
     if (!result.ok) {
       // Something else refused the add (the cap, seen from a snapshot a
       // moment out of date, or Core rejecting the address); note the attempt
@@ -245,6 +263,7 @@ async function reviveParkedPeers(ranking) {
     // addTrustedPeer clears the parked_peer row itself, so there is nothing
     // to delete here - one owner for that fact, not two.
     revived += 1;
+    if (replaced) trusted.splice(trusted.indexOf(replaced), 1);
     trusted.push({
       address: parked.address,
       firstPct: parked.firstPct,
