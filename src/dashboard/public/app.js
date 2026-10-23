@@ -680,18 +680,23 @@ function addressCell(p) {
 let actionsInFlight = 0;
 const deferredRenders = new Map();
 
-// A press in progress: a row replaced between mousedown and mouseup gets no click.
-let pointerDown = false;
-document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+// A press in progress: a row replaced between mousedown and mouseup gets no
+// click. Kept as a time, not a flag, so a press that never ends (released
+// outside the window) cannot hold the tables for longer than two seconds.
+let pressedAt = 0;
+const pressing = () => pressedAt > 0 && Date.now() - pressedAt < 2000;
+document.addEventListener('pointerdown', () => { pressedAt = Date.now(); }, true);
+const pressOver = () => { pressedAt = 0; setTimeout(flushDeferredRenders, 0); };
+// On touch the click comes after pointerup, as a task of its own: flush on
+// the click, with pointerup only as the fallback when no click follows.
+document.addEventListener('click', pressOver);
 for (const type of ['pointerup', 'pointercancel']) {
-  document.addEventListener(type, () => {
-    pointerDown = false;
-    setTimeout(flushDeferredRenders, 0); // after the click it ends in
-  }, true);
+  document.addEventListener(type, () => setTimeout(() => { if (pressedAt) pressOver(); }, 400), true);
 }
+window.addEventListener('blur', pressOver);
 
 function interactionInProgress(selector) {
-  if (actionsInFlight > 0 || pointerDown) return true;
+  if (actionsInFlight > 0 || pressing()) return true;
   // Keyboard focus only. A mouse click leaves the focus on the button in
   // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;

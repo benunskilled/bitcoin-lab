@@ -263,6 +263,9 @@ async function reviveParkedPeers(ranking) {
     // addTrustedPeer clears the parked_peer row itself, so there is nothing
     // to delete here - one owner for that fact, not two.
     revived += 1;
+    // A slot that turned out free (the count was a moment old) displaced
+    // nobody: the log says only what happened.
+    if (!result.evicted) replaced = null;
     if (replaced) trusted.splice(trusted.indexOf(replaced), 1);
     trusted.push({
       address: parked.address,
