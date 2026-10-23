@@ -1465,6 +1465,7 @@ test('no clearnet at all, or no answer about it, also means no direct knock', as
   rpc.getNetworkInfo.mock.mockImplementation(async () => { throw new Error('down'); });
   assert.equal(await peerRotation.reviveParkedPeers(ranking()), 0);
   assert.equal(probes, 0);
+});
 
 test('a manual peer displaced by hand while offline is parked', async () => {
   const offline = seedOfflineTrustedPeer({ eligible: 144, first: 2 });
