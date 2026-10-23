@@ -212,7 +212,7 @@ function peerRankingSql() {
        -- year, 23ms on a busy one. This form drives the query from the two
        -- small sets instead, and the plan opens with a primary-key search.
        WHERE p.id IN (
-         SELECT peer_id FROM peer_session WHERE ended_at IS NULL
+         SELECT peer_id FROM peer_session INDEXED BY idx_peer_session_live WHERE ended_at IS NULL
          UNION
          SELECT id FROM peer WHERE address IN (SELECT address FROM trusted_peer)
        )
