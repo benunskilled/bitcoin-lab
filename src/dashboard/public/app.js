@@ -362,7 +362,7 @@ function setBlockHeight(height) {
   heightEl.textContent = height.toLocaleString('en-US');
   if (lastKnownHeight != null && height > lastKnownHeight) {
     heightEl.classList.remove('bump');
-    void heightEl.offsetWidth; // restart the CSS transition
+    void heightEl.offsetWidth; // restart the animation
     heightEl.classList.add('bump');
   }
   lastKnownHeight = height;
@@ -383,7 +383,7 @@ function setBlockPool(race) {
     const name = document.createElement('b');
     name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
     el.append('mined by ', name);
-    el.title = known ? `Mined by ${race.poolName}, from the block's coinbase`
+    el.title = known ? `Mined by ${race.poolName || race.pool}, from the block's coinbase`
       : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
     el.removeAttribute('title');
@@ -616,8 +616,14 @@ let lastRotationLog = null; // kept so the toggle can re-render without refetchi
 // expensive endpoint this app has just to slice the same array differently.
 let lastPeerRanking = null;
 
+// Several things ask for the ranking at once (the poll, a new block, an
+// action just taken); an answer that left before a newer one must not be
+// drawn over it - a lock just closed would open again for twenty seconds.
+let peerRequestSeq = 0;
 async function refreshPeers() {
+  const seq = ++peerRequestSeq;
   const peers = await api('/api/peers/ranking');
+  if (seq !== peerRequestSeq) return;
   lastPeerRanking = peers;
   renderPeerTables(peers);
 }
@@ -1265,6 +1271,11 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
   const host = document.getElementById('pool-host');
   const port = document.getElementById('pool-port');
   const resultEl = document.getElementById('pool-add-result');
+  // One request at a time: a double click added the pool, then failed on it.
+  const submit = e.target.querySelector('button[type="submit"]');
+  if (submit.disabled) return;
+  submit.disabled = true;
+  clearTimeout(poolResultTimer);
   try {
     await api('/api/pools', {
       method: 'POST',
@@ -1273,10 +1284,14 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
     resultEl.textContent = 'added';
     label.value = ''; host.value = ''; port.value = '';
     refreshPools();
+    poolResultTimer = setTimeout(() => { resultEl.textContent = ''; }, 5000);
   } catch (err) {
     resultEl.textContent = err.message;
+  } finally {
+    submit.disabled = false;
   }
 });
+let poolResultTimer = null;
 
 // Each action only refreshes the table(s) it can actually affect, rather
 // than re-fetching /api/status, /api/peers/ranking, /api/pools and
@@ -1731,6 +1746,10 @@ function wireReset(scope) {
     yes.disabled = true;
     try {
       await api('/api/reset', { method: 'POST', body: JSON.stringify({ scope }) });
+    } catch (err) {
+      // Said out loud: a silent failure here reads as data that was deleted.
+      showToast(`Nothing was deleted: ${err.message}`, 'error');
+      return;
     } finally {
       yes.disabled = false;
       panel.hidden = true;
@@ -1738,7 +1757,10 @@ function wireReset(scope) {
     }
     await refreshStorage();
     await refreshStatus();
-    await refreshPeers();
+    // What each reset empties: peer data includes the rotation log and the
+    // parked peers, pool history the pool table.
+    if (scope === 'pools') await refreshPools();
+    else await Promise.all([refreshPeers(), refreshRotation()]);
   });
 }
 
