@@ -321,12 +321,17 @@ function stratumRaceOn() {
 
 const CATCHUP_TAIL_MS = 30 * 1000;
 let lastCatchUpAt = null;
+let lastHashblockAt = null;
 
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   // Not while catching up: a full block template for every old block is load
   // on Core exactly when it is busiest, and measures nothing. The first block
   // of a burst is only known as one afterwards; the rest are skipped.
-  const inCatchUp = lastCatchUpAt != null && detectedAtMs - lastCatchUpAt < CATCHUP_TAIL_MS;
+  // Blocks seconds apart are a backlog too, before Core has said so: the
+  // first block's questions are still on their way when the next arrives.
+  const inCatchUp = (lastCatchUpAt != null && detectedAtMs - lastCatchUpAt < CATCHUP_TAIL_MS)
+    || (lastHashblockAt != null && detectedAtMs - lastHashblockAt < 5000);
+  lastHashblockAt = detectedAtMs;
   const template = stratumRaceOn() && !inCatchUp ? timeTemplate(detectedAtMs) : Promise.resolve(null);
   let peers;
   let chain;

@@ -104,11 +104,12 @@ Stratum Race is controlled from the dashboard. While it is off, no pool connecti
 | Variable | Purpose | Default |
 |---|---|---|
 | `FEELER_PEER_RETENTION_DAYS` | Retention for inactive, non-manual peers with no recorded relay observations, in days | `14` |
+| `NEVER_FIRST_PEER_RETENTION_DAYS` | Retention for inbound peers that were seen at blocks but never delivered one first, in days | `30` |
 | `TRAFFIC_FLUSH_MS` | How often gathered traffic is written to the database, in milliseconds | `3600000` |
 
-Peers with recorded relay observations retain their delivery and session history. The shorter retention period removes inactive peers that never appeared in a block observation; manually selected peers are also retained.
+Peers that delivered a block first, outbound peers, and manual or parked peers keep their delivery and session history. Inactive peers that never appeared in a block observation go after 14 days; inbound peers that appeared at blocks but never delivered one first go, with their observations, after 30 days. No other peer's record changes when they go.
 
-Relay observations are not deleted automatically by age. The 500-block scoring window controls the ranking, not data retention. You can clear peer measurements from the dashboard's Storage panel while keeping your manual selection.
+Blocks are never deleted. The 500-block scoring window controls the ranking, not data retention. You can clear peer measurements from the dashboard's Storage panel while keeping your manual selection.
 
 ## Docker and Umbrel networking
 
