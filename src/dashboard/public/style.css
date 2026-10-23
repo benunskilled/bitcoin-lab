@@ -463,11 +463,13 @@ th.col-actions { padding-left: 20px; }
   line-height: 1.2;
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
-  transition: text-shadow .3s ease;
 }
 
-.hero-n.bump {
-  text-shadow: 0 0 18px rgba(247, 147, 26, .85);
+/* A glow that comes and goes with a new block. It used to come and stay. */
+.hero-n.bump { animation: height-bump 2.4s ease-out; }
+@keyframes height-bump {
+  15% { text-shadow: 0 0 18px rgba(247, 147, 26, .85); }
+  100% { text-shadow: none; }
 }
 
 /* Core has not answered yet, said in the number's own slot: sentence-sized
