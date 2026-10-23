@@ -108,7 +108,7 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
  * consequences.
  */
 async function probePeer(rawInput) {
-  const host = (rawInput || '').trim();
+  const host = (typeof rawInput === 'string' ? rawInput : '').trim();
   if (!looksLikeHost(host)) {
     return { ok: false, error: 'invalid host/IP' };
   }

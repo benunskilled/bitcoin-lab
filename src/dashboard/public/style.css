@@ -472,11 +472,13 @@ th.col-actions { padding-left: 20px; }
   line-height: 1.2;
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
-  transition: text-shadow .3s ease;
 }
 
-.hero-n.bump {
-  text-shadow: 0 0 18px rgba(247, 147, 26, .85);
+/* A glow that comes and goes with a new block. It used to come and stay. */
+.hero-n.bump { animation: height-bump 2.4s ease-out; }
+@keyframes height-bump {
+  15% { text-shadow: 0 0 18px rgba(247, 147, 26, .85); }
+  100% { text-shadow: none; }
 }
 
 /* Core has not answered yet, said in the number's own slot: sentence-sized
@@ -652,6 +654,8 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .traffic-totals .up { color: var(--accent); }
 .traffic-totals .down { color: #58a6ff; margin-left: 8px; }
 .traffic-totals .hint { grid-column: 1 / -1; }
+/* An amount and its unit stay together: "GB" alone on a line read as a typo. */
+.traffic-totals .v span { white-space: nowrap; }
 .traffic-chart { margin-bottom: 10px; }
 .traffic-chart svg { display: block; width: 100%; height: auto; }
 .traffic-chart .sent { fill: url(#traffic-sent); }
@@ -660,8 +664,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .traffic-chart .grid { stroke: #1a2430; stroke-width: 1; }
 @media (max-width: 600px) {
   .traffic-totals { grid-template-columns: 1fr; }
-  /* The chart shrinks with the screen; its text is set larger so it lands readable. */
-  .traffic-chart .axis { font-size: 36px; }
+  /* iPhone Safari zooms into any field with text under 16px when it is tapped,
+     and leaves the page zoomed. */
+  input, select { font-size: 16px; }
 }
 
 /* A tight table gives up its least important columns first (fitTables sets
@@ -744,6 +749,8 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* The pools likewise: wins, win %, avg in one row; enabled and remove under it. */
 .cards.cards #pool-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cards.cards #pool-table tr td[data-label=""]:last-child { grid-column: auto; }
+/* The Remove button keeps its whole border: the cell is narrow at 320 px. */
+.cards.cards #pool-table tr td:last-child { overflow: visible; }
 .cards.cards table tr td[data-label]:not([data-label=""]):not(:first-child):not([data-col="col-address"]):not([data-col="col-client"]):not([data-col="col-status"]):not([data-col="col-actions"])::before {
   content: attr(data-label); display: block; margin-bottom: 2px;
   color: var(--muted); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
