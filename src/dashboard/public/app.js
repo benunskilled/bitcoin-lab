@@ -210,18 +210,47 @@ function fitTables() {
         if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
       });
     }
-    w.classList.remove('cards');
   }
+  // Measuring from scratch means taking the cards away and laying out the full
+  // table first: the page shrinks and grows again, and whatever the reader was
+  // looking at jumps. That is only needed when the window got wider - a page
+  // that needed cards at this width still needs them, and one that needed two
+  // columns dropped still needs at least that. Otherwise the check starts
+  // where the last one ended.
+  const width = document.documentElement.clientWidth;
+  const wider = width > fitState.width;
+  fitState.width = width;
+  if (fitState.cards && !wider) return;
+  // What the reader is looking at: the first heading or row at the top of the
+  // window. When the layout changes, that stays where it was - restoring the
+  // old scroll position instead threw the reader a screen or more down the
+  // moment the tables above turned into taller cards. (The panels opt out of
+  // the browser's own scroll anchoring, see .card in style.css.)
+  const anchor = window.scrollY > 0
+    ? [...document.querySelectorAll('h2, h3, .table-wrap tbody tr')].find((e) => e.getBoundingClientRect().top >= 0)
+    : null;
+  const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+  const before = `${fitState.level}${fitState.cards}`;
   const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  let level = 0;
+  if (wider) for (const w of wraps) w.classList.remove('cards');
+  let level = wider ? 0 : fitState.level;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
     if (level === DROP_LEVELS || !tight()) break;
   }
   const cards = level === DROP_LEVELS && tight();
   for (const w of wraps) w.classList.toggle('cards', cards);
-  if (window.scrollY !== y) window.scrollTo(0, y);
+  fitState.level = level;
+  fitState.cards = cards;
+  if (anchor && anchor.isConnected && before !== `${level}${cards}`) {
+    window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
+  } else if (window.scrollY !== y) {
+    window.scrollTo(0, y);
+  }
 }
+// The width of the last check and what it decided. The first check always
+// counts as wider, so it measures from scratch.
+const fitState = { width: -Infinity, level: 0, cards: false };
 let fitTimer = null;
 const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
 // Re-rendered rows are cards without their labels until fitTables runs, and
