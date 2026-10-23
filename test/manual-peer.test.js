@@ -307,7 +307,7 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
     // Still connected, so not parked: it keeps being measured as an ordinary
     // peer, as after a swap by the rotation, and the user is told so.
     assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get('198.51.100.1:8333').n, 0);
-    assert.match(result.warning, /stays connected/);
+    assert.match(result.warning, /win a slot again as an ordinary peer/);
     // And it is in the rotation log, so it does not vanish without a trace.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual'").get();
     assert.equal(logged.address, address);
