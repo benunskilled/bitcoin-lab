@@ -190,9 +190,16 @@ function median(xs) {
 }
 
 function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
-  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
-  if (newest == null) return null;
-  const key = `${newest}:${limit}`;
+  // The newest block is written in steps - template time and the stratum race
+  // land after the block itself - so the key follows those too, or the
+  // newest block stayed out of the median until the next one came.
+  const head = db.instance
+    .prepare(`SELECT id, template_ms IS NOT NULL AS t, first_ping_ms IS NOT NULL AS p,
+                     (SELECT MAX(rowid) FROM stratum_observation) AS obs
+                FROM relay_race ORDER BY id DESC LIMIT 1`)
+    .get();
+  if (!head) return null;
+  const key = `${head.id}:${head.t}:${head.p}:${head.obs}:${limit}`;
   if (routeCache.key === key) return routeCache.value;
 
   const races = db.instance
