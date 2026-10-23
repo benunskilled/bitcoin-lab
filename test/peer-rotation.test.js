@@ -36,6 +36,7 @@ test.beforeEach(() => {
   mock.method(rpc, 'getPeerInfo', async () => []);
   mock.method(rpc, 'addNode', async () => {});
   mock.method(rpc, 'disconnectNode', async () => {});
+  mock.method(rpc, 'getNetworkInfo', async () => ({ networks: [{ name: 'ipv4', reachable: true, proxy: '' }, { name: 'ipv6', reachable: true, proxy: '' }] }));
 });
 
 test.afterEach(() => {
@@ -1402,4 +1403,50 @@ test('a peer displaced without any record is reported as not kept for re-testing
   const result = await peerSync.addTrustedPeer('198.51.100.212:8333', 'typed', { evictToFit: true, kept: true });
   assert.equal(result.ok, true);
   assert.equal(result.evicted.parked, false);
+});
+
+test('behind a Tor proxy a parked peer is not knocked on directly', async () => {
+  // The knock is a TCP connection past Core: through a proxied node it would
+  // show the node's own address.
+  seedParked({ firstPct: 22 });
+  let probes = 0;
+  mock.method(manualPeer, 'probePort', async () => { probes += 1; return true; });
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({
+    networks: [{ name: 'ipv4', reachable: true, proxy: '10.21.22.11:9050' }, { name: 'ipv6', reachable: false, proxy: '' }],
+  }));
+  assert.equal(await peerRotation.reviveParkedPeers(ranking()), 0);
+  assert.equal(probes, 0);
+
+  // No IPv6 alone is not a reason: the knock goes out over IPv4 as before.
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({
+    networks: [{ name: 'ipv4', reachable: true, proxy: '' }, { name: 'ipv6', reachable: false, proxy: '' }],
+  }));
+  await peerRotation.reviveParkedPeers(ranking());
+  assert.equal(probes, 1);
+});
+
+test('a returning peer whose addnode Core refuses leaves the weakest manual peer in its slot', async () => {
+  // The weakest used to be removed first; a refused add then left the slot empty.
+  seedLivePeer({ connectionType: 'manual', eligible: 200, first: 60, trusted: true }); // 30%
+  const weak = seedLivePeer({ connectionType: 'manual', eligible: 200, first: 8, trusted: true }); // 4%
+  seedParked({ firstPct: 25 });
+  mock.method(manualPeer, 'probePort', async () => true);
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    if (cmd === 'add') throw new Error('refused');
+  });
+
+  assert.equal(await peerRotation.reviveParkedPeers(ranking()), 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(weak).n, 1);
+});
+
+test('no kick while the app cannot tell who was first, and at most two per pass', async () => {
+  // If attribution breaks every peer reads 0 first; kicking on that would empty
+  // Core's outbound slots one pass after another.
+  const peers = [1, 2, 3].map(() => seedLivePeer({ connectionType: 'outbound-full-relay', eligible: config.minEligibleForJudgement, first: 0 }));
+  assert.equal(peers.length, 3);
+  db.instance.prepare('UPDATE relay_race SET first_count = 0').run();
+  assert.equal(await peerRotation.kickDeadWeight(ranking()), 0);
+
+  db.instance.prepare('UPDATE relay_race SET first_count = 1').run();
+  assert.equal(await peerRotation.kickDeadWeight(ranking()), 2);
 });

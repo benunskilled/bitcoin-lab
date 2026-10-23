@@ -671,10 +671,22 @@ function addressCell(p) {
 let actionsInFlight = 0;
 const deferredRenders = new Map();
 
+// A press in progress: a row replaced between mousedown and mouseup gets no click.
+let pointerDown = false;
+document.addEventListener('pointerdown', () => { pointerDown = true; }, true);
+for (const type of ['pointerup', 'pointercancel']) {
+  document.addEventListener(type, () => {
+    pointerDown = false;
+    setTimeout(flushDeferredRenders, 0); // after the click it ends in
+  }, true);
+}
+
 function interactionInProgress(selector) {
-  if (actionsInFlight > 0) return true;
+  if (actionsInFlight > 0 || pointerDown) return true;
+  // Keyboard focus only. A mouse click leaves the focus on the button in
+  // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
-  return Boolean(active && active.closest && active.closest(selector));
+  return Boolean(active && active.closest && active.closest(selector) && active.matches(':focus-visible'));
 }
 
 function deferRender(key, selector, render) {
@@ -1431,7 +1443,8 @@ document.body.addEventListener('click', async (e) => {
       actionsInFlight -= 1;
       if (btn.isConnected) {
         btn.disabled = false;
-        btn.textContent = originalLabel;
+        // Only what was replaced: the lock's two spans would come back as plain text.
+        if (action !== 'keep') btn.textContent = originalLabel;
       }
       flushDeferredRenders();
     }
