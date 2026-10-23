@@ -234,14 +234,18 @@ function fitTables() {
   const width = document.documentElement.clientWidth;
   const wider = width > fitState.width;
   fitState.width = width;
-  if (fitState.cards && !wider) return;
+  if (fitState.cards && !wider) return false;
   // What the reader is looking at: the first heading or row at the top of the
   // window. When the layout changes, that stays where it was - restoring the
   // old scroll position instead threw the reader a screen or more down the
   // moment the tables above turned into taller cards. (The panels opt out of
   // the browser's own scroll anchoring, see .card in style.css.)
   const anchor = window.scrollY > 0
-    ? [...document.querySelectorAll('h2, h3, .table-wrap tbody tr')].find((e) => e.getBoundingClientRect().top >= 0)
+    ? [...document.querySelectorAll('h2, h3, .table-wrap tbody tr')].find((e) => {
+      // A hidden element (the empty Parked panel) has a rect of zeros.
+      const r = e.getBoundingClientRect();
+      return r.height > 0 && r.top >= 0;
+    })
     : null;
   const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
   const before = `${fitState.level}${fitState.cards}`;
@@ -258,9 +262,10 @@ function fitTables() {
   fitState.cards = cards;
   if (anchor && anchor.isConnected && before !== `${level}${cards}`) {
     window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
-  } else if (window.scrollY !== y) {
-    window.scrollTo(0, y);
+    return true;
   }
+  if (window.scrollY !== y) window.scrollTo(0, y);
+  return false;
 }
 // The width of the last check and what it decided. The first check always
 // counts as wider, so it measures from scratch.
@@ -277,8 +282,10 @@ let lastScrollY = window.scrollY;
 window.addEventListener('scroll', () => { lastScrollY = window.scrollY; }, { passive: true });
 new MutationObserver(() => {
   const y = lastScrollY;
-  fitTables();
-  if (y - window.scrollY > 100) window.scrollTo(0, y);
+  // Not when fitTables has just kept the reader's place itself: that move is
+  // meant, and putting the old position back would undo it.
+  const anchored = fitTables();
+  if (!anchored && y - window.scrollY > 100) window.scrollTo(0, y);
 }).observe(document.body, { childList: true, subtree: true });
 // Only a change of width can change whether the tables fit. On an iPhone the
 // height changes all the time - Safari's toolbar shrinks and grows while the
