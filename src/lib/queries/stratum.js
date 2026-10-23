@@ -103,8 +103,28 @@ function percentilesByPool({ pools, statsByPool, raceIds, raceFilterSql, raceFil
   return result;
 }
 
+// The ranking only changes with a new race, a new observation or a change to
+// the pools; between those the dashboard asks every 20 seconds for the same
+// answer. Over a year of races "all" takes about 150 ms, on the one thread
+// that also serves the live stream - so it is kept until something changed.
+const rankingCache = new Map();
+
 function stratumRanking(range = '10') {
   const pools = db.instance.prepare(`SELECT * FROM stratum_pool ORDER BY is_default DESC, label ASC`).all();
+  // The newest race and the newest observation row, both read off the end of
+  // their table: a race finished after a newer one opened still changes it.
+  const head = db.instance
+    .prepare(`SELECT (SELECT MAX(id) FROM stratum_race) AS race, (SELECT MAX(rowid) FROM stratum_observation) AS obs`)
+    .get();
+  const key = `${head.race}:${head.obs}:${JSON.stringify(pools)}`;
+  const hit = rankingCache.get(range);
+  if (hit && hit.key === key) return hit.value;
+  const value = computeRanking(range, pools);
+  rankingCache.set(range, { key, value });
+  return value;
+}
+
+function computeRanking(range, pools) {
   const raceIds = raceIdsForRange(range);
 
   // better-sqlite3 needs a concrete placeholder list for IN(); an empty range
