@@ -222,6 +222,8 @@ tr.weak td { color: var(--muted); }
 .pill.rotation-kick { background: rgba(248,81,73,.15); color: #e5534b; }
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
 .pill.rotation-swap { background: rgba(63,185,80,.15); color: var(--good); }
+/* Added by hand: the blue that means manual in both apps. */
+.pill.rotation-manual { background: rgba(57,135,229,.15); color: #6aa8f0; }
 /* Parking is not a kick - the peer is kept and re-tested - so it gets the
    neutral treatment rather than the red one a removal gets. */
 .pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
