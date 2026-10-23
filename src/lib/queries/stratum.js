@@ -120,6 +120,9 @@ function stratumRanking(range = '10') {
   const hit = rankingCache.get(range);
   if (hit && hit.key === key) return hit.value;
   const value = computeRanking(range, pools);
+  // A handful of ranges is all the page asks for; any number can be typed
+  // into the URL, so the cache does not grow with them.
+  if (rankingCache.size >= 8) rankingCache.clear();
   rankingCache.set(range, { key, value });
   return value;
 }
