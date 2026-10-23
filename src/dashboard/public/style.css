@@ -365,10 +365,11 @@ td.row-actions > * + * { margin-left: 6px; }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
 /* The first slot holds "Remove" in one row and "Add as Manual" in the next,
    so it is as wide as the longer one - otherwise Disconnect beside it jumps
-   from row to row. The Manual table only ever holds Remove there, so its
-   slot is narrower, which leaves its row room for the lock. */
+   from row to row. In the Manual table it holds the lock, at its right edge,
+   so Remove there stands under Disconnect too. */
 .row-actions > .action-slot:first-child { min-width: 112px; }
-#manual-peer-table .row-actions > .action-slot { min-width: 92px; }
+span.action-slot.lock-slot { visibility: visible; justify-content: flex-end; background: none; border-color: transparent; }
+.lock-slot .keep-star { padding: 0; }
 
 /* Manual Peers: unused capacity (below the app's manual-connection cap)
    rendered as actual empty rows at the bottom of the table, not just a
