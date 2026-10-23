@@ -521,10 +521,9 @@ function poolRange(raw) {
   if (raw === null || raw === '') return '10';
   if (raw === 'all') return 'all';
   const n = Number(raw);
-  // Anything unrecognisable is passed through untouched: stratumRanking() has
-  // its own rule for that (fail open to all-time), and it is not this
-  // function's business to change it.
-  if (!Number.isFinite(n) || n <= 0) return raw;
+  // Anything unrecognisable gets the default view. It used to fall through to
+  // all-time, the one expensive answer, for any typo in the query string.
+  if (!Number.isFinite(n) || n <= 0) return '10';
   return String(Math.min(Math.floor(n), MAX_POOL_RANGE));
 }
 
