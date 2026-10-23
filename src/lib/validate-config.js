@@ -49,12 +49,14 @@ const RULES = {
   feelerPeerRetentionDays: { min: 1, max: 36500 },
   peerPollIntervalMs: { min: 1000, max: 3600000, note: 'below a second this is a busy loop against Core' },
   rotationLogEntries: { min: 1, max: 100000 },
+  trafficFlushMs: { min: 1000, max: 86400000, note: 'below a second this writes to the database all the time' },
 };
 
 // The env var a given config key came from, so the message names what the
 // operator actually typed rather than an internal property name.
 const ENV_NAMES = {
   dashboardPort: 'DASHBOARD_PORT',
+  trafficFlushMs: 'TRAFFIC_FLUSH_MS',
   maxManualPeers: 'MAX_MANUAL_PEERS',
   minEligibleForJudgement: 'MIN_ELIGIBLE_FOR_JUDGEMENT',
   newManualGraceBlocks: 'NEW_MANUAL_PEER_GRACE_BLOCKS',
