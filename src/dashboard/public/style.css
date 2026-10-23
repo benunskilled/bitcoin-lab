@@ -590,9 +590,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap table tbody tr.row-first-block:hover td { background: none; }
 
 /* The keep lock in the Manual Peers table. Both the state and the switch:
-   the padlock means the rotation leaves this peer alone. Off shows nothing -
-   an open padlock looked too much like the closed one - and the lock only
-   appears, faded, under the pointer or keyboard focus, to be clicked. */
+   the padlock means the rotation leaves this peer alone. Open, it is only a
+   faint shadow of the closed one - there to be found and tapped, not to be
+   read as locked; on hover or keyboard focus it gets a little stronger. */
 .keep-star {
   background: none;
   border: 0;
@@ -600,13 +600,13 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0;
+  opacity: .15;
   transition: opacity .15s ease;
 }
 
 .keep-star:hover,
 .keep-star:focus-visible {
-  opacity: .4;
+  opacity: .45;
 }
 
 .keep-star.on {
@@ -615,16 +615,6 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 
 .keep-star:disabled {
   cursor: default;
-}
-
-/* Without a pointer the lock never appears, so an open one is out of reach
-   there: a tap on the empty spot would switch it unseen. On a card it also
-   took room and pushed Remove off its line, so there it goes entirely; in a
-   table it keeps its room, so the buttons stay aligned. A closed lock stays
-   in both, to be seen and opened. */
-@media (hover: none) {
-  .keep-star:not(.on) { pointer-events: none; }
-  .cards.cards .keep-star:not(.on) { display: none; }
 }
 
 /* Visible to screen readers only - the lock needs a real name, and the title
