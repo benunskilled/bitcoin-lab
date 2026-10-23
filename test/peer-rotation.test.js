@@ -1450,3 +1450,18 @@ test('no kick while the app cannot tell who was first, and at most two per pass'
   db.instance.prepare('UPDATE relay_race SET first_count = 1').run();
   assert.equal(await peerRotation.kickDeadWeight(ranking()), 2);
 });
+
+test('no clearnet at all, or no answer about it, also means no direct knock', async () => {
+  seedParked({ firstPct: 22 });
+  let probes = 0;
+  mock.method(manualPeer, 'probePort', async () => { probes += 1; return true; });
+  // onlynet=onion: IPv4 is not reachable.
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({
+    networks: [{ name: 'ipv4', reachable: false, proxy: '' }, { name: 'onion', reachable: true, proxy: '10.21.22.11:9050' }],
+  }));
+  assert.equal(await peerRotation.reviveParkedPeers(ranking()), 0);
+  // Core not answering: unknown counts as proxied.
+  rpc.getNetworkInfo.mock.mockImplementation(async () => { throw new Error('down'); });
+  assert.equal(await peerRotation.reviveParkedPeers(ranking()), 0);
+  assert.equal(probes, 0);
+});
