@@ -47,6 +47,7 @@ const RULES = {
   stratumIdleTimeoutMs: { min: 1000, max: 7 * 24 * 60 * 60 * 1000 },
   stratumHistoryRetentionDays: { min: 1, max: 36500 },
   feelerPeerRetentionDays: { min: 1, max: 36500 },
+  neverFirstPeerRetentionDays: { min: 1, max: 36500 },
   peerPollIntervalMs: { min: 1000, max: 3600000, note: 'below a second this is a busy loop against Core' },
   rotationLogEntries: { min: 1, max: 100000 },
 };
@@ -75,6 +76,7 @@ const ENV_NAMES = {
   stratumIdleTimeoutMs: 'STRATUM_IDLE_TIMEOUT_MS',
   stratumHistoryRetentionDays: 'STRATUM_HISTORY_RETENTION_DAYS',
   feelerPeerRetentionDays: 'FEELER_PEER_RETENTION_DAYS',
+  neverFirstPeerRetentionDays: 'NEVER_FIRST_PEER_RETENTION_DAYS',
   peerPollIntervalMs: 'PEER_POLL_INTERVAL_MS',
   rotationLogEntries: 'ROTATION_LOG_ENTRIES',
 };

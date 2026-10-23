@@ -73,4 +73,40 @@ function pruneOldData({
   return tx();
 }
 
-module.exports = { pruneOldData };
+// Peers that were around for blocks but never delivered one first, and have
+// not been seen for neverFirstPeerRetentionDays (see config.js). In small
+// batches, each its own transaction: the other processes wait on the same
+// write lock with a 10 s timeout, and a backlog of months must not hold it
+// in one go. Everything goes through indexes on peer_id.
+function pruneNeverFirstPeers({
+  days = config.neverFirstPeerRetentionDays,
+  batch = 500,
+  maxBatches = 40,
+} = {}) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const pick = db.instance.prepare(
+    `SELECT p.id FROM peer_relay_stats s JOIN peer p ON p.id = s.peer_id
+      WHERE s.first = 0
+        AND p.address NOT IN (SELECT address FROM trusted_peer)
+        AND p.address NOT IN (SELECT address FROM parked_peer)
+        AND NOT EXISTS (SELECT 1 FROM peer_session ps
+                         WHERE ps.peer_id = p.id AND (ps.ended_at IS NULL OR ps.ended_at >= ?))
+      LIMIT ?`,
+  );
+  const drop = db.instance.transaction((ids) => {
+    const list = ids.map(() => '?').join(',');
+    db.instance.prepare(`DELETE FROM relay_observation WHERE peer_id IN (${list})`).run(...ids);
+    db.instance.prepare(`DELETE FROM peer_session WHERE peer_id IN (${list})`).run(...ids);
+    db.instance.prepare(`DELETE FROM peer_relay_stats WHERE peer_id IN (${list})`).run(...ids);
+    return db.instance.prepare(`DELETE FROM peer WHERE id IN (${list})`).run(...ids).changes;
+  });
+  let removed = 0;
+  for (let i = 0; i < maxBatches; i += 1) {
+    const ids = pick.all(cutoff, batch).map((r) => r.id);
+    if (!ids.length) break;
+    removed += drop(ids);
+  }
+  return removed;
+}
+
+module.exports = { pruneOldData, pruneNeverFirstPeers };
