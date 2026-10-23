@@ -935,7 +935,7 @@ function renderPeerTables(peers, options = {}) {
   // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td>Free slot</td>${'<td></td>'.repeat(7)}
+      <td>-</td>${'<td></td>'.repeat(7)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
@@ -1812,8 +1812,10 @@ function wireReset(scope) {
     try {
       await api('/api/reset', { method: 'POST', body: JSON.stringify({ scope }) });
     } catch (err) {
-      // Said out loud: a silent failure here reads as data that was deleted.
-      showToast(`Nothing was deleted: ${err.message}`, 'error');
+      // Said out loud: a silent failure here read as data that was deleted.
+      // Not "nothing was deleted": a timeout can come after the delete.
+      showToast(`Reset failed: ${err.message}`, 'error');
+      refreshStorage();
       return;
     } finally {
       yes.disabled = false;
