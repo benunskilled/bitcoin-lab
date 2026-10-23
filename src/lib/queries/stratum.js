@@ -187,16 +187,19 @@ function stratumRanking(range = '10') {
 function deletePool(id) {
   const tx = db.instance.transaction((poolId) => {
     db.instance.prepare(`DELETE FROM stratum_observation WHERE pool_id = ?`).run(poolId);
-    db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(poolId);
+    const removed = db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(poolId).changes;
     // Races in which this pool was the only participant now have no
     // observations at all. Left in place they still occupy slots in the
     // "last N races" windows, so the range selector would quietly show fewer
     // data points than it claims. Drop the empty shells with the pool.
+    // Older than a minute only: a race the worker has just opened has no
+    // observations yet either.
     db.instance
-      .prepare(`DELETE FROM stratum_race WHERE id NOT IN (SELECT DISTINCT race_id FROM stratum_observation)`)
-      .run();
+      .prepare(`DELETE FROM stratum_race WHERE id NOT IN (SELECT DISTINCT race_id FROM stratum_observation) AND created_at < ?`)
+      .run(Date.now() - 60_000);
+    return removed;
   });
-  tx(id);
+  return tx(id) > 0;
 }
 
 module.exports = { stratumRanking, deletePool };

@@ -216,7 +216,8 @@ test('deleting a pool also removes races it was the only participant in', () => 
   const poolId = db.instance
     .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES ('Solo Only', 'solo.example', 3333, 1, 0, ?)`)
     .run(Date.now()).lastInsertRowid;
-  const raceId = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)').run('lonely-race', Date.now()).lastInsertRowid;
+  // Older than the minute a just-opened race is left alone for.
+  const raceId = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)').run('lonely-race', Date.now() - 120_000).lastInsertRowid;
   db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, 0, 1)').run(raceId, poolId);
 
   queries.deletePool(poolId);
@@ -313,4 +314,15 @@ test('the widget names the same best peer as the ranking, on the window and not 
     best.firstPct > 55 && best.firstPct < 65,
     `expected the window rate near 60%, got ${best.firstPct.toFixed(1)}%`,
   );
+});
+
+test('deleting a pool leaves a race the worker has only just opened', () => {
+  // It has no observations yet either; removing it lost that block's measurement.
+  const raceId = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)').run('fresh-race', Date.now()).lastInsertRowid;
+  const poolId = db.instance
+    .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES ('Gone', 'gone.example', 3333, 1, 0, ?)`)
+    .run(Date.now()).lastInsertRowid;
+  assert.equal(queries.deletePool(poolId), true);
+  assert.equal(queries.deletePool(poolId), false, 'a second delete finds nothing');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race WHERE id = ?').get(raceId).n, 1);
 });
