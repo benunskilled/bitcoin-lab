@@ -257,7 +257,7 @@ function fitTables() {
 // counts as wider, so it measures from scratch.
 const fitState = { width: -Infinity, level: 0, cards: false };
 let fitTimer = null;
-const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); notePlace(); }, 50); };
 // Re-rendered rows are cards without their labels until fitTables runs, and
 // fitTables takes the cards away for a moment to measure: either way the page
 // is shorter for an instant, and Safari clamps the scroll position to it and
@@ -265,13 +265,58 @@ const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTab
 // position from the last frame is put back before anything is painted. Only a
 // jump upwards of more than a flick, so a scroll in progress is left alone.
 let lastScrollY = window.scrollY;
-window.addEventListener('scroll', () => { lastScrollY = window.scrollY; }, { passive: true });
+// Keeping the scroll position is not enough either: with all peers shown, a
+// refresh adds and drops rows above the reader, and everything below moved
+// by a few hundred pixels every twenty seconds (iPhone, 24.10.2026). Safari
+// has no scroll anchoring of its own, so the page does it: what is at the top
+// of the window - a heading, or the nth row of a table - is noted, and after
+// a refresh it is put back where it was.
+const PLACE_SELECTOR = 'h2, h3, .table-wrap tbody tr';
+let placeMarks = [];
+function notePlace() {
+  placeMarks = [];
+  if (window.scrollY <= 0) return;
+  const tables = [...document.querySelectorAll('.table-wrap table')];
+  const heads = [...document.querySelectorAll('h2, h3')];
+  for (const e of document.querySelectorAll(PLACE_SELECTOR)) {
+    const r = e.getBoundingClientRect();
+    if (r.height === 0 || r.bottom <= 0) continue;
+    if (r.top >= window.innerHeight) break;
+    const key = e.tagName === 'TR'
+      ? [tables.indexOf(e.closest('table')), [...e.parentNode.children].indexOf(e)]
+      : [-1, heads.indexOf(e)];
+    placeMarks.push({ key, top: r.top });
+    if (placeMarks.length === 3) break;
+  }
+}
+function findPlace([table, i]) {
+  if (table < 0) return document.querySelectorAll('h2, h3')[i];
+  return document.querySelectorAll('.table-wrap table')[table]?.tBodies[0]?.children[i];
+}
+// Back where it was, by the first of the noted elements still there.
+function keepPlace() {
+  for (const { key, top } of placeMarks) {
+    const e = findPlace(key);
+    if (!e || e.getBoundingClientRect().height === 0) continue;
+    const d = e.getBoundingClientRect().top - top;
+    if (Math.abs(d) >= 1) window.scrollBy(0, d);
+    return true;
+  }
+  return false;
+}
+let placeFrame = 0;
+window.addEventListener('scroll', () => {
+  lastScrollY = window.scrollY;
+  if (!placeFrame) placeFrame = requestAnimationFrame(() => { placeFrame = 0; notePlace(); });
+}, { passive: true });
 new MutationObserver(() => {
   const y = lastScrollY;
   // Not when fitTables has just kept the reader's place itself: that move is
   // meant, and putting the old position back would undo it.
   const anchored = fitTables();
-  if (!anchored && y - window.scrollY > 100) window.scrollTo(0, y);
+  if (!anchored && !keepPlace() && y - window.scrollY > 100) window.scrollTo(0, y);
+  lastScrollY = window.scrollY;
+  notePlace();
 }).observe(document.body, { childList: true, subtree: true });
 // Only a change of width can change whether the tables fit. On an iPhone the
 // height changes all the time - Safari's toolbar shrinks and grows while the
@@ -496,6 +541,7 @@ function scrollToFocusOnce() {
         window.scrollTo(0, window.scrollY + off);
         // Our own jump, not the clamp the observer below undoes.
         lastScrollY = window.scrollY;
+        notePlace();
       }
     }
     if (Date.now() < until) setTimeout(place, 250);
