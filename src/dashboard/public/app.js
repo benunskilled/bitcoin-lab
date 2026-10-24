@@ -217,10 +217,19 @@ function sizeColumns() {
       if (COL_FIXED[col(th)]) fixed += COL_FIXED[col(th)];
       else need += COL_NEED[col(th)] || 0;
     }
+    // Without the Client column the address cell carries the client too,
+    // and the two buttons stand one above the other (style.css).
+    const last = t.closest('.table-wrap')?.dataset.drops === String(DROP_LEVELS);
+    if (last) {
+      fixed -= COL_FIXED['col-actions'] - 136;
+      need += COL_NEED['col-client'] - COL_NEED['col-address'];
+    }
     const spare = Math.max(0, t.offsetWidth - fixed);
     for (const th of shown) {
       const c = col(th);
-      th.style.width = (COL_FIXED[c] || Math.floor(spare * (COL_NEED[c] || 0) / need)) + 'px';
+      const fix = last && c === 'col-actions' ? 136 : COL_FIXED[c];
+      const want = last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0;
+      th.style.width = (fix || Math.floor(spare * want / need)) + 'px';
     }
   }
 }
@@ -254,7 +263,7 @@ function fitTables() {
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
     sizeColumns();
-    if (level === DROP_LEVELS || !(tight() || (level < 4 && clientCut()))) break;
+    if (level === DROP_LEVELS || !(tight() || clientCut())) break;
   }
   const cards = level === DROP_LEVELS && tight();
   for (const w of wraps) w.classList.toggle('cards', cards);
@@ -662,6 +671,14 @@ async function refreshPeers() {
 // address would just be confusing/misleading, since it looks like a real
 // peer IP but isn't and can't be acted on (see actionsCell). Label it
 // honestly instead.
+// The client again, as a second line under the address: shown once a narrow
+// table has given up the Client column, and on the phone cards (style.css,
+// .addr-client) - so the name stays on screen to the end.
+function withClientLine(cell, p) {
+  if (!p.client) return cell;
+  return cell.replace(/<\/td>$/, `<small class="addr-client">${escapeHtml(p.client)}</small></td>`);
+}
+
 function addressCell(p) {
   if (p.sourceObscured) {
     return `<td class="cell-truncate hint" title="Inbound IPv6 passes through Docker, which puts its own address in place of the peer's.">IPv6 peer (address hidden by Docker)</td>`;
@@ -796,7 +813,7 @@ function peerRow(p, { status = p.status, actions }) {
   const weak = cannotRelayReason(p.client) || p.offersNothing ? ' weak' : '';
   return `
     <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
-      ${addressCell(p)}
+      ${withClientLine(addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
