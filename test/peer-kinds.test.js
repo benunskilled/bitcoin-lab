@@ -98,7 +98,7 @@ const AGENTS = [
   // Indexers and wallets.
   '/electrs:0.10.0/', '/electrumx:1.16/', '/esplora/',
   '/bitcoinj:0.15/', '/breadwallet:1.0/', '/bither/', '/MultiBit:0.5/', '/wasabi:2.0/', '/Bitcoin Wallet:9.0/',
-  '/WalletKit:0.1.0/', '/bread:2.1/', '/neutrino:0.2.0/', '/Rust BIP-157:0.6.0/rust-bitcoin:0.32.8/',
+  '/WalletKit:0.1.0/', '/bread:2.1/', '/btcwire:0.5.0/spvwallet:0.1.0/', '/btcwire:0.4.1/lit:v0.1/', '/nakamoto:0.3.0/', '/btcwire:0.4.1/Satoshi:0.19/', '/neutrino:0.2.0/', '/Rust BIP-157:0.6.0/rust-bitcoin:0.32.8/',
   // Crawlers that only say scan / seeder / census / monitor, seen on a real node.
   '/bitcoin-seeder:0.01/', '/btc-range-scan:0.1.0/', '/BTC-Nodes:2026-09-24/Sonar/', '/census:0.1.7/',
   '/btc-node-observatory:0.1.0/', '/go-bitnode-monitor:firstseen/', '/atlas-scout:0.1/', 'nebula/2.4.1-85b3e43',
