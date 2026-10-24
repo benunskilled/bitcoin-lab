@@ -156,8 +156,9 @@ const KIND_RULES = [
   [/electrs|electrum|esplora|\/mempool/i, 'an address indexer'],
   [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/Ladybug:|^\/hodlwallet:/i, 'a wallet'],
   // BIP157 light clients: neutrino (Lightning wallets on lnd) and Kyoto,
-  // which says "Rust BIP-157".
-  [/neutrino|BIP-157|kyoto|^Yuki \//i, 'a light client'],
+  // which says "Rust BIP-157". VerifiedX validators follow the chain the
+  // same way for their sidechain: headers, some blocks, no transactions.
+  [/neutrino|BIP-157|kyoto|^Yuki \/|^\/VerifiedX:/i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
