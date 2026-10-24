@@ -84,17 +84,16 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
     return { ok: false, address: probed.address, error: result.error };
   }
   logger.info('manually added peer', { address: probed.address, evicted: result.evicted?.address || null });
-  // In the rotation log too: a peer that lost its slot to a hand-made choice
-  // should not vanish without a trace.
-  if (result.evicted) {
-    logAction({
-      action: 'manual',
-      address: probed.address,
-      replacedAddress: result.evicted.address,
-      replacedFirstPct: result.evicted.firstPct,
-      note: `added by hand, replaced ${result.evicted.address}`,
-    });
-  }
+  // In the rotation log too, every time: a hand-made choice belongs next to
+  // the rotation's own, and a peer that lost its slot to one should not
+  // vanish without a trace.
+  logAction({
+    action: 'manual',
+    address: probed.address,
+    replacedAddress: result.evicted?.address,
+    replacedFirstPct: result.evicted?.firstPct,
+    note: result.evicted ? `added by hand, replaced ${result.evicted.address}` : 'added by hand',
+  });
   return { ok: true, address: probed.address, ...evictionNote(result) };
 }
 
