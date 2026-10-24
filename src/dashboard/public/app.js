@@ -154,7 +154,7 @@ const KIND_RULES = [
   [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|\/mempool/i, 'an address indexer'],
-  [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/Ladybug:|^\/hodlwallet:/i, 'a wallet'],
+  [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/WalletKit:|^\/Ladybug:|^\/hodlwallet:/i, 'a wallet'],
   // Lightning wallets on lnd, which follow the chain through neutrino.
   [/neutrino/i, 'a Lightning wallet'],
   // Other BIP157 light clients: Kyoto, which says "Rust BIP-157". VerifiedX
