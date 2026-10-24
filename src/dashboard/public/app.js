@@ -213,11 +213,12 @@ function fitTables() {
     w.classList.remove('cards');
   }
   const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  // A client name cut to "..." counts as too tight while there are columns
-  // left to give up before it - an ordinary one, that is: one very long name
-  // (Knots with a comment) is not worth four columns on a wide screen.
-  const clientCut = () => [...document.querySelectorAll('.table-wrap td.client')].some((td) =>
-    td.clientWidth && td.dataset.full.length <= 24 && td.scrollWidth > td.clientWidth);
+  // An address or client name cut to "..." counts as too tight while there
+  // are columns left to give up before it - an ordinary one, that is: an
+  // onion address or a very long name (Knots with a comment) is not worth
+  // four columns on a wide screen.
+  const clientCut = () => [...document.querySelectorAll('table.peer-table td.client, table.peer-table td[data-col="col-address"]')]
+    .some((td) => td.clientWidth && (td.dataset.full || '').length <= 24 && td.scrollWidth > td.clientWidth);
   let level = 0;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
