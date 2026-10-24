@@ -565,7 +565,7 @@ function clientCell(p) {
 function sessionCell(p) {
   if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
   if (p.offlineSinceMs != null) {
-    return `<td class="hint">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+    return `<td class="hint wrap">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
   }
   return `<td>-</td>`;
 }

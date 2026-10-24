@@ -411,17 +411,20 @@ table.peer-table {
 .panel-note strong { color: var(--text); font-weight: 600; }
 .col-address { width: 16%; }
 .col-client { width: 10%; }
-/* Widest of the remaining columns on purpose - "BLOCK RELAY" and "MANUAL LIVE"
-   are the longest pill values and needs real room, which is exactly what was
+/* As wide as the longest pill, "MANUAL OFFLINE" (115px), needs - "BLOCK RELAY"
+   and "MANUAL LIVE" need real room too, which is exactly what was
    missing before (the pill visibly ran into First Seen %). overflow:hidden
    is belt-and-suspenders alongside that width - applied to both the <th>
    and (via the same class on its <td>, see app.js) the data cell, so even
    a future longer status value clips instead of spilling into the next
    column again. */
-.col-status { width: 15%; overflow: hidden; text-overflow: ellipsis; }
+.col-status { width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .col-pct { width: 12%; }
 .col-ping { width: 6%; }
-.col-session { width: 10%; }
+/* As wide as "99d 23h" needs; an offline manual peer's "offline 3d 4h" takes
+   two lines rather than the column a third more room on every row. */
+.col-session { width: 84px; }
+td.wrap { white-space: normal; }
 .col-total { width: 7%; }
 /* Nudged off the shared 10px th padding - purely a small optical fix so
    the label sits a bit closer to the data it heads (see .col-actions below
@@ -669,7 +672,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
 /* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 136px; }
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
 /* "Total time" may break, as "First %" does: in one line at 7% of a narrower
    table it ran into "Actions". */
