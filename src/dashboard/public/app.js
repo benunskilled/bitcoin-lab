@@ -194,6 +194,37 @@ function truncatedCell(text, cls = '') {
 // put back after every change.
 const DROP_LEVELS = 5;
 
+// Column widths of the peer tables, set for each step: the short columns as
+// wide as their content, and the room left shared by address, client, type
+// and First % in proportion to what each needs - an IPv4 address with its
+// port, a client name like /Satoshi:31.0.0/, the longest pill (MANUAL
+// OFFLINE), First % with its bar. They grow and shrink together, so none is
+// cut while another has room to spare.
+const COL_FIXED = { 'col-ping': 72, 'col-session': 84, 'col-total': 92, 'col-sessions': 56, 'col-actions': 240 };
+const COL_NEED = { 'col-address': 161, 'col-client': 205, 'col-status': 139, 'col-pct': 141 };
+function sizeColumns() {
+  for (const t of document.querySelectorAll('table.peer-table')) {
+    if (!t.offsetWidth) continue;
+    const ths = [...t.tHead.rows[0].cells];
+    for (const th of ths) th.style.width = '';
+    const shown = ths.filter((th) => getComputedStyle(th).display !== 'none');
+    const col = (th) => [...th.classList].find((c) => c.startsWith('col-'));
+    // Only the three tables with these columns, not Parked.
+    if (!shown.every((th) => COL_FIXED[col(th)] || COL_NEED[col(th)])) continue;
+    let fixed = 0;
+    let need = 0;
+    for (const th of shown) {
+      if (COL_FIXED[col(th)]) fixed += COL_FIXED[col(th)];
+      else need += COL_NEED[col(th)] || 0;
+    }
+    const spare = Math.max(0, t.offsetWidth - fixed);
+    for (const th of shown) {
+      const c = col(th);
+      th.style.width = (COL_FIXED[c] || Math.floor(spare * (COL_NEED[c] || 0) / need)) + 'px';
+    }
+  }
+}
+
 function fitTables() {
   const y = window.scrollY;
   const wraps = [...document.querySelectorAll('.table-wrap')];
@@ -222,6 +253,7 @@ function fitTables() {
   let level = 0;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
+    sizeColumns();
     if (level === DROP_LEVELS || !(tight() || (level < 4 && clientCut()))) break;
   }
   const cards = level === DROP_LEVELS && tight();
