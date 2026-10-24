@@ -151,10 +151,10 @@ const KIND_RULES = [
   [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
-  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut/i, 'a network crawler'],
+  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|\/mempool/i, 'an address indexer'],
-  [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
+  [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
   // BIP157 light clients: neutrino (Lightning wallets on lnd) and Kyoto,
   // which says "Rust BIP-157".
   [/neutrino|BIP-157|kyoto/i, 'a light client'],
