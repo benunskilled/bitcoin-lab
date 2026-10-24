@@ -195,8 +195,8 @@ function truncatedCell(text, cls = '') {
 }
 
 // A table that does not fit its panel first gives up its least important
-// columns, a step at a time (data-drop="1".."4" on the <th>: sessions, then
-// total time and client, then session, then ping; for the pools seen/miss, then
+// columns, a step at a time (data-drop="1".."5" on the <th>: sessions, then
+// total time, session, ping and last the client; for the pools seen/miss, then
 // median/p90, then host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
@@ -206,7 +206,7 @@ function truncatedCell(text, cls = '') {
 // together - one panel as cards and the next as a table looked like two
 // different pages. The rows are re-rendered all the time, so the labels are
 // put back after every change.
-const DROP_LEVELS = 4;
+const DROP_LEVELS = 5;
 
 function fitTables() {
   const y = window.scrollY;
@@ -250,11 +250,16 @@ function fitTables() {
   const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
   const before = `${fitState.level}${fitState.cards}`;
   const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
+  // A client name cut to "..." counts as too tight while there are columns
+  // left to give up before it - an ordinary one, that is: one very long name
+  // (Knots with a comment) is not worth four columns on a wide screen.
+  const clientCut = () => [...document.querySelectorAll('.table-wrap td.client')].some((td) =>
+    td.clientWidth && td.dataset.full.length <= 24 && td.scrollWidth > td.clientWidth);
   if (wider) for (const w of wraps) w.classList.remove('cards');
   let level = wider ? 0 : fitState.level;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
-    if (level === DROP_LEVELS || !tight()) break;
+    if (level === DROP_LEVELS || !(tight() || (level < 4 && clientCut()))) break;
   }
   const cards = level === DROP_LEVELS && tight();
   for (const w of wraps) w.classList.toggle('cards', cards);
