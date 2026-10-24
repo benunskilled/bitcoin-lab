@@ -670,10 +670,6 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops="3"] [data-drop]:not([data-drop="4"]):not([data-drop="5"]),
 .table-wrap[data-drops="4"] [data-drop]:not([data-drop="5"]),
 .table-wrap[data-drops="5"] [data-drop] { display: none; }
-/* Client says who the peer is: it goes last, and the room the others leave
-   goes to it and the address. */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-client,
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-address { width: auto; }
 /* The two buttons need their width whatever the table's: as a share of a
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
