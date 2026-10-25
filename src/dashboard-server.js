@@ -140,7 +140,9 @@ function readAddress(res, address) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let raw = '';
+    // Bytes first, text at the end: a chunk can end in the middle of a
+    // multi-byte character, which decoding each chunk on its own would break.
+    const chunks = [];
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
@@ -149,15 +151,25 @@ function readBody(req) {
         req.destroy();
         return;
       }
-      raw += chunk;
+      chunks.push(chunk);
     });
     req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
+      let body;
       try {
-        resolve(JSON.parse(raw));
+        body = JSON.parse(raw);
       } catch (err) {
         reject(new Error('invalid JSON body'));
+        return;
       }
+      // Every route reads fields off an object: null, a number or a list
+      // would only fail later, as a 500.
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        reject(new Error('invalid JSON body'));
+        return;
+      }
+      resolve(body);
     });
     req.on('error', reject);
   });
@@ -509,10 +521,9 @@ function poolRange(raw) {
   if (raw === null || raw === '') return '10';
   if (raw === 'all') return 'all';
   const n = Number(raw);
-  // Anything unrecognisable is passed through untouched: stratumRanking() has
-  // its own rule for that (fail open to all-time), and it is not this
-  // function's business to change it.
-  if (!Number.isFinite(n) || n <= 0) return raw;
+  // Anything unrecognisable gets the default view. It used to fall through to
+  // all-time, the one expensive answer, for any typo in the query string.
+  if (!Number.isFinite(n) || n <= 0) return '10';
   return String(Math.min(Math.floor(n), MAX_POOL_RANGE));
 }
 
@@ -773,7 +784,7 @@ async function router(req, res, pathname, url) {
     const { address, label } = await readBody(req);
     if (!readAddress(res, address)) return true;
     const host = hostFromAddress(address);
-    const result = await manualAddPeer(host, label);
+    const result = await manualAddPeer(host, typeof label === 'string' ? label.slice(0, 64) : undefined);
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
@@ -784,9 +795,10 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/keep') {
     const { address, kept } = await readBody(req);
     if (!readAddress(res, address)) return true;
-    const changed = peerSync.setKept(address, Boolean(kept));
+    if (typeof kept !== 'boolean') return sendJson(res, 400, { error: 'kept must be true or false' });
+    const changed = peerSync.setKept(address, kept);
     if (!changed) return sendJson(res, 404, { error: 'not a manual peer' });
-    return sendJson(res, 200, { ok: true, address, kept: Boolean(kept) });
+    return sendJson(res, 200, { ok: true, address, kept });
   }
 
   if (req.method === 'GET' && pathname === '/api/rotation') {
@@ -860,11 +872,14 @@ async function router(req, res, pathname, url) {
   if (poolMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
     const id = Number(poolMatch[1]);
     if (req.method === 'DELETE') {
+      let removed;
       try {
-        queries.deletePool(id);
+        removed = queries.deletePool(id);
       } catch (err) {
-        return sendJson(res, 500, { ok: false, error: err.message });
+        logger.error('deleting a pool failed', { id, error: err.message });
+        return sendJson(res, 500, { ok: false, error: 'internal error' });
       }
+      if (!removed) return sendJson(res, 404, { ok: false, error: 'no such pool' });
       return sendJson(res, 200, { ok: true });
     }
     const body = await readBody(req);

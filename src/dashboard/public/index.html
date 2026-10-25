@@ -51,10 +51,10 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client" data-drop="2">Client</th>
+              <th class="col-client" data-drop="5">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping">Ping</th>
+              <th class="col-ping" data-drop="4">Ping</th>
               <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-total" data-drop="2">Total Time</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
@@ -88,10 +88,10 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client" data-drop="2">Client</th>
+              <th class="col-client" data-drop="5">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping">Ping</th>
+              <th class="col-ping" data-drop="4">Ping</th>
               <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-total" data-drop="2">Total Time</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
@@ -146,10 +146,10 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client" data-drop="2">Client</th>
+              <th class="col-client" data-drop="5">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping">Ping</th>
+              <th class="col-ping" data-drop="4">Ping</th>
               <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-total" data-drop="2">Total Time</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
@@ -185,7 +185,7 @@
         <p>New slot holders are safe for 50 blocks. Peers that lose their slot while offline are parked below and come back when they answer.</p>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
-        <h3>Parked <span class="hint">peers that lost their slot while offline - still being tested, back as soon as they answer</span></h3>
+        <h3>Parked</h3>
         <div class="table-wrap">
           <table id="parked-peer-table" class="peer-table">
             <thead>
@@ -207,7 +207,7 @@
               <th class="col-time">When</th>
               <th class="col-rot-action">Action</th>
               <th class="col-address">Address</th>
-              <th class="col-pct">First %</th>
+              <th class="col-pct" title="Of all the blocks this peer saw, the share it delivered first, at the time of the action. Why it was acted on is in the note.">First % (lifetime)</th>
               <th>Note</th>
             </tr>
           </thead>
@@ -305,7 +305,7 @@
 
     <!-- What the node sends and receives, per UTC day. -->
     <section class="card panel" id="traffic-card">
-      <h2>Traffic <span id="traffic-today" class="hint"></span></h2>
+      <h2>Traffic</h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
       <p class="hint" id="traffic-note">Updated hourly from Core's byte counters. No bar means not measured.</p>

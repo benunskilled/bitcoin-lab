@@ -32,7 +32,8 @@ test.before(() => {
   rpc.timeCall = async () => { templateCalls += 1; return { count: 3 }; };
 });
 
-const block = (i) => ({ blockHash: String(i).padStart(64, 'd'), detectedAtMs: now, t0: process.hrtime.bigint() });
+// Ten minutes apart, like real blocks: blocks seconds apart are a backlog.
+const block = (i) => ({ blockHash: String(i).padStart(64, 'd'), detectedAtMs: now + i * 600_000, t0: process.hrtime.bigint() });
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
 test('with Stratum Race off, no block template is requested', async () => {
@@ -53,4 +54,19 @@ test('with Stratum Race on, the template is timed as before', async () => {
   assert.equal(templateCalls, 1);
   const row = db.instance.prepare('SELECT template_tx AS tx FROM relay_race WHERE block_hash = ?').get(block(2).blockHash);
   assert.equal(row.tx, 3);
+});
+
+test('while Core catches up, the blocks after the first get no template', async () => {
+  // A full template for every old block is load on Core when it is busiest.
+  stratumRace.setEnabled(true);
+  rpc.getBlockchainInfo = async () => ({ blocks: 1, headers: 9, initialblockdownload: false });
+  templateCalls = 0;
+  const at = now + 3_600_000;
+  for (let i = 0; i < 4; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await relay.handleHashBlock({ blockHash: String(10 + i).padStart(64, 'd'), detectedAtMs: at + i * 500, t0: process.hrtime.bigint() });
+  }
+  await settle();
+  assert.equal(templateCalls, 1, 'only the first, before it is known to be a catch-up');
+  rpc.getBlockchainInfo = async () => ({ blocks: 1, headers: 1, initialblockdownload: false });
 });

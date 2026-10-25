@@ -1088,3 +1088,47 @@ test('an install that has already run keeps Stratum Race switched on across the 
   // Second open: the update.
   assert.equal(flagAfterOpen(dir), 'true', 'an existing install is switched on rather than going quiet');
 });
+
+test('pruneNeverFirstPeers removes only peers that never delivered first and are long gone', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const race = (h) => db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)').run(h, now - 60 * day).lastInsertRowid;
+  const r1 = race('nf-race-1');
+  const r2 = race('nf-race-2');
+  const peer = (address, { first = 0, endedDaysAgo = 40, open = false, direction = 'inbound' } = {}) => {
+    const p = db.getOrCreatePeer(address);
+    db.instance.prepare('UPDATE peer SET first_seen_at = ? WHERE id = ?').run(now - 50 * day, p.id);
+    db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)').run(r1, p.id, first);
+    db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 0)').run(r2, p.id);
+    db.instance.prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+      .run(p.id, direction, direction === 'inbound' ? 'inbound' : 'outbound-full-relay', now - (endedDaysAgo + 1) * day, open ? null : now - endedDaysAgo * day);
+    return p.id;
+  };
+  const gone = peer('203.0.113.201:8333');
+  const deliverer = peer('203.0.113.202:8333', { first: 1 });
+  const recent = peer('203.0.113.203:8333', { endedDaysAgo: 5 });
+  const live = peer('203.0.113.204:8333', { open: true });
+  const manual = peer('203.0.113.205:8333');
+  db.instance.prepare('INSERT INTO trusted_peer (address, created_at) VALUES (?, ?)').run('203.0.113.205:8333', now);
+  const parked = peer('203.0.113.206:8333');
+  db.instance.prepare('INSERT INTO parked_peer (address, first_pct, eligible, parked_at) VALUES (?, 0, 2, ?)').run('203.0.113.206:8333', now);
+  // An outbound choice is counted by the funnel and stays.
+  const outbound = peer('203.0.113.207:8333', { direction: 'outbound' });
+  // Back after a month: in a recent block, no session row yet.
+  const back = peer('203.0.113.208:8333');
+  const fresh = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)').run('nf-race-new', now).lastInsertRowid;
+  db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, 0)').run(fresh, back);
+  const delivererBefore = db.instance.prepare('SELECT eligible, first FROM peer_relay_stats WHERE peer_id = ?').get(deliverer);
+
+  assert.equal(queries.pruneNeverFirstPeers({ days: 30 }), 1);
+
+  const exists = (id) => db.instance.prepare('SELECT COUNT(*) AS n FROM peer WHERE id = ?').get(id).n === 1;
+  assert.equal(exists(gone), false);
+  for (const id of [deliverer, recent, live, manual, parked, outbound, back]) assert.equal(exists(id), true);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM relay_observation WHERE peer_id = ?').get(gone).n, 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM peer_session WHERE peer_id = ?').get(gone).n, 0);
+  // Nobody else's record moves, and the blocks themselves stay.
+  assert.deepEqual(db.instance.prepare('SELECT eligible, first FROM peer_relay_stats WHERE peer_id = ?').get(deliverer), delivererBefore);
+  assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM relay_race WHERE block_hash LIKE 'nf-race-%'").get().n, 3);
+  assert.equal(queries.pruneNeverFirstPeers({ days: 30 }), 0, 'a second run finds nothing');
+});

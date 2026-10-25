@@ -94,6 +94,7 @@ function widgetStats() {
       `SELECT sp.label, AVG(so.latency_ms) AS avgMs, COUNT(so.latency_ms) AS seen
        FROM stratum_pool sp
        JOIN stratum_observation so ON so.pool_id = sp.id AND so.latency_ms IS NOT NULL
+       WHERE sp.enabled = 1
        GROUP BY sp.id
        HAVING seen >= 3
        ORDER BY avgMs ASC

@@ -362,6 +362,16 @@ function runMaintenance() {
     logger.warn('data retention prune failed', { error: err.message });
   }
   try {
+    const neverFirstPeersDeleted = queries.pruneNeverFirstPeers();
+    if (neverFirstPeersDeleted) {
+      logger.info('removed peers that never delivered a block first', {
+        neverFirstPeerRetentionDays: config.neverFirstPeerRetentionDays, neverFirstPeersDeleted,
+      });
+    }
+  } catch (err) {
+    logger.warn('never-first prune failed', { error: err.message });
+  }
+  try {
     if (db.maybeVacuum()) logger.info('vacuumed sqlite database to reclaim pruned space');
   } catch (err) {
     logger.warn('vacuum failed', { error: err.message });
