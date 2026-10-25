@@ -917,7 +917,8 @@ const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 
 const statusLabel = (status) => STATUS_LABEL[status] || status;
 
 function statusPill(p, status) {
-  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
+  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
+    || (p.otherChain ? `it is on a chain of its own (${p.otherChain}), not yours` : null);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The pill is dimmed and the cell says it in words, so the fact stays
@@ -932,7 +933,7 @@ const UMBREL_APP = 'UMBREL APP';
 
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
-  const weak = cannotRelayReason(p.client) || p.offersNothing ? ' weak' : '';
+  const weak = cannotRelayReason(p.client) || p.offersNothing || p.otherChain ? ' weak' : '';
   return `
     <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${withClientLine(addressCell(p), p)}

@@ -1,5 +1,14 @@
 'use strict';
 
+// Peer Map's forkOf: crawlers repeat bits they saw elsewhere, but the Lab
+// ranks peers it dialled or that dialled it, so the bit alone is the sign.
+function otherChainOf(services) {
+  const list = typeof services === 'string' ? services.split(',') : [];
+  if (list.includes('UNKNOWN[2^28]')) return 'BLAKE2b fork';
+  if (list.includes('UNKNOWN[2^27]')) return 'BIP110 fork';
+  return null;
+}
+
 /**
  * What one row of the peer ranking MEANS - the half of the ranking that is
  * judgement rather than SQL.
@@ -162,6 +171,11 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
       // An empty list is the peer saying it offers nothing - no blocks to pass
       // on, whatever its user agent says. NULL is Core saying nothing.
       offersNothing: r.services === '',
+      // Knots' service bits for chains of their own (protocol.h on its
+      // 29.x-knots branch): 27 ReducedData, the BIP110 chain, 28 the BLAKE2b
+      // hard fork. Such a peer cannot deliver a block of this chain. Peer
+      // Map's forkOf says the same.
+      otherChain: otherChainOf(r.services),
       currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
       // How long a trusted-but-not-currently-live peer has been offline -
       // Core reconnects manuals on its own, but that can fail silently
