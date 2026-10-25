@@ -1,6 +1,6 @@
 # Records from my node
 
-I run Bitcoin Core on Umbrel with `maxconnections=200`. While I measured, it accepted incoming connections over IPv4, IPv6, Tor and I2P, around 190 inbound peers at any time. It no longer listens on IPv6. On 16 September 2026 I started measuring from scratch. These are the records since then: 2,328 blocks up to 2 October.
+I run Bitcoin Core on Umbrel with `maxconnections=200`. While I measured, it accepted incoming connections over IPv4, IPv6, Tor and I2P, around 190 inbound peers at any time. It no longer listens on IPv6. On 16 September 2026 I started measuring from scratch. These are the records since then: 2,328 blocks up to 2 October. The table below covers whole days up to 1 October.
 
 ## Who delivered first
 
