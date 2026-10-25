@@ -2,136 +2,77 @@
 
 [![Tests](https://github.com/benunskilled/bitcoin-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/benunskilled/bitcoin-lab/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/benunskilled/bitcoin-lab)](https://github.com/benunskilled/bitcoin-lab/releases)
 
-**Ever wondered which of your peers actually brings you new blocks first? Bitcoin Lab measures it on your node.**
+Every new block reaches your node through one of your peers. Some peers are first again and again, others never. Bitcoin Lab notes for every block who was first and ranks your peers by it. Keep the fast ones as manual peers, drop the ones that never deliver and get fresh ones to rank, or let rotation do it for you.
 
-Your node may have hundreds of connections. Bitcoin Lab notes for every new
-block which peer delivered it first and ranks them by it – and if you want,
-helps you keep the best ones. If you run your own mining pool, the optional
-Stratum Race compares when fresh work arrives from your pool and public pools.
+Rotation only works on the outbound peers Core picks for you. Inbound peers are ranked too, but never kept or dropped automatically. Many of them don't accept connections at all, and the port you see is only the one they called from, so there is no address to dial back.
 
-Built for Bitcoin enthusiasts who enjoy understanding their setup, trying things
-out and seeing what makes a difference on their own node.
+Mining solo? Stratum Race times how fast your own pool turns a new block into fresh work, side by side with public pools.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=2)
 
-## Why it exists
+## Why it matters
 
-Your peers decide how soon your node hears about a new block. Core's peer list
-shows addresses and ping, but not which of them deliver first; Bitcoin Lab does. If you mine
-solo, it matters even more: your pool can only hand out new work once your node
-has the block.
+Core picks its peers at random and keeps them as long as they behave, without checking whether they are fast. For most nodes that is fine. If you mine solo, it matters: your pool can only hand out new work once your node has the block, and until then your miner keeps working on a block someone else already found.
 
-## Records from my node
+## What I saw on my node
 
-When I started measuring, I ran Core as it comes; then I switched on rotation,
-which keeps proven outbound peers in the manual slots. On 25 September I restarted the node with the eight manual peers
-it had found:
+My node has an open port, so many peers connect to it. Before rotation, nearly every block came first through one of those inbound peers. A few days after I switched rotation on, the outbound peers it kept as manual peers brought most blocks first. After a restart, Bitcoin Lab puts all eight manual peers straight back, so your node does not start from scratch.
 
 ![Who delivered each block first, per day](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/delivery.png?v=2)
 
-| Period | Blocks | Manual peers¹ | Core's outbound | Inbound |
-|---|---:|---:|---:|---:|
-| Before rotation, 16–18 Sep | 331 | 0% | 2% | 98% |
-| Rotation on, 19 Sep to the restart on 25 Sep | 930 | 61% | 6% | 33% |
-| Restart with 8 manual peers, 25 Sep – 1 Oct | 907 | 82% | 1% | 16% |
+[The numbers, and what I noticed while solo mining.](docs/measured.md)
 
-¹ Every manual peer was found by rotation among Core's own automatic outbound connections. None is an inbound connection turned into a manual one – rotation never promotes inbound peers.
+## How rotation works
 
-Before rotation, inbound connections brought 98% of blocks first. With eight
-manual peers, the inbound share fell to 16%, and the
-manual peers delivered 82% of blocks first. A restart does not throw that away:
-Bitcoin Lab puts the saved manual peers straight back, so the node started
-strong right away. That is the discovery behind the project: a small set of
-connections can matter far more than its size suggests.
-[How rare good peers are, and what I noticed while solo mining.](docs/measured.md)
+Core has eight manual slots that it never fills on its own, so on most nodes they sit empty. Bitcoin Lab puts them to work:
 
-## From random connections to a chosen set
+1. **Watch.** See which peers bring each new block first.
+2. **Keep.** Put a proven peer into a [manual slot](docs/manual-slots.md). Core holds on to it, and Bitcoin Lab puts it back after a restart.
+3. **Keep looking.** Drop an automatic outbound peer that has gone [50 blocks](docs/why-50-blocks.md), roughly eight hours, without being first. Core finds a new one to try.
 
-Bitcoin Core chooses automatic outbound peers from its address book. Bitcoin Lab
-uses those connections to discover candidates for the eight manual connections
-available through Core's `addnode` interface. Core never fills these slots on its
-own, so on most nodes they sit empty. Filled, your node has 18 outbound
-connections, eight of them chosen by you.
-
-The loop is straightforward:
-
-1. **Observe.** See which peers deliver each new block first.
-2. **Keep good candidates.** Add proven peers to your [manual selection](docs/manual-slots.md) so Core maintains connections to them. Bitcoin Lab remembers your selection across restarts and restores it when Core comes back online, so it can reconnect to your chosen peers straight away.
-3. **Keep looking.** Disconnect an automatic full-relay outbound peer that has been connected through [50 blocks](docs/why-50-blocks.md) without delivering one first. Core immediately looks for another candidate to take its place.
+Core's two block-relay-only peers are ranked but left alone. They are there to guard against eclipse attacks.
 
 ![Peer rotation: from one kept peer to a full manual set](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/rotation.gif)
 
 *Rotation as an animation, from a single kept peer to a full manual set. Simulated peers, the real rules. [Watch the full video](https://github.com/user-attachments/assets/72281912-4d8e-4498-bece-fb6cc5080155).*
 
-You can manage peers yourself or enable rotation to run this loop automatically. **Rotation is off by default.** Peers you type in are [protected](docs/protected-peers.md) from automatic replacement; the padlock lets you change that protection.
+You can do all of this by hand, or switch rotation on. **It is off by default.** The ranking [favours recent blocks and distrusts small samples](docs/how-a-peer-is-judged.md). A new peer gets a [grace period](docs/grace-period.md), a challenger needs a [clear lead](docs/swap-margin.md), and good peers that go offline are [parked](docs/parking.md) and tried again later. Peers you add yourself, here or in Umbrel's Bitcoin Node settings, are [protected](docs/protected-peers.md), and the padlock lets you change that. The rotation log shows every peer it kept, dropped or parked. Worried that choosing peers makes an eclipse attack easier? [Not that I can see.](docs/eclipse.md)
 
-The ranking [favours recent blocks and discounts small samples](docs/how-a-peer-is-judged.md). A newly promoted peer gets a [grace period](docs/grace-period.md), and a challenger needs a [clear lead](docs/swap-margin.md) to take a slot. Good peers that go offline are [parked and tested again later](docs/parking.md), with their history kept. The rotation log records each promotion, replacement, drop and parking; the last 30 are kept.
-
-**Rotation only works with 8 of Core's 10 automatic outbound connections – the full-relay ones.** The two block-relay-only connections and [all inbound peers](docs/inbound-peers.md) are measured and ranked, but never promoted or replaced automatically. Wondering whether this makes an eclipse attack easier? [Not that I can see – rotation even adds a hurdle.](docs/eclipse.md)
-
-Bitcoin Lab can only keep clearnet peers as manual connections. If Core makes
-its outgoing connections over clearnet only, every one of its eight full-relay
-slots holds a possible candidate, and rotation finds good peers faster. On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**.
-Incoming Tor and I2P connections are fine.
-
-Manual peers you set in Core yourself, for example in Umbrel's Bitcoin Node settings, are protected: rotation never disconnects or replaces them, and a reset keeps them even while they are offline.
+Bitcoin Lab can only keep clearnet peers. Rotation finds good ones faster if Core makes its outgoing connections over clearnet only. On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming Tor and I2P connections are fine.
 
 ## Reading the ranking
 
-A green address is a peer that has delivered at least one block first. ⚡ marks the peers Core has chosen right now to send it new blocks without being asked first (BIP152 high-bandwidth compact blocks, up to three). A peer in one of these places starts each block with a head start of at least one ping. 📡 is the other way round: a peer that has picked your node as one of its own, so your node sends it new blocks without being asked; the heading counts them. Core and its peers decide these places; Bitcoin Lab only observes them.
+A green address has brought at least one block first. ⚡ marks your high-bandwidth peers. Core picks up to three of them on its own, the ones that most recently brought it a new block, and asks them to send every new block straight away instead of announcing it first. That gives them a head start. 📡 is the other way round: a peer that picked your node as one of its high-bandwidth peers. Wallets, crawlers and other peers that can never be first are marked "never first", with the reason on hover.
 
-## Who mined it
+## Who mined it, and your traffic
 
-Under the newest block, Bitcoin Lab names the pool that mined it. It matches the
-coinbase against a bundled pool list
-([bitcoin-data/mining-pools](https://github.com/bitcoin-data/mining-pools), MIT)
-on your node, without asking any service. A miner that is not on the list is
-shown by the text it wrote into the coinbase.
+Under the newest block, Bitcoin Lab names the pool that mined it, from a bundled pool list ([bitcoin-data/mining-pools](https://github.com/bitcoin-data/mining-pools), MIT). No outside service is asked.
 
-## Traffic per day
+A traffic panel shows how much your node sent and received, per day and over the last week and month, from Core's own counters.
 
-How much your node sent and received: today, the last 7 and 30 days, and a bar
-per day, counted from Core's own byte counters. Worth a look with an open port –
-in one week my node sent 543 GB to other nodes and received only 25 GB.
+## Stratum Race
 
-## Compare your pool with Stratum Race
+Switch on Stratum Race and add your own pool. If GoBrrr, Bassin, Public Pool, DATUM or Pogolo runs on your Umbrel, Bitcoin Lab offers to add it for you. Eight public solo pools race alongside.
 
-Enable Stratum Race to compare new mining jobs as they arrive from your own pool and eight preconfigured public solo pools. If GoBrrr, Bassin, Public Pool, DATUM or Pogolo is installed on your Umbrel, Bitcoin Lab offers to add it; buttons for all five stay available below.
-
-For each new block hash reported in a job, the first pool sets the reference time and the others are measured against it – not a ping, but how quickly each pool switches to the new block. The dashboard shows wins, latency statistics and missed races, giving you a way to follow whether your own pool improves as you change your setup.
-
-Stratum Race is off by default on a fresh install. It subscribes to the pools without submitting mining shares, so you can observe the race without directing any mining work to them.
+For every new block, the first pool to send fresh work sets the reference time and the others are timed against it. You see who wins, how far behind the rest are, and whether your own pool gets faster as you tune your setup. Bitcoin Lab only listens: it never submits shares, so no mining work goes to any pool. Stratum Race is off by default.
 
 ## Install
 
-On **Umbrel**, add the
-[Bitcoin Peer Lab community store](https://github.com/benunskilled/bitcoin-lab-community-store)
-and install **Bitcoin Lab**. It requires the official **Bitcoin Node** app.
-Tested with Bitcoin Core 31.1.
-Open it from Umbrel or at `<your-umbrel>:8790`.
+Add the [Bitcoin Peer Lab community store](https://github.com/benunskilled/bitcoin-lab-community-store) on Umbrel and install **Bitcoin Lab**. It requires the official **Bitcoin Node** app. Tested with Bitcoin Core 31.1. Open it from Umbrel or at `<your-umbrel>:8790`.
 
-Let Bitcoin Lab just measure for a day or so first: you'll see who delivers blocks to your node as it is, so you can better judge improvements later. Once you switch rotation on, it judges a peer after 50 blocks – roughly eight hours.
+Let it just watch for a day or so before you change anything, so you know your baseline.
 
-Bitcoin Lab communicates with Core through RPC and ZMQ. Peer-management actions change live connections and the runtime `addnode` list. It does not edit `bitcoin.conf` or access wallet files, private keys or Core's block files. Remove the app and Core continues running like before, with its configuration untouched.
-
-It is light on the node: on my Umbrel, with around 200 peers connected, its four
-processes use about 310 MB of RAM together and almost no CPU, and its database
-grows by about 4 MB a day.
+Bitcoin Lab talks to Core through RPC and ZMQ. It changes live connections and the `addnode` list, nothing else: it never touches `bitcoin.conf`, wallets, keys or block files. Remove the app and Core runs on as before.
 
 ## See the other half with Peer Map
 
-[Peer Map](https://github.com/benunskilled/peer-map) shows the same peers on a
-world map: where they are, who runs them and what they are – nodes, pool nodes,
-wallets or crawlers. With both apps installed, it follows each new block across
-your node: who mined it and which peer delivered it first. If Stratum Race
-includes your own pool, it takes the block's route apart step by step – your
-peer, Core, the block template, your pool's job – with the time each step takes.
+[Peer Map](https://github.com/benunskilled/peer-map), in the same store, shows the same peers on a world map and makes a best guess at what each one really is. With both installed, it follows every new block across your node, and, if Stratum Race watches your own pool, all the way to its mining job.
 
 ## Documentation
 
 | Guide | What you will find |
 |---|---|
-| [Records from my node](docs/measured.md) | Peer-selection results and the experience of solo mining |
+| [Records from my node](docs/measured.md) | The numbers, and the experience of solo mining |
 | [Peer scoring](docs/how-a-peer-is-judged.md) | First, Eligible, recent history and sample size |
 | [Manual slots](docs/manual-slots.md) | The eight places for proven peers, kept across restarts |
 | [Why 50 blocks?](docs/why-50-blocks.md) | When rotation drops a candidate that never delivers first |
@@ -148,4 +89,4 @@ peer, Core, the block template, your pool's job – with the time each step take
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
