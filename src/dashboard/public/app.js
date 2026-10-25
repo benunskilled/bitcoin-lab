@@ -167,6 +167,17 @@ const KIND_RULES = [
 // named in the brackets (the pool rule without the word "mempool"). The rest read only the name outside them - a word
 // like "monitor" or "electrs" in an operator's label does not make a Core
 // node a crawler or an indexer. Peer Map's classify does the same.
+// Whether any rule names this client at all. Peer Map flags a fork only on
+// nodes and unknown software, not on a peer it already named as something
+// else (a pool, a misspelt Core), so the Lab asks the same.
+function namedByKindRule(client) {
+  if (!client) return false;
+  const bare = client.replace(/\([^)]*\)/g, '');
+  const noMempool = client.replace(/mempool/gi, '');
+  return KIND_RULES.some(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
+}
+const otherChainShown = (p) => (p.otherChain && !namedByKindRule(p.client) ? p.otherChain : null);
+
 function cannotRelayReason(client) {
   if (!client) return null;
   const bare = client.replace(/\([^)]*\)/g, '');
@@ -918,7 +929,7 @@ const statusLabel = (status) => STATUS_LABEL[status] || status;
 
 function statusPill(p, status) {
   const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
-    || (p.otherChain ? `it is on a chain of its own (${p.otherChain}), not yours` : null);
+    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The pill is dimmed and the cell says it in words, so the fact stays
@@ -933,7 +944,7 @@ const UMBREL_APP = 'UMBREL APP';
 
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
-  const weak = cannotRelayReason(p.client) || p.offersNothing || p.otherChain ? ' weak' : '';
+  const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
   return `
     <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${withClientLine(addressCell(p), p)}

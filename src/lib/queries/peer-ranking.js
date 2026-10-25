@@ -19,6 +19,7 @@ const { mapRankingRow } = require('./ranking-row');
 // held for the life of the process (see nthLatencyStmt below for the same
 // pattern).
 let peerRankingStmt = null;
+let liveTipStmt = null;
 
 /**
  * Per-peer totals over the last N races, for the recent half of the peer score.
@@ -105,9 +106,16 @@ function peerRanking() {
   if (!peerRankingStmt) {
     peerRankingStmt = db.instance.prepare(peerRankingSql());
   }
+  if (!liveTipStmt) {
+    // The tip as the live peers know it, for the fork flag: the small live
+    // index, ~200 rows.
+    liveTipStmt = db.instance.prepare(
+      'SELECT MAX(synced_headers) AS tip FROM peer_session INDEXED BY idx_peer_session_live WHERE ended_at IS NULL');
+  }
   const recent = recentRelayStats();
   const graceFrom = newManualGraceStartedAt();
-  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent, graceFrom));
+  const liveTip = liveTipStmt.get()?.tip || 0;
+  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent, graceFrom, liveTip));
 
   // Ordered here rather than in SQL: the score combines two windows and one of
   // them is not in that statement. The set is the live peers plus the manual
@@ -175,6 +183,7 @@ function peerRankingSql() {
             FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
          latest.subver AS client,
          latest.services AS services,
+         latest.syncedHeaders AS syncedHeaders,
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
@@ -192,7 +201,7 @@ function peerRankingSql() {
          -- session actually still live, in which case there's nothing to
          -- report here - offline duration only ever comes from a peer's
          -- most recent CLOSED session).
-         SELECT ps.peer_id, ps.subver, ps.network, ps.services, ps.ended_at AS latestEndedAt
+         SELECT ps.peer_id, ps.subver, ps.network, ps.services, ps.synced_headers AS syncedHeaders, ps.ended_at AS latestEndedAt
          FROM peer_session ps
          WHERE ps.id = (
            SELECT id FROM peer_session ps2

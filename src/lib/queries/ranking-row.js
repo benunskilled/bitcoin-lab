@@ -1,9 +1,15 @@
 'use strict';
 
-// Peer Map's forkOf: crawlers repeat bits they saw elsewhere, but the Lab
-// ranks peers it dialled or that dialled it, so the bit alone is the sign.
-function otherChainOf(services) {
+// Peer Map's forkOf. Which kinds it applies to is the dashboard's to decide
+// (it knows the kinds); here it is the bits and the chain. A live peer whose
+// headers reach the tip follows this chain whatever it offers: one home-built
+// node set bit 27 and stayed at the tip, while 3,945 of 3,947 sessions with
+// the bit shared no header past about 961,000. tip is the highest
+// synced_headers of any live peer; a peer not live keeps the bit alone.
+const FORK_TIP_SLACK = 6;
+function otherChainOf(services, syncedHeaders = null, tip = 0) {
   const list = typeof services === 'string' ? services.split(',') : [];
+  if (syncedHeaders != null && syncedHeaders >= 0 && tip > 0 && tip - syncedHeaders <= FORK_TIP_SLACK) return null;
   if (list.includes('UNKNOWN[2^28]')) return 'BLAKE2b fork';
   if (list.includes('UNKNOWN[2^27]')) return 'BIP110 fork';
   return null;
@@ -54,7 +60,7 @@ function statusFor(r, trusted) {
   return 'OFFLINE';
 }
 
-function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
+function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
   return (r) => {
     // "Trusted" isn't only what's in our own trusted_peer table - Core
     // itself reports connection_type 'manual' for ANY addnode'd peer,
@@ -175,7 +181,7 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
       // 29.x-knots branch): 27 ReducedData, the BIP110 chain, 28 the BLAKE2b
       // hard fork. Such a peer cannot deliver a block of this chain. Peer
       // Map's forkOf says the same.
-      otherChain: otherChainOf(r.services),
+      otherChain: otherChainOf(r.services, r.liveDirection ? r.syncedHeaders : null, liveTip),
       currentSessionMs: r.liveDirection ? now - r.liveStartedAt : null,
       // How long a trusted-but-not-currently-live peer has been offline -
       // Core reconnects manuals on its own, but that can fail silently
@@ -202,4 +208,4 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0) {
   };
 }
 
-module.exports = { mapRankingRow };
+module.exports = { mapRankingRow, otherChainOf };
