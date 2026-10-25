@@ -8,7 +8,7 @@ Rotation only works on the outbound peers Core picks for you. Inbound peers are 
 
 Mining solo? Stratum Race times how fast your own pool turns a new block into fresh work, side by side with public pools.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=2)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=3)
 
 ## Why it matters
 
