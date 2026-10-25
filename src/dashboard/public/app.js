@@ -151,7 +151,7 @@ const KIND_RULES = [
   [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
-  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban/i, 'a network crawler'],
+  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|\/mempool|^NBXplorer-/i, 'an address indexer'],
   [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/WalletKit:|^\/Ladybug:|^\/hodlwallet:|\/spvwallet:/i, 'a wallet'],
