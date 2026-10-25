@@ -158,7 +158,7 @@ const KIND_RULES = [
   // Lightning wallets on lnd, which follow the chain through neutrino.
   [/neutrino|\/lit:v/i, 'a Lightning wallet'],
   // Other BIP157 light clients: Kyoto, which says "Rust BIP-157". VerifiedX
-  // validators follow the chain the same way for their sidechain: headers,
+  // validators follow the chain the same way for a chain of their own: headers,
   // some blocks, no transactions.
   [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:/i, 'a light client'],
 ];
