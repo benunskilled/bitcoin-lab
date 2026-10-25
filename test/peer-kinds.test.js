@@ -106,7 +106,7 @@ const AGENTS = [
   // really runs is unknown.
   '/Sat0shi:31.0.0/', '/Satoshi2:0.18.3/', '/SatoshiX:0.18.0/', 'Satoshi:22.0.0',
   // Bitcoin Cash under another name, forks, more watchers, other node software.
-  '/Classic:1.3.4(EB8)/', '/BitcoinUnlimited:1.0.3(EB16; AD12)/', '/SuperBitcoin:0.16.0.2/', '/iriumd:1.9.66/', 'vds_0.9.53',
+  '/Classic:1.3.4(EB8)/', '/BitcoinUnlimited:1.0.3(EB16; AD12)/', '/SuperBitcoin:0.16.0.2/', '/iriumd:1.9.66/', 'vds_0.9.53', 'VDS 0.9.9.1', '/your-fork:0.1/', '/btcwire:0.5.0/CaribouSPV:0.0.1-beta/',
   '/NodeWatch-BTC:0.2/', '/aver-btc-listener:0.1/', 'bitdash.io', '/BitArgus:0.1/',
   '/btcwire:0.5.0/btcd:0.25.0/', '/libbitcoin:4.0.0/', '/bcoin:v1.0.0-beta.14/', '/Gocoin:1.10.0pre/',
   // A Utreexo node: named in Peer Map, relaying in both.
