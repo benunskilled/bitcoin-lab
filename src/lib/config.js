@@ -285,6 +285,12 @@ module.exports = {
   // actual source of unbounded growth, not the real ranking data, so they
   // get a much shorter window.
   feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
+  // A peer that was around for blocks but never delivered one first, is not
+  // manual or parked, and has not been seen for this long: its rows only take
+  // space. Most inbound connections end up here - one row each, kept forever,
+  // was the bulk of the database on a node with an open port. Removing them
+  // changes nobody else's record: they never took a first from anyone.
+  neverFirstPeerRetentionDays: Number(pick(process.env.NEVER_FIRST_PEER_RETENTION_DAYS, '30')),
   // How often gathered traffic is written: hourly, 24 small writes a day.
   // A crash loses at most this much traffic, and nothing else.
   trafficFlushMs: Number(pick(process.env.TRAFFIC_FLUSH_MS, '3600000')),

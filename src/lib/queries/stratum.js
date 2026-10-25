@@ -103,8 +103,31 @@ function percentilesByPool({ pools, statsByPool, raceIds, raceFilterSql, raceFil
   return result;
 }
 
+// The ranking only changes with a new race, a new observation or a change to
+// the pools; between those the dashboard asks every 20 seconds for the same
+// answer. Over a year of races "all" takes about 150 ms, on the one thread
+// that also serves the live stream - so it is kept until something changed.
+const rankingCache = new Map();
+
 function stratumRanking(range = '10') {
   const pools = db.instance.prepare(`SELECT * FROM stratum_pool ORDER BY is_default DESC, label ASC`).all();
+  // The newest race and the newest observation row, both read off the end of
+  // their table: a race finished after a newer one opened still changes it.
+  const head = db.instance
+    .prepare(`SELECT (SELECT MAX(id) FROM stratum_race) AS race, (SELECT MAX(rowid) FROM stratum_observation) AS obs`)
+    .get();
+  const key = `${head.race}:${head.obs}:${JSON.stringify(pools)}`;
+  const hit = rankingCache.get(range);
+  if (hit && hit.key === key) return hit.value;
+  const value = computeRanking(range, pools);
+  // A handful of ranges is all the page asks for; any number can be typed
+  // into the URL, so the cache does not grow with them.
+  if (rankingCache.size >= 8) rankingCache.clear();
+  rankingCache.set(range, { key, value });
+  return value;
+}
+
+function computeRanking(range, pools) {
   const raceIds = raceIdsForRange(range);
 
   // better-sqlite3 needs a concrete placeholder list for IN(); an empty range
@@ -187,16 +210,19 @@ function stratumRanking(range = '10') {
 function deletePool(id) {
   const tx = db.instance.transaction((poolId) => {
     db.instance.prepare(`DELETE FROM stratum_observation WHERE pool_id = ?`).run(poolId);
-    db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(poolId);
+    const removed = db.instance.prepare(`DELETE FROM stratum_pool WHERE id = ?`).run(poolId).changes;
     // Races in which this pool was the only participant now have no
     // observations at all. Left in place they still occupy slots in the
     // "last N races" windows, so the range selector would quietly show fewer
     // data points than it claims. Drop the empty shells with the pool.
+    // Older than a minute only: a race the worker has just opened has no
+    // observations yet either.
     db.instance
-      .prepare(`DELETE FROM stratum_race WHERE id NOT IN (SELECT DISTINCT race_id FROM stratum_observation)`)
-      .run();
+      .prepare(`DELETE FROM stratum_race WHERE id NOT IN (SELECT DISTINCT race_id FROM stratum_observation) AND created_at < ?`)
+      .run(Date.now() - 60_000);
+    return removed;
   });
-  tx(id);
+  return tx(id) > 0;
 }
 
 module.exports = { stratumRanking, deletePool };

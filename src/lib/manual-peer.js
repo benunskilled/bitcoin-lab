@@ -7,6 +7,7 @@ const { isValidPort } = require('./validate');
 // Address parsing/formatting lives in one module - see address.js for why.
 const { resolveHostPort, formatAddress, hostFromAddress } = require('./address');
 const logger = require('./logger').make('manual-peer');
+const { logAction } = require('./peer-rotation/log');
 
 function probePort(host, port, timeoutMs = 3000) {
   return new Promise((resolve) => {
@@ -83,6 +84,22 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
     return { ok: false, address: probed.address, error: result.error };
   }
   logger.info('manually added peer', { address: probed.address, evicted: result.evicted?.address || null });
+  // In the rotation log too, every time: a hand-made choice belongs next to
+  // the rotation's own, and a peer that lost its slot to one should not
+  // vanish without a trace.
+  // The peer is in by now: a busy database must not turn that into an error
+  // the user would retry, displacing a second peer.
+  try {
+    logAction({
+      action: 'manual',
+      address: probed.address,
+      replacedAddress: result.evicted?.address,
+      replacedFirstPct: result.evicted?.firstPct,
+      note: result.evicted ? `added by hand, replaced ${result.evicted.address}` : 'added by hand',
+    });
+  } catch (err) {
+    logger.warn('rotation log entry for a manual add failed', { address: probed.address, error: err.message });
+  }
   return { ok: true, address: probed.address, ...evictionNote(result) };
 }
 
@@ -96,7 +113,7 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
  * consequences.
  */
 async function probePeer(rawInput) {
-  const host = (rawInput || '').trim();
+  const host = (typeof rawInput === 'string' ? rawInput : '').trim();
   if (!looksLikeHost(host)) {
     return { ok: false, error: 'invalid host/IP' };
   }
@@ -158,7 +175,9 @@ function evictionNote(result) {
       `all ${result.max} manual slots were taken, so ${result.evicted.address} (${pct}) ` +
       (result.evicted.parked
         ? 'was removed to make room - it will be re-tested and can come back on its own.'
-        : 'was removed to make room. It had no record yet, so it is not kept for re-testing.'),
+        : result.evicted.live
+          ? 'was disconnected to make room. It keeps its record and can win a slot again as an ordinary peer.'
+          : 'was removed to make room. It had no record yet, so it is not kept for re-testing.'),
   };
 }
 

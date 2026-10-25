@@ -93,6 +93,16 @@ function clockOffset() {
   };
 }
 
+
+// A connection Core closes in the middle of a reply (a restart) ends with
+// neither 'end' nor a request error, and the timeout is gone with the socket:
+// without this the call would wait forever, and so would the poll behind it.
+function dropOnCut(res, method, reject) {
+  res.on('error', reject);
+  res.on('close', () => {
+    if (!res.complete) reject(new Error(`RPC ${method}: connection closed mid-reply`));
+  });
+}
 function call(method, params = [], { timeoutMs = 10000 } = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(config.bitcoin.rpcUrl);
@@ -157,6 +167,7 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
           }
           resolve(parsed.result);
         });
+        dropOnCut(res, method, reject);
       },
     );
 
@@ -235,6 +246,7 @@ function timeCall(method, params = [], { timeoutMs = 30000, count = null } = {})
           }
           resolve(needle ? { ms, bytes, count: hits } : { ms, bytes });
         });
+        dropOnCut(res, method, reject);
       },
     );
     req.on('timeout', () => req.destroy(new Error(`RPC ${method}: timed out after ${timeoutMs}ms`)));
@@ -263,6 +275,7 @@ module.exports = {
     call('getrawtransaction', [txid, true, blockHash], { timeoutMs: 20000 }),
   getBlockCount: () => call('getblockcount'),
   getBlockchainInfo: () => call('getblockchaininfo'),
+  getNetworkInfo: () => call('getnetworkinfo'),
   // In read-only mode (LAB_READ_ONLY=1, a test copy beside the real app) the
   // two calls that change Core's peers are never sent; everything else reads.
   addNode: (nodeAddr, command = 'add') => (config.readOnly ? Promise.resolve(null) : call('addnode', [nodeAddr, command])),

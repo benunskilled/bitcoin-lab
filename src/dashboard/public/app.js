@@ -138,29 +138,57 @@ function statusPillClass(status) {
 const KIND_RULES = [
   // Mining pool software speaking p2p, or a node whose operator says in the
   // bracketed comment that it belongs to a pool. Relays.
-  [/ckp2p|ckpool|\([^)]*pool[^)]*\)/i, null],
+  // Core's name misspelt ("/Sat0shi:", "/Satoshi2:"): Peer Map's Disguised.
+  // What it runs is unknown, so it is not struck - and it comes first, so the
+  // rest of its agent is not read as a crawler or a wallet either.
+  [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:/, null, 'whole'],
+  [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)|^\/P2Pool:|^\/[^:/(]*pool[^:/(]*:/i, null, 'no-mempool'],
   // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
   // Irium and VDS are forks and altcoins of their own.
-  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds_/i, 'a client of another chain'],
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:/i, 'a client of another chain', 'whole'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
-  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-/i, 'a research scanner'],
+  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
-  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut/i, 'a network crawler'],
+  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/bip324-probe:|^\/your-fork:/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
-  [/electrs|electrum|esplora|mempool/i, 'an address indexer'],
-  [/bitcoinj|breadwallet|bither|multibit|wasabi|Bitcoin Wallet/i, 'a wallet'],
-  // BIP157 light clients: neutrino (Lightning wallets on lnd) and Kyoto,
-  // which says "Rust BIP-157".
-  [/neutrino|BIP-157|kyoto/i, 'a light client'],
+  [/electrs|electrum|esplora|\/mempool|^NBXplorer-|^\/symphony:/i, 'an address indexer'],
+  [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/WalletKit:|^\/Ladybug:|^\/hodlwallet:|\/spvwallet:/i, 'a wallet'],
+  // Lightning wallets on lnd, which follow the chain through neutrino.
+  [/neutrino|\/lit:v/i, 'a Lightning wallet'],
+  // Other BIP157 light clients: Kyoto, which says "Rust BIP-157". VerifiedX
+  // validators follow the chain the same way for a chain of their own: headers,
+  // some blocks, no transactions.
+  [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:/i, 'a light client'],
 ];
 
+// Rules marked 'whole' read the whole agent: a pool or another chain may be
+// named in the brackets (the pool rule without the word "mempool"). The rest read only the name outside them - a word
+// like "monitor" or "electrs" in an operator's label does not make a Core
+// node a crawler or an indexer. Peer Map's classify does the same.
 function cannotRelayReason(client) {
   if (!client) return null;
-  for (const [re, what] of KIND_RULES) if (re.test(client)) return what;
+  const bare = client.replace(/\([^)]*\)/g, '');
+  // "pool" inside "mempool" is no pool: "(mempool.guide)" is a node's label.
+  const noMempool = client.replace(/mempool/gi, '');
+  for (const [re, what, reads] of KIND_RULES) {
+    const s = reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare;
+    if (re.test(s)) return what;
+  }
   return null;
 }
+
+// Whether any rule names this client at all. Peer Map flags a fork only on
+// nodes and unknown software, not on a peer it already named as something
+// else (a pool, a misspelt Core), so the Lab asks the same.
+function namedByKindRule(client) {
+  if (!client) return false;
+  const bare = client.replace(/\([^)]*\)/g, '');
+  const noMempool = client.replace(/mempool/gi, '');
+  return KIND_RULES.some(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
+}
+const otherChainShown = (p) => (p.otherChain && !namedByKindRule(p.client) ? p.otherChain : null);
 
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 // subver (Client) is fully attacker-controlled - any P2P peer can set an
@@ -181,8 +209,8 @@ function truncatedCell(text, cls = '') {
 }
 
 // A table that does not fit its panel first gives up its least important
-// columns, a step at a time (data-drop="1".."3" on the <th>: sessions, then
-// total time and client, then session; for the pools seen/miss, then
+// columns, a step at a time (data-drop="1".."5" on the <th>: sessions, then
+// total time, session, ping and last the client; for the pools seen/miss, then
 // median/p90, then host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
@@ -192,7 +220,47 @@ function truncatedCell(text, cls = '') {
 // together - one panel as cards and the next as a table looked like two
 // different pages. The rows are re-rendered all the time, so the labels are
 // put back after every change.
-const DROP_LEVELS = 3;
+const DROP_LEVELS = 5;
+
+// Column widths of the peer tables, set for each step: the short columns as
+// wide as their content, and the room left shared by address, client, type
+// and First % in proportion to what each needs - an IPv4 address with its
+// port, a client name like /Satoshi:31.0.0/, the longest pill (MANUAL
+// OFFLINE), First % with its bar. They grow and shrink together, so none is
+// cut while another has room to spare.
+const COL_FIXED = { 'col-ping': 72, 'col-session': 84, 'col-total': 92, 'col-sessions': 56, 'col-actions': 240 };
+const COL_NEED = { 'col-address': 161, 'col-client': 205, 'col-status': 139, 'col-pct': 141 };
+function sizeColumns() {
+  for (const t of document.querySelectorAll('table.peer-table')) {
+    if (!t.offsetWidth) continue;
+    const ths = [...t.tHead.rows[0].cells];
+    for (const th of ths) th.style.width = '';
+    const shown = ths.filter((th) => getComputedStyle(th).display !== 'none');
+    const col = (th) => [...th.classList].find((c) => c.startsWith('col-'));
+    // Only the three tables with these columns, not Parked.
+    if (!shown.every((th) => COL_FIXED[col(th)] || COL_NEED[col(th)])) continue;
+    let fixed = 0;
+    let need = 0;
+    for (const th of shown) {
+      if (COL_FIXED[col(th)]) fixed += COL_FIXED[col(th)];
+      else need += COL_NEED[col(th)] || 0;
+    }
+    // Without the Client column the address cell carries the client too,
+    // and the two buttons stand one above the other (style.css).
+    const last = t.closest('.table-wrap')?.dataset.drops === String(DROP_LEVELS);
+    if (last) {
+      fixed -= COL_FIXED['col-actions'] - 136;
+      need += COL_NEED['col-client'] - COL_NEED['col-address'];
+    }
+    const spare = Math.max(0, t.offsetWidth - fixed);
+    for (const th of shown) {
+      const c = col(th);
+      const fix = last && c === 'col-actions' ? 136 : COL_FIXED[c];
+      const want = last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0;
+      th.style.width = (fix || Math.floor(spare * want / need)) + 'px';
+    }
+  }
+}
 
 function fitTables() {
   const y = window.scrollY;
@@ -210,20 +278,61 @@ function fitTables() {
         if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
       });
     }
-    w.classList.remove('cards');
   }
+  // Measuring from scratch means taking the cards away and laying out the full
+  // table first: the page shrinks and grows again, and whatever the reader was
+  // looking at jumps. That is only needed when the window got wider - a page
+  // that needed cards at this width still needs them, and one that needed two
+  // columns dropped still needs at least that. Otherwise the check starts
+  // where the last one ended.
+  const width = document.documentElement.clientWidth;
+  const wider = width > fitState.width;
+  fitState.width = width;
+  if (fitState.cards && !wider) return false;
+  // What the reader is looking at: the first heading or row at the top of the
+  // window. When the layout changes, that stays where it was - restoring the
+  // old scroll position instead threw the reader a screen or more down the
+  // moment the tables above turned into taller cards. (The panels opt out of
+  // the browser's own scroll anchoring, see .card in style.css.)
+  const anchor = window.scrollY > 0
+    ? [...document.querySelectorAll('h2, h3, .table-wrap tbody tr')].find((e) => {
+      // A hidden element (the empty Parked panel) has a rect of zeros.
+      const r = e.getBoundingClientRect();
+      return r.height > 0 && r.top >= 0;
+    })
+    : null;
+  const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+  const before = `${fitState.level}${fitState.cards}`;
   const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  let level = 0;
+  // An address or client name cut to "..." counts as too tight while there
+  // are columns left to give up before it - an ordinary one, that is: an
+  // onion address or a very long name (Knots with a comment) is not worth
+  // four columns on a wide screen.
+  const clientCut = () => [...document.querySelectorAll('table.peer-table td.client, table.peer-table td[data-col="col-address"]')]
+    .some((td) => td.clientWidth && (td.dataset.full || '').length <= 24 && td.scrollWidth > td.clientWidth);
+  if (wider) for (const w of wraps) w.classList.remove('cards');
+  let level = wider ? 0 : fitState.level;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
-    if (level === DROP_LEVELS || !tight()) break;
+    sizeColumns();
+    if (level === DROP_LEVELS || !(tight() || clientCut())) break;
   }
   const cards = level === DROP_LEVELS && tight();
   for (const w of wraps) w.classList.toggle('cards', cards);
+  fitState.level = level;
+  fitState.cards = cards;
+  if (anchor && anchor.isConnected && before !== `${level}${cards}`) {
+    window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
+    return true;
+  }
   if (window.scrollY !== y) window.scrollTo(0, y);
+  return false;
 }
+// The width of the last check and what it decided. The first check always
+// counts as wider, so it measures from scratch.
+const fitState = { width: -Infinity, level: 0, cards: false };
 let fitTimer = null;
-const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 50); };
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); notePlace(); }, 50); };
 // Re-rendered rows are cards without their labels until fitTables runs, and
 // fitTables takes the cards away for a moment to measure: either way the page
 // is shorter for an instant, and Safari clamps the scroll position to it and
@@ -231,11 +340,58 @@ const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitTab
 // position from the last frame is put back before anything is painted. Only a
 // jump upwards of more than a flick, so a scroll in progress is left alone.
 let lastScrollY = window.scrollY;
-window.addEventListener('scroll', () => { lastScrollY = window.scrollY; }, { passive: true });
+// Keeping the scroll position is not enough either: with all peers shown, a
+// refresh adds and drops rows above the reader, and everything below moved
+// by a few hundred pixels every twenty seconds (iPhone, 24.10.2026). Safari
+// has no scroll anchoring of its own, so the page does it: what is at the top
+// of the window - a heading, or the nth row of a table - is noted, and after
+// a refresh it is put back where it was.
+const PLACE_SELECTOR = 'h2, h3, .table-wrap tbody tr';
+let placeMarks = [];
+function notePlace() {
+  placeMarks = [];
+  if (window.scrollY <= 0) return;
+  const tables = [...document.querySelectorAll('.table-wrap table')];
+  const heads = [...document.querySelectorAll('h2, h3')];
+  for (const e of document.querySelectorAll(PLACE_SELECTOR)) {
+    const r = e.getBoundingClientRect();
+    if (r.height === 0 || r.bottom <= 0) continue;
+    if (r.top >= window.innerHeight) break;
+    const key = e.tagName === 'TR'
+      ? [tables.indexOf(e.closest('table')), [...e.parentNode.children].indexOf(e)]
+      : [-1, heads.indexOf(e)];
+    placeMarks.push({ key, top: r.top });
+    if (placeMarks.length === 3) break;
+  }
+}
+function findPlace([table, i]) {
+  if (table < 0) return document.querySelectorAll('h2, h3')[i];
+  return document.querySelectorAll('.table-wrap table')[table]?.tBodies[0]?.children[i];
+}
+// Back where it was, by the first of the noted elements still there.
+function keepPlace() {
+  for (const { key, top } of placeMarks) {
+    const e = findPlace(key);
+    if (!e || e.getBoundingClientRect().height === 0) continue;
+    const d = e.getBoundingClientRect().top - top;
+    if (Math.abs(d) >= 1) window.scrollBy(0, d);
+    return true;
+  }
+  return false;
+}
+let placeFrame = 0;
+window.addEventListener('scroll', () => {
+  lastScrollY = window.scrollY;
+  if (!placeFrame) placeFrame = requestAnimationFrame(() => { placeFrame = 0; notePlace(); });
+}, { passive: true });
 new MutationObserver(() => {
   const y = lastScrollY;
-  fitTables();
-  if (y - window.scrollY > 100) window.scrollTo(0, y);
+  // Not when fitTables has just kept the reader's place itself: that move is
+  // meant, and putting the old position back would undo it.
+  const anchored = fitTables();
+  if (!anchored && !keepPlace() && y - window.scrollY > 100) window.scrollTo(0, y);
+  lastScrollY = window.scrollY;
+  notePlace();
 }).observe(document.body, { childList: true, subtree: true });
 // Only a change of width can change whether the tables fit. On an iPhone the
 // height changes all the time - Safari's toolbar shrinks and grows while the
@@ -299,8 +455,8 @@ async function refreshStatus() {
   if (s.unclearFirsts) {
     const unclear = document.createElement('span');
     unclear.className = 'status-ties';
-    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString()} unclear`
-      + ` in ${s.unclearFirsts.races.toLocaleString()} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
+    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString('en-US')} unclear`
+      + ` in ${s.unclearFirsts.races.toLocaleString('en-US')} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
     unclear.title = 'The block before arrived only a moment earlier, often right after a restart,'
       + " so who delivered which one can't be told apart. Neither peer gets the First.";
     el.appendChild(unclear);
@@ -359,10 +515,10 @@ function setBlockHeight(height) {
   if (lastKnownHeight != null && height < lastKnownHeight) return;
 
   heightEl.classList.remove('waiting');
-  heightEl.textContent = height.toLocaleString();
+  heightEl.textContent = height.toLocaleString('en-US');
   if (lastKnownHeight != null && height > lastKnownHeight) {
     heightEl.classList.remove('bump');
-    void heightEl.offsetWidth; // restart the CSS transition
+    void heightEl.offsetWidth; // restart the animation
     heightEl.classList.add('bump');
   }
   lastKnownHeight = height;
@@ -383,7 +539,7 @@ function setBlockPool(race) {
     const name = document.createElement('b');
     name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
     el.append('mined by ', name);
-    el.title = known ? `Mined by ${race.poolName}, from the block's coinbase`
+    el.title = known ? `Mined by ${race.poolName || race.pool}, from the block's coinbase`
       : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
     el.removeAttribute('title');
@@ -460,6 +616,7 @@ function scrollToFocusOnce() {
         window.scrollTo(0, window.scrollY + off);
         // Our own jump, not the clamp the observer below undoes.
         lastScrollY = window.scrollY;
+        notePlace();
       }
     }
     if (Date.now() < until) setTimeout(place, 250);
@@ -479,17 +636,11 @@ function highlightClassFor(address) {
 }
 
 // Trusted/manual peers show "Remove" (forgets the peer AND force-disconnects
-// it - see peer-sync.js removeTrustedPeer) instead of "Add as Manual": as
-// long as a peer is still addnode'd, Core just reconnects it right back, so
-// a bare Disconnect on a manual peer normally wouldn't accomplish anything
-// lasting - that's still true in the dedicated Manual Peers panel below,
-// which is why it only ever gets "Remove" there (options.allowDisconnect
-// stays false for that table). The Live Peer Ranking overview is different:
-// it's the "what's actually connected right now" view, and someone watching
-// it may well want to kick a manual peer's current connection (e.g. to
-// force a reconnect) without forgetting it entirely - so that table passes
-// allowDisconnect: true to also offer Disconnect there even for a trusted
-// peer.
+// it - see peer-sync.js removeTrustedPeer) instead of "Add as Manual", and no
+// Disconnect, in every table: as long as a peer is still addnode'd, Core
+// reconnects it within a minute or two, so a bare Disconnect changed nothing
+// that lasted. The Live Peer Ranking used to offer it anyway, to force a
+// reconnect; Core does that by itself when a connection really hangs.
 //
 // Both actions always render into a fixed two-slot layout (primary action,
 // then Disconnect) using an empty placeholder - never an omitted element -
@@ -508,8 +659,10 @@ function keepStar(p) {
   return `<button class="keep-star${on ? ' on' : ''}" data-action="keep" data-address="${escapeHtml(p.address)}" data-kept="${on ? '1' : '0'}" title="${title}" aria-pressed="${on}"><span aria-hidden="true">🔒</span><span class="sr-only">Keep this peer</span></button>`;
 }
 
-function actionsCell(p, options = {}) {
-  const { allowDisconnect = false } = options;
+// A manual peer's Remove takes the second slot, under Disconnect, in every
+// list: the red buttons stand in one line, the blue Add as Manual in the
+// other. In the manual list the lock sits in the first slot.
+function actionsCell(p, { lock = '' } = {}) {
   const placeholder = `<span class="action-slot" aria-hidden="true"></span>`;
 
   // Three kinds of peer have nothing this app can do to them, and all three
@@ -530,9 +683,9 @@ function actionsCell(p, options = {}) {
   // always failed with "no node answering on 8333 or 9333", which reads as
   // though the peer had the wrong port open rather than the truth, which is
   // that this container has no way to reach that network at all.
-  const primary = p.trusted
-    ? `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`
-    : ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
+  const remove = `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`;
+  if (p.trusted) return (lock ? `<span class="action-slot lock-slot">${lock}</span>` : placeholder) + remove;
+  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
@@ -542,7 +695,7 @@ function actionsCell(p, options = {}) {
   // different - deliberately disconnecting it could interrupt whatever that
   // app is doing, and Core would likely just let it right back in anyway,
   // so there's no real action to offer there either.
-  const canDisconnect = p.live && !p.localUmbrelPeer && (allowDisconnect || !p.trusted);
+  const canDisconnect = p.live && !p.localUmbrelPeer;
   const disconnect = canDisconnect
     ? `<button class="secondary danger action-slot" data-action="disconnect" data-address="${escapeHtml(p.address)}">Disconnect</button>`
     : placeholder;
@@ -563,7 +716,7 @@ function clientCell(p) {
 function sessionCell(p) {
   if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
   if (p.offlineSinceMs != null) {
-    return `<td class="hint">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+    return `<td class="hint wrap">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
   }
   return `<td>-</td>`;
 }
@@ -616,8 +769,14 @@ let lastRotationLog = null; // kept so the toggle can re-render without refetchi
 // expensive endpoint this app has just to slice the same array differently.
 let lastPeerRanking = null;
 
+// Several things ask for the ranking at once (the poll, a new block, an
+// action just taken); an answer that left before a newer one must not be
+// drawn over it - a lock just closed would open again for twenty seconds.
+let peerRequestSeq = 0;
 async function refreshPeers() {
+  const seq = ++peerRequestSeq;
   const peers = await api('/api/peers/ranking');
+  if (seq !== peerRequestSeq) return;
   lastPeerRanking = peers;
   renderPeerTables(peers);
 }
@@ -628,6 +787,14 @@ async function refreshPeers() {
 // address would just be confusing/misleading, since it looks like a real
 // peer IP but isn't and can't be acted on (see actionsCell). Label it
 // honestly instead.
+// The client again, as a second line under the address: shown once a narrow
+// table has given up the Client column, and on the phone cards (style.css,
+// .addr-client) - so the name stays on screen to the end.
+function withClientLine(cell, p) {
+  if (!p.client) return cell;
+  return cell.replace(/<\/td>$/, `<small class="addr-client">${escapeHtml(p.client)}</small></td>`);
+}
+
 function addressCell(p) {
   if (p.sourceObscured) {
     return `<td class="cell-truncate hint" title="Inbound IPv6 passes through Docker, which puts its own address in place of the peer's.">IPv6 peer (address hidden by Docker)</td>`;
@@ -675,10 +842,27 @@ function addressCell(p) {
 let actionsInFlight = 0;
 const deferredRenders = new Map();
 
+// A press in progress: a row replaced between mousedown and mouseup gets no
+// click. Kept as a time, not a flag, so a press that never ends (released
+// outside the window) cannot hold the tables for longer than two seconds.
+let pressedAt = 0;
+const pressing = () => pressedAt > 0 && Date.now() - pressedAt < 2000;
+document.addEventListener('pointerdown', () => { pressedAt = Date.now(); }, true);
+const pressOver = () => { pressedAt = 0; setTimeout(flushDeferredRenders, 0); };
+// On touch the click comes after pointerup, as a task of its own: flush on
+// the click, with pointerup only as the fallback when no click follows.
+document.addEventListener('click', pressOver);
+for (const type of ['pointerup', 'pointercancel']) {
+  document.addEventListener(type, () => setTimeout(() => { if (pressedAt) pressOver(); }, 400), true);
+}
+window.addEventListener('blur', pressOver);
+
 function interactionInProgress(selector) {
-  if (actionsInFlight > 0) return true;
+  if (actionsInFlight > 0 || pressing()) return true;
+  // Keyboard focus only. A mouse click leaves the focus on the button in
+  // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
-  return Boolean(active && active.closest && active.closest(selector));
+  return Boolean(active && active.closest && active.closest(selector) && active.matches(':focus-visible'));
 }
 
 function deferRender(key, selector, render) {
@@ -744,7 +928,8 @@ const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 
 const statusLabel = (status) => STATUS_LABEL[status] || status;
 
 function statusPill(p, status) {
-  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
+  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
+    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
   const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
   // The pill is dimmed and the cell says it in words, so the fact stays
@@ -759,10 +944,10 @@ const UMBREL_APP = 'UMBREL APP';
 
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
-  const weak = cannotRelayReason(p.client) || p.offersNothing ? ' weak' : '';
+  const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
   return `
     <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
-      ${addressCell(p)}
+      ${withClientLine(addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
@@ -842,7 +1027,7 @@ function renderPeerTables(peers, options = {}) {
   }
 
   document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers
-    .map((p) => peerRow(p, { actions: actionsCell(p, { allowDisconnect: true }) }))
+    .map((p) => peerRow(p, { actions: actionsCell(p) }))
     .join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers
@@ -861,15 +1046,18 @@ function renderPeerTables(peers, options = {}) {
   // the same way the filled rows above it do, at a glance. Plain dashes,
   // same as any other empty cell in this app - no banner, no border
   // treatment, just an empty-looking row.
+  // One cell per column, like any row: a single cell spanning eight kept its
+  // span when columns were dropped, and pushed the table out of line with the
+  // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td colspan="8">-</td>
+      <td>-</td>${'<td></td>'.repeat(7)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
 
   const manualRows = manualPeers
-    .map((p) => peerRow(p, { actions: keepStar(p) + actionsCell(p) }))
+    .map((p) => peerRow(p, { actions: actionsCell(p, { lock: keepStar(p) }) }))
     .join('');
   const noManualPeersHint = manualPeers.length === 0
     ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
@@ -908,7 +1096,7 @@ let rotationToggleEpoch = 0;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive']);
+const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -920,6 +1108,7 @@ function rotationActionLabel(action) {
   if (action === 'swap') return 'Promoted';
   if (action === 'park') return 'Parked';
   if (action === 'revive') return 'Back';
+  if (action === 'manual') return 'Added';
   return action;
 }
 
@@ -1071,8 +1260,11 @@ function axisBytes(v, unit) {
 // Bars per UTC day, as in the approved design: sent as a rounded orange bar,
 // received in blue in front of it, on one scale so the two compare by eye.
 // The grid keeps its values, quietly; each day says its numbers on hover.
-function trafficChartSvg(days) {
-  const W = 1300, H = 220, top = 20, base = 200, left = 46;
+// Drawn at the size it is shown, in pixels: a fixed 1300-wide picture scaled
+// down to a phone made its 11px labels 3px, and scaled-up labels then no
+// longer fitted beside the axis.
+function trafficChartSvg(days, W) {
+  const H = W < 600 ? 170 : 220, top = 14, base = H - 20;
   const max = Math.max(1, ...days.map((d) => Math.max(d.sent || 0, d.recv || 0)));
   // A round step for the grid: 1, 2 or 5 times a power of 1024-based units.
   const unit = 1024 ** Math.max(0, Math.floor(Math.log(max) / Math.log(1024)));
@@ -1081,7 +1273,10 @@ function trafficChartSvg(days) {
   const step = [1, 2, 5, 10].map((m) => m * pow).find((m) => m >= raw) * unit;
   const top_ = Math.ceil(max / step) * step;
   const y = (v) => base - (base - top) * (v / top_);
+  const left = 10 + 6.5 * Math.max(...[0, step, top_].map((v) => axisBytes(v, unit).length));
   const slot = (W - left) / days.length;
+  // A date label every 5 days, or every 10 where 5 would run into each other.
+  const every = slot * 5 >= 44 ? 5 : 10;
   const bw = slot * 0.64;
   let g = '<defs><linearGradient id="traffic-sent" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb04a"/><stop offset="1" stop-color="#c26a06"/></linearGradient></defs>';
   for (let v = 0; v <= top_ + 1; v += step) {
@@ -1095,26 +1290,41 @@ function trafficChartSvg(days) {
       g += `<rect class="sent" x="${x}" y="${y(d.sent)}" width="${bw}" height="${base - y(d.sent)}" rx="3">${tip}</rect>`;
       g += `<rect class="recv" x="${x}" y="${y(d.recv)}" width="${bw}" height="${base - y(d.recv)}" rx="2">${tip}</rect>`;
     }
-    if (i % 5 === 0 || i === days.length - 1) {
-      g += `<text class="axis" x="${left + i * slot + slot / 2}" y="${H - 2}" text-anchor="middle">${escapeHtml(d.day.slice(5))}</text>`;
+    const last = i === days.length - 1;
+    if ((i % every === 0 && days.length - 1 - i >= every / 2) || last) {
+      // The newest date ends at the right edge rather than past it.
+      g += `<text class="axis" x="${last ? W : left + i * slot + slot / 2}" y="${H - 4}" text-anchor="${last ? 'end' : 'middle'}">${escapeHtml(d.day.slice(5))}</text>`;
     }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${g}</svg>`;
 }
 
 async function refreshTraffic() {
   const t = await api('/api/traffic');
-  const both = (v) => `↑ ${fmtBytes(v.sent)} · ↓ ${fmtBytes(v.recv)}`;
   // The arrows carry the colours of the bars, so they are the legend too.
   const arrows = (v) => `<span class="up">↑ ${escapeHtml(fmtBytes(v.sent))}</span><span class="down">↓ ${escapeHtml(fmtBytes(v.recv))}</span>`;
-  document.getElementById('traffic-today').textContent = t.since ? `today ${both(t.today)}` : '';
   document.getElementById('traffic-totals').innerHTML = t.since
     ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
       .map(([l, v]) => `<div class="t"><div class="l">${l}</div><div class="v">${arrows(v)}</div></div>`)
       .join('')
     : '<p class="hint">Nothing recorded yet - the first numbers appear within an hour of the app starting.</p>';
-  document.getElementById('traffic-chart').innerHTML = t.since ? trafficChartSvg(t.days) : '';
+  lastTrafficDays = t.since ? t.days : null;
+  drawTrafficChart();
 }
+
+let lastTrafficDays = null;
+function drawTrafficChart() {
+  const el = document.getElementById('traffic-chart');
+  if (!el) return;
+  el.innerHTML = lastTrafficDays && el.clientWidth ? trafficChartSvg(lastTrafficDays, el.clientWidth) : '';
+}
+let trafficWidth = 0;
+window.addEventListener('resize', () => {
+  const el = document.getElementById('traffic-chart');
+  if (!el || el.clientWidth === trafficWidth) return;
+  trafficWidth = el.clientWidth;
+  drawTrafficChart();
+});
 
 async function refreshAll() {
   // Block updates are not in here: they arrive on their own via the
@@ -1241,6 +1451,11 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
   const host = document.getElementById('pool-host');
   const port = document.getElementById('pool-port');
   const resultEl = document.getElementById('pool-add-result');
+  // One request at a time: a double click added the pool, then failed on it.
+  const submit = e.target.querySelector('button[type="submit"]');
+  if (submit.disabled) return;
+  submit.disabled = true;
+  clearTimeout(poolResultTimer);
   try {
     await api('/api/pools', {
       method: 'POST',
@@ -1249,10 +1464,14 @@ document.getElementById('pool-add-form').addEventListener('submit', async (e) =>
     resultEl.textContent = 'added';
     label.value = ''; host.value = ''; port.value = '';
     refreshPools();
+    poolResultTimer = setTimeout(() => { resultEl.textContent = ''; }, 5000);
   } catch (err) {
     resultEl.textContent = err.message;
+  } finally {
+    submit.disabled = false;
   }
 });
+let poolResultTimer = null;
 
 // Each action only refreshes the table(s) it can actually affect, rather
 // than re-fetching /api/status, /api/peers/ranking, /api/pools and
@@ -1435,7 +1654,8 @@ document.body.addEventListener('click', async (e) => {
       actionsInFlight -= 1;
       if (btn.isConnected) {
         btn.disabled = false;
-        btn.textContent = originalLabel;
+        // Only what was replaced: the lock's two spans would come back as plain text.
+        if (action !== 'keep') btn.textContent = originalLabel;
       }
       flushDeferredRenders();
     }
@@ -1685,10 +1905,10 @@ async function refreshStorage() {
     if (el) el.textContent = text;
   };
   set('storage-total', fmtBytes(s.totalBytes));
-  set('reset-peers-size', `${fmtBytes(s.peerData.bytes)} · ${s.peerData.rows.toLocaleString()} rows`);
-  set('reset-pools-size', `${fmtBytes(s.poolHistory.bytes)} · ${s.poolHistory.rows.toLocaleString()} rows`);
-  set('reset-peers-detail', `${s.peerData.rows.toLocaleString()} rows, ${fmtBytes(s.peerData.bytes)}, will be deleted.`);
-  set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString()} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
+  set('reset-peers-size', `${fmtBytes(s.peerData.bytes)} · ${s.peerData.rows.toLocaleString('en-US')} rows`);
+  set('reset-pools-size', `${fmtBytes(s.poolHistory.bytes)} · ${s.poolHistory.rows.toLocaleString('en-US')} rows`);
+  set('reset-peers-detail', `${s.peerData.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.peerData.bytes)}, will be deleted.`);
+  set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
 }
 
 // Two steps rather than a browser confirm(): the warning can then say what is
@@ -1707,6 +1927,12 @@ function wireReset(scope) {
     yes.disabled = true;
     try {
       await api('/api/reset', { method: 'POST', body: JSON.stringify({ scope }) });
+    } catch (err) {
+      // Said out loud: a silent failure here read as data that was deleted.
+      // Not "nothing was deleted": a timeout can come after the delete.
+      showToast(`Reset failed: ${err.message}`, 'error');
+      refreshStorage();
+      return;
     } finally {
       yes.disabled = false;
       panel.hidden = true;
@@ -1714,7 +1940,10 @@ function wireReset(scope) {
     }
     await refreshStorage();
     await refreshStatus();
-    await refreshPeers();
+    // What each reset empties: peer data includes the rotation log and the
+    // parked peers, pool history the pool table.
+    if (scope === 'pools') await refreshPools();
+    else await Promise.all([refreshPeers(), refreshRotation()]);
   });
 }
 

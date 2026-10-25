@@ -58,6 +58,14 @@ test('ignores malformed JSON lines without throwing', () => {
   assert.doesNotThrow(() => conn._handleChunk(Buffer.from('{not json\n'), process.hrtime.bigint()));
 });
 
+test('a line that is valid JSON but no object is ignored, not a crash', () => {
+  // "null" parses fine; reading .method off it used to throw inside the socket handler.
+  const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
+  for (const line of ['null', '5', '"x"', 'true']) {
+    assert.doesNotThrow(() => conn._handleChunk(Buffer.from(`${line}\n`), process.hrtime.bigint()));
+  }
+});
+
 test('buffers a message split across two chunks', () => {
   const conn = new StratumPoolConnection({ host: 'example.invalid', port: 3333, label: 'test' });
   let captured = null;

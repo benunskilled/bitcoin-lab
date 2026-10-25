@@ -189,3 +189,14 @@ test('a template is counted by its transactions, even where a chunk splits one',
   const r = await rpc.timeCall('getblocktemplate', [], { count: '"txid"' });
   assert.equal(r.count, 3000);
 });
+
+test('a reply Core cuts off halfway is an error, not a call that never ends', async () => {
+  // Core restarting while it answers: half a body, then the socket is gone.
+  handler = (req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '1000' });
+    res.write('{"result":[');
+    setTimeout(() => req.socket.destroy(), 20);
+  };
+  await assert.rejects(rpc.call('getpeerinfo'), /closed mid-reply|aborted|socket hang up/);
+  await assert.rejects(rpc.timeCall('getpeerinfo'), /closed mid-reply|aborted|socket hang up/);
+});
