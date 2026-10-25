@@ -94,6 +94,7 @@ const AGENTS = [
   '/bitcoin@dsn.tm.kit.edu/', '/dsn.kastel:1/', '/node.cs.ac.uk:1.0/', '/uni-goettingen.de/',
   // A word in an operator's bracketed label: a Core node, in both apps.
   '/Satoshi:25.0.0(node.cs.ac.uk)/', '/Satoshi:29.0.0(my-monitor)/', '/Satoshi:29.0.0(electrum-backend)/',
+  '/Satoshi:28.0.0(neutrino)/', '/Satoshi:29.0.0(lit:v1)/',
   '/bitnodes.io:0.1/', '/metrika:1.0/', '/nodemap/', '/some-crawler:2/', '/portscanner/',
   // Indexers and wallets.
   '/electrs:0.10.0/', '/electrumx:1.16/', '/esplora/',

@@ -87,13 +87,19 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
   // In the rotation log too, every time: a hand-made choice belongs next to
   // the rotation's own, and a peer that lost its slot to one should not
   // vanish without a trace.
-  logAction({
-    action: 'manual',
-    address: probed.address,
-    replacedAddress: result.evicted?.address,
-    replacedFirstPct: result.evicted?.firstPct,
-    note: result.evicted ? `added by hand, replaced ${result.evicted.address}` : 'added by hand',
-  });
+  // The peer is in by now: a busy database must not turn that into an error
+  // the user would retry, displacing a second peer.
+  try {
+    logAction({
+      action: 'manual',
+      address: probed.address,
+      replacedAddress: result.evicted?.address,
+      replacedFirstPct: result.evicted?.firstPct,
+      note: result.evicted ? `added by hand, replaced ${result.evicted.address}` : 'added by hand',
+    });
+  } catch (err) {
+    logger.warn('rotation log entry for a manual add failed', { address: probed.address, error: err.message });
+  }
   return { ok: true, address: probed.address, ...evictionNote(result) };
 }
 
