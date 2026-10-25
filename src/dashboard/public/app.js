@@ -167,17 +167,6 @@ const KIND_RULES = [
 // named in the brackets (the pool rule without the word "mempool"). The rest read only the name outside them - a word
 // like "monitor" or "electrs" in an operator's label does not make a Core
 // node a crawler or an indexer. Peer Map's classify does the same.
-// Whether any rule names this client at all. Peer Map flags a fork only on
-// nodes and unknown software, not on a peer it already named as something
-// else (a pool, a misspelt Core), so the Lab asks the same.
-function namedByKindRule(client) {
-  if (!client) return false;
-  const bare = client.replace(/\([^)]*\)/g, '');
-  const noMempool = client.replace(/mempool/gi, '');
-  return KIND_RULES.some(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
-}
-const otherChainShown = (p) => (p.otherChain && !namedByKindRule(p.client) ? p.otherChain : null);
-
 function cannotRelayReason(client) {
   if (!client) return null;
   const bare = client.replace(/\([^)]*\)/g, '');
@@ -189,6 +178,17 @@ function cannotRelayReason(client) {
   }
   return null;
 }
+
+// Whether any rule names this client at all. Peer Map flags a fork only on
+// nodes and unknown software, not on a peer it already named as something
+// else (a pool, a misspelt Core), so the Lab asks the same.
+function namedByKindRule(client) {
+  if (!client) return false;
+  const bare = client.replace(/\([^)]*\)/g, '');
+  const noMempool = client.replace(/mempool/gi, '');
+  return KIND_RULES.some(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
+}
+const otherChainShown = (p) => (p.otherChain && !namedByKindRule(p.client) ? p.otherChain : null);
 
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 // subver (Client) is fully attacker-controlled - any P2P peer can set an
