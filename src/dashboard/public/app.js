@@ -328,6 +328,35 @@ function fitTables() {
   if (window.scrollY !== y) window.scrollTo(0, y);
   return false;
 }
+// A reload puts the reader back where they were. The browser tries it before
+// the peers have arrived, finds a short page and settles near the top (Ben
+// 26.10.: the Lab on the Rotation or at the very top). So the position is kept here, set again once the
+// tables are in, and let go when the reader moves the page, when the page has
+// grown to it, or after six seconds.
+let reloadY = null;
+try {
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  const nav = performance.getEntriesByType('navigation')[0];
+  const key = 'scrollY:' + location.pathname;
+  if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
+    const v = Number(sessionStorage.getItem(key));
+    if (v > 0) reloadY = v;
+  }
+  const save = () => { try { sessionStorage.setItem(key, String(Math.round(window.scrollY))); } catch { /* private window */ } };
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  const let_go = () => { reloadY = null; };
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, let_go, { passive: true });
+  setTimeout(let_go, 6000);
+} catch { /* no storage: the browser's own restore has to do */ }
+function restoreReloadY() {
+  if (reloadY === null) return;
+  if (typeof FOCUS_ADDRESS !== 'undefined' && FOCUS_ADDRESS) { reloadY = null; return; }
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo(0, Math.min(reloadY, max));
+  if (max >= reloadY) reloadY = null;
+}
+
 // The width of the last check and what it decided. The first check always
 // counts as wider, so it measures from scratch.
 const fitState = { width: -Infinity, level: 0, cards: false };
@@ -1066,6 +1095,7 @@ function renderPeerTables(peers, options = {}) {
   // Only now are the rows in the page; looking earlier found nothing on the
   // first render and moved the jump to the next refresh, twenty seconds on.
   scrollToFocusOnce();
+  restoreReloadY();
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
