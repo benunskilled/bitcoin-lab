@@ -39,3 +39,24 @@ The payout address is checked before the tag because it is where the money
 actually went, but a pool paying through a third party will not match it. The
 tag is text the miner writes himself: good enough to attribute blocks, and
 still a claim rather than a measurement.
+
+## mining-pools-extra.json
+
+Coinbase tags the list above does not have yet, kept apart so a refresh never
+overwrites them; on the same tag, the extra list wins. Most are pools that run
+ckpool, which writes "ckpool" into every coinbase: without a tag of their own,
+Braiins Solo, Satoshi Radio or mutatrum would all show as CKPool. The longest
+tag wins, so "/braiinssolo/" beats "ckpool" in the same text.
+
+Where each tag comes from:
+
+- Public Pool's tags are the default of its software, so a block from a
+  Public Pool someone runs at home carries them too: the name, no link.
+- Braiins Solo, Parasite, Public Pool, FutureBit Apollo Solo: the tags of
+  [mempool/mining-pools](https://github.com/mempool/mining-pools)
+  `pools-v2.json` (MIT, © mempool and contributors).
+- AtlasPool, Braiins Solo, Satoshi Radio, SoloHash, SoloMining.de, 2Miners,
+  Parasite, mutatrum, Blitzpool, MintSolo: the text in a mining job each pool
+  handed out to a stratum subscribe, October 2026.
+
+When bitcoin-data/mining-pools takes one of them in, its entry here can go.

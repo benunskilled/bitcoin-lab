@@ -328,6 +328,43 @@ function fitTables() {
   if (window.scrollY !== y) window.scrollTo(0, y);
   return false;
 }
+// A reload puts the reader back where they were. The browser tries it before
+// the peers have arrived, finds a short page and settles near the top. So the position is kept here, set again once the
+// tables are in, and let go when the reader moves the page, when the page has
+// grown to it, or after six seconds.
+let reloadY = null;
+let restoredY = null;  // where this code last put the page
+try {
+  // Always manual: with the browser's own restore on, it and this code pull the page two ways.
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  const nav = performance.getEntriesByType('navigation')[0];
+  const key = 'scrollY:' + location.pathname;
+  if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
+    const v = Number(sessionStorage.getItem(key));
+    if (v > 0) reloadY = v;
+  }
+  // Still waiting to be restored, the page is short: keep the position that waits.
+  const save = () => { try { sessionStorage.setItem(key, String(reloadY !== null ? reloadY : Math.round(window.scrollY))); } catch { /* private window */ } };
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+  const letGo = () => { reloadY = null; };
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, letGo, { passive: true });
+  // A drag on the scrollbar or a fling is the reader's, not ours.
+  window.addEventListener('scroll', () => { if (reloadY !== null && restoredY !== null && Math.abs(window.scrollY - restoredY) > 40) letGo(); }, { passive: true });
+  setTimeout(letGo, 6000);
+} catch {
+  // No storage: nothing is saved, so the browser's own restore has to do.
+  try { history.scrollRestoration = 'auto'; } catch { /* old browser */ }
+}
+function restoreReloadY() {
+  if (reloadY === null) return;
+  if (FOCUS_ADDRESS) { reloadY = null; return; }
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo(0, Math.min(reloadY, max));
+  restoredY = window.scrollY;
+  if (max >= reloadY) reloadY = null;
+}
+
 // The width of the last check and what it decided. The first check always
 // counts as wider, so it measures from scratch.
 const fitState = { width: -Infinity, level: 0, cards: false };
@@ -1066,6 +1103,7 @@ function renderPeerTables(peers, options = {}) {
   // Only now are the rows in the page; looking earlier found nothing on the
   // first render and moved the jump to the next refresh, twenty seconds on.
   scrollToFocusOnce();
+  restoreReloadY();
 
   const slotsEl = document.getElementById('manual-slots');
   if (slotsEl) {
