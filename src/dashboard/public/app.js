@@ -335,15 +335,13 @@ function fitTables() {
 let reloadY = null;
 let restoredY = null;  // where this code last put the page
 try {
+  // Always manual: with the browser's own restore on, it and this code pull the page two ways.
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   const nav = performance.getEntriesByType('navigation')[0];
   const key = 'scrollY:' + location.pathname;
   if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
     const v = Number(sessionStorage.getItem(key));
-    if (v > 0) {
-      reloadY = v;
-      // Only with a position to restore; otherwise the browser's own restore stays on.
-      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-    }
+    if (v > 0) reloadY = v;
   }
   // Still waiting to be restored, the page is short: keep the position that waits.
   const save = () => { try { sessionStorage.setItem(key, String(reloadY !== null ? reloadY : Math.round(window.scrollY))); } catch { /* private window */ } };
@@ -354,7 +352,10 @@ try {
   // A drag on the scrollbar or a fling is the reader's, not ours.
   window.addEventListener('scroll', () => { if (reloadY !== null && restoredY !== null && Math.abs(window.scrollY - restoredY) > 40) letGo(); }, { passive: true });
   setTimeout(letGo, 6000);
-} catch { /* no storage: the browser's own restore has to do */ }
+} catch {
+  // No storage: nothing is saved, so the browser's own restore has to do.
+  try { history.scrollRestoration = 'auto'; } catch { /* old browser */ }
+}
 function restoreReloadY() {
   if (reloadY === null) return;
   if (FOCUS_ADDRESS) { reloadY = null; return; }
