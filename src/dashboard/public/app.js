@@ -329,31 +329,38 @@ function fitTables() {
   return false;
 }
 // A reload puts the reader back where they were. The browser tries it before
-// the peers have arrived, finds a short page and settles near the top (Ben
-// 26.10.: the Lab on the Rotation or at the very top). So the position is kept here, set again once the
+// the peers have arrived, finds a short page and settles near the top. So the position is kept here, set again once the
 // tables are in, and let go when the reader moves the page, when the page has
 // grown to it, or after six seconds.
 let reloadY = null;
+let restoredY = null;  // where this code last put the page
 try {
-  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
   const nav = performance.getEntriesByType('navigation')[0];
   const key = 'scrollY:' + location.pathname;
   if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
     const v = Number(sessionStorage.getItem(key));
-    if (v > 0) reloadY = v;
+    if (v > 0) {
+      reloadY = v;
+      // Only with a position to restore; otherwise the browser's own restore stays on.
+      if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    }
   }
-  const save = () => { try { sessionStorage.setItem(key, String(Math.round(window.scrollY))); } catch { /* private window */ } };
+  // Still waiting to be restored, the page is short: keep the position that waits.
+  const save = () => { try { sessionStorage.setItem(key, String(reloadY !== null ? reloadY : Math.round(window.scrollY))); } catch { /* private window */ } };
   window.addEventListener('pagehide', save);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
-  const let_go = () => { reloadY = null; };
-  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, let_go, { passive: true });
-  setTimeout(let_go, 6000);
+  const letGo = () => { reloadY = null; };
+  for (const ev of ['wheel', 'touchstart', 'keydown', 'mousedown']) window.addEventListener(ev, letGo, { passive: true });
+  // A drag on the scrollbar or a fling is the reader's, not ours.
+  window.addEventListener('scroll', () => { if (reloadY !== null && restoredY !== null && Math.abs(window.scrollY - restoredY) > 40) letGo(); }, { passive: true });
+  setTimeout(letGo, 6000);
 } catch { /* no storage: the browser's own restore has to do */ }
 function restoreReloadY() {
   if (reloadY === null) return;
-  if (typeof FOCUS_ADDRESS !== 'undefined' && FOCUS_ADDRESS) { reloadY = null; return; }
+  if (FOCUS_ADDRESS) { reloadY = null; return; }
   const max = document.documentElement.scrollHeight - window.innerHeight;
   window.scrollTo(0, Math.min(reloadY, max));
+  restoredY = window.scrollY;
   if (max >= reloadY) reloadY = null;
 }
 
