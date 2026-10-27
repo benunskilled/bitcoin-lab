@@ -799,6 +799,44 @@ let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 // are shown until someone wants the rest.
 const ROTATION_LOG_LIMIT = 5;
 let showAllRotationLog = false; // toggled by #rotation-log-limit-toggle
+// A reload keeps what was opened, like the scroll position: "Show all" stays.
+const OPENED_KEY = 'opened:' + location.pathname;
+try {
+  const nav = performance.getEntriesByType('navigation')[0];
+  if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
+    const o = JSON.parse(sessionStorage.getItem(OPENED_KEY) || 'null');
+    if (o) { showAllLivePeers = !!o.live; showAllRotationLog = !!o.log; }
+  }
+  const keep = () => { try { sessionStorage.setItem(OPENED_KEY, JSON.stringify({ live: showAllLivePeers, log: showAllRotationLog })); } catch { /* private window */ } };
+  window.addEventListener('pagehide', keep);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
+} catch { /* no storage: nothing to keep */ }
+
+// Smooth scrolling, unless the reader asked the system for less motion.
+function glide() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
+
+// A peer that was not there at the last refresh lights up once, so what
+// changed since the last look is seen without searching. Not on the first
+// load: then everything would be new.
+const arrivedAt = new Map();
+let knownAddresses = null;
+function markArrivals(ranking) {
+  const now = Date.now();
+  const seen = new Set();
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') {
+      if (typeof v.address === 'string') seen.add(v.address);
+      else Object.values(v).forEach(walk);
+    }
+  };
+  walk(ranking);
+  if (knownAddresses) for (const a of seen) if (!knownAddresses.has(a)) arrivedAt.set(a, now);
+  for (const [a, t] of arrivedAt) if (now - t > 3000 || !seen.has(a)) arrivedAt.delete(a);
+  knownAddresses = seen;
+}
 let lastRotationLog = null; // kept so the toggle can re-render without refetching
 
 // The most recent ranking payload, kept so purely visual changes (the "show
@@ -815,6 +853,7 @@ async function refreshPeers() {
   const peers = await api('/api/peers/ranking');
   if (seq !== peerRequestSeq) return;
   lastPeerRanking = peers;
+  markArrivals(peers);
   renderPeerTables(peers);
 }
 
@@ -983,7 +1022,7 @@ function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
   const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
   return `
-    <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
+    <tr class="${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${withClientLine(addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
@@ -1426,7 +1465,7 @@ document.getElementById('live-peer-limit-toggle').addEventListener('click', () =
   if (!collapsing) return;
   const card = document.getElementById('live-peer-card');
   if (card && card.getBoundingClientRect().top < 0) {
-    card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    card.scrollIntoView({ block: 'start', behavior: glide() });
   }
 });
 
@@ -1957,7 +1996,7 @@ function glideIntoView(el, keep = el) {
   if (!el || el.hidden) return;
   const bottom = el.getBoundingClientRect().bottom;
   const up = Math.min(bottom + 12 - window.innerHeight, keep.getBoundingClientRect().top - 8);
-  if (up > 0) window.scrollBy({ top: up, behavior: 'smooth' });
+  if (up > 0) window.scrollBy({ top: up, behavior: glide() });
 }
 
 // Two steps rather than a browser confirm(): the warning can then say what is
@@ -2021,3 +2060,56 @@ wireReset('pools');
 // answered.
 startRefreshLoop();
 startEventStream();
+
+// On a phone the page is many screens long. Scrolling back up shows a small
+// bar with the sections, and it goes again when the reader scrolls on down or
+// is back at the top. Peer Map has the same.
+(function jumpBar() {
+  const bar = document.createElement('nav');
+  bar.className = 'jump-bar';
+  bar.setAttribute('aria-label', 'Jump to');
+  document.body.appendChild(bar);
+  const byHeading = (text) => [...document.querySelectorAll('main .card h2')]
+    .find((h) => h.textContent.trim().startsWith(text))?.closest('.card');
+  const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Rotation', 'Peer Rotation'],
+    ['Stratum', 'Stratum Race'], ['Storage', 'Storage']];
+  for (const [label, heading] of targets) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      const card = heading && byHeading(heading);
+      const y = card ? card.getBoundingClientRect().top + window.scrollY - 8 : 0;
+      window.scrollTo({ top: Math.max(0, y), behavior: glide() });
+      bar.classList.remove('shown');
+    });
+    bar.appendChild(b);
+  }
+  let lastY = window.scrollY;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    const phone = window.matchMedia('(max-width: 600px)').matches;
+    const up = y < lastY - 4;
+    const down = y > lastY + 4;
+    // With a mouse the bar sits quietly in a corner whenever the reader is
+    // far down; on a phone it comes only on the way back up.
+    bar.classList.toggle('corner', !phone);
+    if (phone ? up && y > window.innerHeight : y > window.innerHeight) bar.classList.add('shown');
+    else if (phone ? down || y < window.innerHeight / 2 : y < window.innerHeight) bar.classList.remove('shown');
+    if (up || down) lastY = y;
+  }, { passive: true });
+})();
+
+// Esc closes what a click opened: the reset question, then the storage card,
+// as in a desktop app.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || (e.target.closest && e.target.closest('input, textarea, select'))) return;
+  const confirm = [...document.querySelectorAll('.reset-confirm')].find((c) => !c.hidden);
+  if (confirm) {
+    confirm.querySelector('[id$="-no"]')?.click();
+    e.preventDefault();
+    return;
+  }
+  const storage = document.getElementById('storage-card');
+  if (storage && storage.open) { storage.open = false; e.preventDefault(); }
+});
