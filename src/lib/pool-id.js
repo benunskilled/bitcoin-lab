@@ -10,7 +10,7 @@
  * blocks, and it is the only way to do it without asking a service.
  *
  * The list is `src/data/mining-pools.json` from bitcoin-data/mining-pools
- * (MIT). See src/data/MINING-POOLS.md for the licence and how to refresh it.
+ * (MIT), plus `mining-pools-extra.json`. See src/data/MINING-POOLS.md for the licence and how to refresh it.
  *
  * Two honest limits. The payout address is checked first because it is the
  * stronger claim - it is where the money actually went - but a pool that pays
@@ -22,9 +22,13 @@
  */
 
 const pools = require('../data/mining-pools.json');
+// Tags the list above lacks, most of them pools that run ckpool and so also
+// write "ckpool" into the coinbase: without their own tag they would all be
+// CKPool. See src/data/MINING-POOLS.md for where each one comes from.
+const extra = require('../data/mining-pools-extra.json');
 
 const ADDRESSES = pools.payout_addresses || {};
-const TAGS = pools.coinbase_tags || {};
+const TAGS = { ...(pools.coinbase_tags || {}), ...(extra.coinbase_tags || {}) };
 
 // Longest first: "Foundry USA Pool" has to win against any shorter tag that
 // happens to sit inside the same coinbase.
