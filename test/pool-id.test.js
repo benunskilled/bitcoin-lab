@@ -95,3 +95,18 @@ test('an unknown miner still leaves a readable label', () => {
   const long = 'x'.repeat(60);
   assert.equal(poolId.coinbaseLabel(hexOf(long)).length, 32);
 });
+
+// Pools that run ckpool write "ckpool" too; their own tag has to win.
+test('a ckpool-run pool is named by its own tag, not as CKPool', () => {
+  const cases = {
+    'ckpool /braiinssolo/': 'Braiins Solo',
+    'ckpool /Mined by Satoshi Radio/': 'Satoshi Radio',
+    'ckpool /pool.mutatrum.com/': 'mutatrum',
+    'AtlasPool/FRA': 'AtlasPool',
+    'eu/solo.ckpool.org/': 'Solo CK',
+    'ckpool': 'CKPool',
+  };
+  for (const [text, name] of Object.entries(cases)) {
+    assert.equal(poolId.identify({ coinbaseHex: hex('\u0003abc' + text) })?.name, name, text);
+  }
+});
