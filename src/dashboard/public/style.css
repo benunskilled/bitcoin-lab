@@ -640,7 +640,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 
 /* Traffic card: three tiles, then the bars. Up is the bar colour, down is
    blue, so the arrows are the legend. */
-.traffic-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
+.traffic-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
 .traffic-totals .t { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .traffic-totals .l { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .05em; }
 .traffic-totals .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
@@ -648,7 +648,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .traffic-totals .down { color: #58a6ff; margin-left: 8px; }
 .traffic-totals .hint { grid-column: 1 / -1; }
 /* An amount and its unit stay together: "GB" alone on a line read as a typo. */
-.traffic-totals .v span { white-space: nowrap; }
+.traffic-totals .v span { white-space: nowrap; display: inline-block; }
 .traffic-chart { margin-bottom: 10px; }
 .traffic-chart svg { display: block; width: 100%; height: auto; }
 .traffic-chart .sent { fill: url(#traffic-sent); }
@@ -850,3 +850,39 @@ select { background: #1b2531; color: var(--text); border: 1px solid var(--border
   .topbar { flex-wrap: wrap; gap: 4px 0; padding: 14px 16px; }
   .status-pill { flex-basis: 100%; font-size: 12px; }
 }
+
+/* --- Feel (28.10.2026), the same as in Peer Map --- */
+/* Small controls get a finger-sized target without looking any bigger. */
+.sibling-link, .keep-star, .peer-jump, button.link, table button.secondary { position: relative; }
+.sibling-link::after, button.link::after { content: ""; position: absolute; inset: -12px -8px; }
+.keep-star::after { content: ""; position: absolute; inset: -12px -4px -12px -10px; }
+.peer-jump::after { content: ""; position: absolute; inset: -10px -2px; }
+table button.secondary::after { content: ""; position: absolute; inset: -8px -2px; }
+/* Buttons change state softly. */
+button.secondary, .action-slot { transition: background-color .12s ease, border-color .12s ease, color .12s ease; }
+/* What the storage card opens fades in. */
+#storage-card[open] > :not(summary) { animation: lab-in .18s ease-out; }
+@keyframes lab-in { from { opacity: 0; transform: translateY(-4px); } }
+/* A peer that has just connected lights up once. */
+tr.arrived > td { animation: arrived 2.4s ease-out; }
+.cards.cards tr.arrived { animation: arrived 2.4s ease-out; }
+.cards.cards tr.arrived > td { animation: none; }
+@keyframes arrived { from { background-color: rgba(247, 147, 26, .16); } }
+/* Scrolling back up on a phone: the sections, a tap away. */
+.jump-bar { position: fixed; z-index: 30; left: 50%; top: 8px; transform: translate(-50%, -64px); display: flex; gap: 2px; padding: 4px; border-radius: 999px; background: rgba(19, 26, 34, .94); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .35); transition: transform .2s ease; max-width: calc(100vw - 16px); }
+.jump-bar.shown { transform: translate(-50%, 0); }
+.jump-bar button { font: inherit; font-size: 13px; font-weight: 400; color: var(--text); background: none; border: 0; padding: 8px 9px; border-radius: 999px; white-space: nowrap; }
+.jump-bar button:active { background: var(--row); }
+@media (prefers-reduced-motion: reduce) {
+  button.secondary, .action-slot, .jump-bar { transition: none; }
+  #storage-card[open] > :not(summary), tr.arrived, tr.arrived > td { animation: none; }
+}
+/* Column headings stay in view over a long table (not as cards). */
+@media (min-width: 601px) {
+  .table-wrap:not(.cards) { overflow-x: clip; }
+  .table-wrap:not(.cards) thead th { position: sticky; top: 0; z-index: 3; background: var(--panel); box-shadow: 0 1px 0 var(--border); }
+}
+/* With a mouse the sections wait in the bottom right corner. */
+.jump-bar.corner { left: auto; right: 16px; top: auto; bottom: 16px; transform: translateY(80px); }
+.jump-bar.corner.shown { transform: none; }
+@media (prefers-reduced-motion: reduce) { .jump-bar.corner { transition: none; } }
