@@ -45,11 +45,13 @@ still a claim rather than a measurement.
 Coinbase tags the list above does not have yet, kept apart so a refresh never
 overwrites them; on the same tag, the extra list wins. Most are pools that run
 ckpool, which writes "ckpool" into every coinbase: without a tag of their own,
-Braiins Solo, Satoshi Radio or mutatrum would all show as CKPool. The tag of
-the longest match wins, so "/braiinssolo/" beats "ckpool" in the same text.
+Braiins Solo, Satoshi Radio or mutatrum would all show as CKPool. The longest
+tag wins, so "/braiinssolo/" beats "ckpool" in the same text.
 
 Where each tag comes from:
 
+- Public Pool's tags are the default of its software, so a block from a
+  Public Pool someone runs at home carries them too: the name, no link.
 - Braiins Solo, Parasite, Public Pool, FutureBit Apollo Solo: the tags of
   [mempool/mining-pools](https://github.com/mempool/mining-pools)
   `pools-v2.json` (MIT, © mempool and contributors).
