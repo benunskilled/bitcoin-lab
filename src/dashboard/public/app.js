@@ -1726,6 +1726,7 @@ document.body.addEventListener('change', async (e) => {
     try {
       const result = await api('/api/stratum/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
       applyStratumEnabled(Boolean(result.enabled));
+      if (result.enabled) glideIntoView(document.getElementById('stratum-body'), e.target);
       showToast(
         result.enabled
           ? 'Stratum Race turned on. Pool connections open within half a minute.'
@@ -1949,6 +1950,16 @@ async function refreshStorage() {
   set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
 }
 
+// Something a tap just opened below the screen's edge is brought up, gently
+// and only as far as needed - never so far that keep (what was tapped) leaves
+// the top. Peer Map does the same for a peer's panel.
+function glideIntoView(el, keep = el) {
+  if (!el || el.hidden) return;
+  const bottom = el.getBoundingClientRect().bottom;
+  const up = Math.min(bottom + 12 - window.innerHeight, keep.getBoundingClientRect().top - 8);
+  if (up > 0) window.scrollBy({ top: up, behavior: 'smooth' });
+}
+
 // Two steps rather than a browser confirm(): the warning can then say what is
 // actually about to go, in rows and megabytes, instead of asking whether the
 // user is sure about something unspecified.
@@ -1959,7 +1970,7 @@ function wireReset(scope) {
   const no = document.getElementById(`reset-${scope}-no`);
   if (!ask || !panel || !yes || !no) return;
 
-  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; });
+  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; glideIntoView(panel); });
   no.addEventListener('click', () => { panel.hidden = true; ask.hidden = false; });
   yes.addEventListener('click', async () => {
     yes.disabled = true;
@@ -1986,7 +1997,11 @@ function wireReset(scope) {
 }
 
 document.getElementById('storage-card').addEventListener('toggle', (e) => {
-  if (e.target.open) refreshStorage();
+  if (e.target.open) {
+    // The card is the last on the page: what it opens is below the edge.
+    glideIntoView(e.target, e.target.querySelector('summary'));
+    refreshStorage().then(() => glideIntoView(e.target, e.target.querySelector('summary')));
+  }
 });
 wireReset('peers');
 wireReset('pools');
