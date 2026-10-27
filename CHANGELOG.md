@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.0.5 – 2026-10-25
+
+Peers on another chain, nodes that set Knots' BIP110 or BLAKE2b bit, now read "never first". Bitcoin Lab knows the same new clients as Peer Map, Lightning wallets among them. On phones every peer is a tidy card with its buttons always in the same place, and the padlock can be found and tapped. The rotation log now shows every peer you add by hand. Inbound peers that never delivered a block first are forgotten after 30 days away. A Core restart no longer stops the recording, and Stratum Race no longer keeps redialling a pool that drops it.
+
 ## 2.0.4 – 2026-10-22
 
 📡 marks the peers that take new blocks from your node first: they picked it as one of their high-bandwidth peers. The heading counts them. A swap in the rotation log is labelled Promoted. Built on Node 22.23.4 with its October security fixes.
