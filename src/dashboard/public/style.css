@@ -988,3 +988,8 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 /* A soft edge under the bar, so a row passing beneath fades out instead of
    showing half a line. */
 .stick > div::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 20px; background: linear-gradient(var(--panel) 35%, transparent); pointer-events: none; }
+
+/* ⚡ and 📡 after the First % numbers: a small gap of their own. */
+.hb { margin-left: 4px; }
+.cards.cards .hb { margin-left: 2px; }
+.cards.cards table.peer-table td[data-col="col-pct"] { white-space: normal; text-overflow: clip; }

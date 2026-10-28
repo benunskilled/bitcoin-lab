@@ -797,7 +797,7 @@ function firstPctCell(p) {
   // a second number in every cell was noise in a table sorted by the first.
   const lifetime = windowed && p.eligible > p.recentEligible;
   const title = lifetime ? `Lifetime: ${fmtPct(p.firstPct)} (${p.first} of ${p.eligible} blocks first)` : '';
-  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}</td>`;
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span>&nbsp;<span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -1027,8 +1027,11 @@ const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new bl
 // peer is ahead, but it belongs next to ⚡: an outbound peer is often both.
 const HB_FROM_TITLE = "This peer has picked your node as one of its three high-bandwidth peers: your node sends it new blocks without being asked first.";
 function hbMark(p) {
-  return (p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
-    + (p.hbFrom ? ` <span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
+  // The gap is the span's margin, not a space: on a phone card ⚡ and 📡
+  // together were cut by two pixels (28.10.2026). Where they still do not
+  // fit (100.0% 500/500 and both), the second goes under the first (<wbr>).
+  return (p.hb ? `<wbr><span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
+    + (p.hbFrom ? `<wbr><span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
 }
 
 // Core's names for the two automatic outbound kinds, said as Peer Map and the
