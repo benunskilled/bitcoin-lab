@@ -381,8 +381,14 @@ let lastScrollY = window.scrollY;
 // refresh adds and drops rows above the reader, and everything below moved
 // by a few hundred pixels every twenty seconds (iPhone, 24.10.2026). Safari
 // has no scroll anchoring of its own, so the page does it: what is at the top
-// of the window - a heading, or a peer's row in a table - is noted, and after
-// a refresh it is put back where it was.
+// of the window - a heading, or a row in a table - is noted, and after any
+// change of the page it is put back where it was.
+// A row is held by its place in its table, never by the peer in it
+// (28.10.2026): the lists are sorted by how well a peer delivers, and a page
+// that followed one peer up or down the ranking jumped under a reader who
+// was only looking. When a peer moves, another one stands in its place; the
+// list does not move. Every change goes through here: new data, a card
+// folded, a row opened (the observer below also watches those classes).
 const PLACE_SELECTOR = 'h2, h3, .table-wrap tbody tr';
 let placeMarks = [];
 function notePlace() {
@@ -395,7 +401,7 @@ function notePlace() {
     if (r.height === 0 || r.bottom <= 0) continue;
     if (r.top >= window.innerHeight) break;
     const key = e.tagName === 'TR'
-      ? [tables.indexOf(e.closest('table')), e.dataset.key ?? [...e.parentNode.children].indexOf(e)]
+      ? [tables.indexOf(e.closest('table')), [...e.parentNode.children].indexOf(e)]
       : [-1, heads.indexOf(e)];
     placeMarks.push({ key, top: r.top });
     if (placeMarks.length === 3) break;
@@ -403,10 +409,7 @@ function notePlace() {
 }
 function findPlace([table, i]) {
   if (table < 0) return document.querySelectorAll('h2, h3')[i];
-  const body = document.querySelectorAll('.table-wrap table')[table]?.tBodies[0];
-  // A peer row by its address: by position, a peer leaving above slid every
-  // row below one place on and another peer stood where the reader looked.
-  return typeof i === 'string' ? body?.querySelector(`tr[data-key="${CSS.escape(i)}"]`) : body?.children[i];
+  return document.querySelectorAll('.table-wrap table')[table]?.tBodies[0]?.children[i];
 }
 // Back where it was, by the first of the noted elements still there.
 function keepPlace() {
@@ -424,7 +427,11 @@ window.addEventListener('scroll', () => {
   lastScrollY = window.scrollY;
   if (!placeFrame) placeFrame = requestAnimationFrame(() => { placeFrame = 0; notePlace(); });
 }, { passive: true });
-new MutationObserver(() => {
+// Classes that change nothing above the reader: the beating dot, the bar that
+// rides along at the top.
+const QUIET = '.live-dot, .stick';
+new MutationObserver((list) => {
+  if (list.every((m) => m.type === 'attributes' && m.target.matches(QUIET))) return;
   const y = lastScrollY;
   // Not when fitTables has just kept the reader's place itself: that move is
   // meant, and putting the old position back would undo it.
@@ -432,7 +439,7 @@ new MutationObserver(() => {
   if (!anchored && !keepPlace() && y - window.scrollY > 100) window.scrollTo(0, y);
   lastScrollY = window.scrollY;
   notePlace();
-}).observe(document.body, { childList: true, subtree: true });
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'hidden'] });
 // Only a change of width can change whether the tables fit. On an iPhone the
 // height changes all the time - Safari's toolbar shrinks and grows while the
 // page scrolls - and measuring on each of those threw the reader up the page.
