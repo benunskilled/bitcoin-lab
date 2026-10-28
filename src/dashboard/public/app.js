@@ -427,11 +427,15 @@ window.addEventListener('scroll', () => {
   lastScrollY = window.scrollY;
   if (!placeFrame) placeFrame = requestAnimationFrame(() => { placeFrame = 0; notePlace(); });
 }, { passive: true });
-// Classes that change nothing above the reader: the beating dot, the bar that
-// rides along at the top.
+// A class or attribute matters only where it can change the height of the
+// page's content: inside main, and not the beating dot or the bar that rides
+// along at the top. The jump bar outside main changes its class on every
+// scroll; counting that put the reader back after each flick, and the page
+// could not be scrolled at all (2.0.1-62/63 in the test store, 28.10.2026).
 const QUIET = '.live-dot, .stick';
+const counts = (m) => m.type === 'childList' || (m.target.closest('main') && !m.target.closest(QUIET));
 new MutationObserver((list) => {
-  if (list.every((m) => m.type === 'attributes' && m.target.matches(QUIET))) return;
+  if (!list.some(counts)) return;
   const y = lastScrollY;
   // Not when fitTables has just kept the reader's place itself: that move is
   // meant, and putting the old position back would undo it.
