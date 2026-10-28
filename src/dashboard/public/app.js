@@ -369,7 +369,29 @@ function restoreReloadY() {
 // counts as wider, so it measures from scratch.
 const fitState = { width: -Infinity, level: 0, cards: false };
 let fitTimer = null;
-const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); notePlace(); }, 50); };
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); fitPct(); notePlace(); }, 50); };
+// On a phone card, First % with ⚡ and 📡 must stay one line: a card taller
+// than the others moves every card below it. Where the line does not fit, the
+// count (312/500) goes in that card alone - the share and the marks stay, and
+// the count is still in the table on a wide screen (28.10.2026). Measured per
+// card: the share and the count are as wide as their digits. The count's
+// width comes from its text, so a hidden one is measured the same way.
+const textWidth = (() => {
+  const ctx = document.createElement('canvas').getContext('2d');
+  return (el, text) => { ctx.font = getComputedStyle(el).font; return ctx.measureText(text).width; };
+})();
+function fitPct() {
+  for (const td of document.querySelectorAll('.cards table.peer-table td[data-col="col-pct"]')) {
+    const marks = [...td.querySelectorAll('.hb')];
+    const cnt = td.querySelector('.cnt');
+    if (!cnt || !marks.length) { td.classList.remove('tight'); continue; }
+    const pct = td.querySelector('.pct');
+    const need = pct.getBoundingClientRect().width + textWidth(cnt, '\u00a0' + cnt.textContent)
+      + marks.reduce((w, m) => w + m.getBoundingClientRect().width + parseFloat(getComputedStyle(m).marginLeft), 0);
+    // Only on a change, so the observer below is not set off again.
+    if (td.classList.contains('tight') !== need > td.clientWidth) td.classList.toggle('tight');
+  }
+}
 // Re-rendered rows are cards without their labels until fitTables runs, and
 // fitTables takes the cards away for a moment to measure: either way the page
 // is shorter for an instant, and Safari clamps the scroll position to it and
@@ -440,6 +462,7 @@ new MutationObserver((list) => {
   // Not when fitTables has just kept the reader's place itself: that move is
   // meant, and putting the old position back would undo it.
   const anchored = fitTables();
+  fitPct();
   if (!anchored && !keepPlace() && y - window.scrollY > 100) window.scrollTo(0, y);
   lastScrollY = window.scrollY;
   notePlace();
@@ -1028,10 +1051,9 @@ const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new bl
 const HB_FROM_TITLE = "This peer has picked your node as one of its three high-bandwidth peers: your node sends it new blocks without being asked first.";
 function hbMark(p) {
   // The gap is the span's margin, not a space: on a phone card ⚡ and 📡
-  // together were cut by two pixels (28.10.2026). Where they still do not
-  // fit (100.0% 500/500 and both), the second goes under the first (<wbr>).
-  return (p.hb ? `<wbr><span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
-    + (p.hbFrom ? `<wbr><span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
+  // together were cut by two pixels (28.10.2026).
+  return (p.hb ? `<span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
+    + (p.hbFrom ? `<span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
 }
 
 // Core's names for the two automatic outbound kinds, said as Peer Map and the

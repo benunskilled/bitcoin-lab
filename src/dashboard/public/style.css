@@ -776,6 +776,8 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    (312/500) goes and the share and the bolt stay - never cut off. */
 .cards.cards table.peer-table td[data-col="col-pct"] { container-type: inline-size; }
 @container (max-width: 125px) { .cards.cards table.peer-table td[data-col="col-pct"] .cnt { display: none; } }
+/* With ⚡ or 📡 the app measures each card (fitPct): too tight, its count goes. */
+.cards.cards table.peer-table td[data-col="col-pct"].tight .cnt { display: none; }
 /* The pools likewise: wins, win %, avg in one row; enabled and remove under it. */
 .cards.cards #pool-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cards.cards #pool-table tr td[data-label=""]:last-child { grid-column: auto; }
@@ -992,4 +994,3 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 /* ⚡ and 📡 after the First % numbers: a small gap of their own. */
 .hb { margin-left: 4px; }
 .cards.cards .hb { margin-left: 2px; }
-.cards.cards table.peer-table td[data-col="col-pct"] { white-space: normal; text-overflow: clip; }
