@@ -381,7 +381,7 @@ let lastScrollY = window.scrollY;
 // refresh adds and drops rows above the reader, and everything below moved
 // by a few hundred pixels every twenty seconds (iPhone, 24.10.2026). Safari
 // has no scroll anchoring of its own, so the page does it: what is at the top
-// of the window - a heading, or the nth row of a table - is noted, and after
+// of the window - a heading, or a peer's row in a table - is noted, and after
 // a refresh it is put back where it was.
 const PLACE_SELECTOR = 'h2, h3, .table-wrap tbody tr';
 let placeMarks = [];
@@ -395,7 +395,7 @@ function notePlace() {
     if (r.height === 0 || r.bottom <= 0) continue;
     if (r.top >= window.innerHeight) break;
     const key = e.tagName === 'TR'
-      ? [tables.indexOf(e.closest('table')), [...e.parentNode.children].indexOf(e)]
+      ? [tables.indexOf(e.closest('table')), e.dataset.key ?? [...e.parentNode.children].indexOf(e)]
       : [-1, heads.indexOf(e)];
     placeMarks.push({ key, top: r.top });
     if (placeMarks.length === 3) break;
@@ -403,7 +403,10 @@ function notePlace() {
 }
 function findPlace([table, i]) {
   if (table < 0) return document.querySelectorAll('h2, h3')[i];
-  return document.querySelectorAll('.table-wrap table')[table]?.tBodies[0]?.children[i];
+  const body = document.querySelectorAll('.table-wrap table')[table]?.tBodies[0];
+  // A peer row by its address: by position, a peer leaving above slid every
+  // row below one place on and another peer stood where the reader looked.
+  return typeof i === 'string' ? body?.querySelector(`tr[data-key="${CSS.escape(i)}"]`) : body?.children[i];
 }
 // Back where it was, by the first of the noted elements still there.
 function keepPlace() {
@@ -933,8 +936,26 @@ for (const type of ['pointerup', 'pointercancel']) {
 }
 window.addEventListener('blur', pressOver);
 
+// A finger on the glass or a page still gliding: a refresh redrawn under it
+// moved the rows the reader was following, and the scroll correction that
+// keeps their place cut Safari's glide short with a jolt (iPhone, 28.10.2026).
+// The newest data waits until the page has been still for half a second.
+let touching = 0;
+let scrolledAt = 0;
+let settleTimer = null;
+const moving = () => (touching > 0 && Date.now() - touching < 15000) || Date.now() - scrolledAt < 500;
+const settle = () => {
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => (moving() ? settle() : flushDeferredRenders()), 520);
+};
+window.addEventListener('touchstart', () => { touching = Date.now(); }, { passive: true, capture: true });
+for (const type of ['touchend', 'touchcancel']) {
+  window.addEventListener(type, () => { touching = 0; settle(); }, { passive: true, capture: true });
+}
+window.addEventListener('scroll', () => { scrolledAt = Date.now(); settle(); }, { passive: true });
+
 function interactionInProgress(selector) {
-  if (actionsInFlight > 0 || pressing()) return true;
+  if (actionsInFlight > 0 || pressing() || moving()) return true;
   // Keyboard focus only. A mouse click leaves the focus on the button in
   // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
@@ -1022,7 +1043,7 @@ function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
   const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
   return `
-    <tr class="${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
+    <tr data-key="${escapeHtml(p.address)}" class="${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${withClientLine(addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
