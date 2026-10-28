@@ -1146,6 +1146,9 @@ function renderPeerTables(peers, options = {}) {
       : `showing ${visibleLivePeers.length} of ${livePeers.length} connected`)
       + (fed ? ` · 📡 ${fed} take new blocks from you first` : '');
   }
+  const stickCount = document.getElementById('live-stick-count');
+  if (stickCount) stickCount.textContent = ` · ${livePeers.length}`;
+  liveStickOn();
   if (limitToggle) {
     if (livePeers.length <= LIVE_PEER_LIMIT) {
       limitToggle.hidden = true;
@@ -1283,6 +1286,7 @@ async function refreshRotation() {
   const data = await api('/api/rotation');
   const toggle = document.getElementById('rotation-toggle');
   if (toggle && rotationToggleEpoch === epochAtRequest) toggle.checked = Boolean(data.enabled);
+  foldSums();
 
   renderParkedPeers(data.parked);
 
@@ -1338,6 +1342,7 @@ function applyStratumEnabled(enabled) {
   const toggle = document.getElementById('stratum-toggle');
   if (!toggle) return;
   if (document.activeElement !== toggle) toggle.checked = enabled;
+  foldSums();
   const body = document.getElementById('stratum-body');
   const offHint = document.getElementById('stratum-off-hint');
   if (body) body.hidden = !enabled;
@@ -1378,6 +1383,7 @@ function renderPools(pools) {
     </tr>
   `).join('');
   markOpenRow();
+  foldSums();
 }
 
 // ---------------------------------------------------------------------------
@@ -1437,6 +1443,7 @@ async function refreshTraffic() {
   const t = await api('/api/traffic');
   // The arrows carry the colours of the bars, so they are the legend too.
   const arrows = (v) => `<span class="up">↑ ${escapeHtml(fmtBytes(v.sent))}</span><span class="down">↓ ${escapeHtml(fmtBytes(v.recv))}</span>`;
+  document.getElementById('traffic-sum').textContent = t.since ? `today ↑ ${fmtBytes(t.today.sent)} ↓ ${fmtBytes(t.today.recv)}` : '';
   document.getElementById('traffic-totals').innerHTML = t.since
     ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
       .map(([l, v]) => `<div class="t"><div class="l">${l}</div><div class="v">${arrows(v)}</div></div>`)
@@ -1473,6 +1480,7 @@ async function refreshAll() {
   // whatever they had - hours-old numbers presented exactly like fresh ones.
   const failed = results.filter((r) => r.status === 'rejected');
   beat(failed.length === 0);
+  foldSums();
   reportRefreshHealth(failed.map((r) => r.reason));
 }
 
@@ -1519,6 +1527,60 @@ document.getElementById('rotation-log-limit-toggle').addEventListener('click', (
   // here: the log sits at the bottom of its panel and the button moves with
   // it, so collapsing cannot strand the reader the way the peer table can.
   if (lastRotationLog) renderRotationLog(lastRotationLog);
+});
+
+// Every card folds to its title on a tap and stays so on this device: open
+// unless the reader closed it (28.10.2026). Storage keeps its own <details>.
+const FOLD_KEY = 'lab.folded';
+const folded = (() => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')); } catch { return new Set(); } })();
+for (const card of document.querySelectorAll('main > section.card')) {
+  const title = card.querySelector(':scope > h2');
+  if (!title) continue;
+  const id = card.id || title.firstChild.textContent.trim();
+  title.classList.add('fold-title');
+  title.tabIndex = 0;
+  title.setAttribute('role', 'button');
+  const show = () => {
+    foldSums();
+    card.classList.toggle('folded', folded.has(id));
+    title.setAttribute('aria-expanded', String(!folded.has(id)));
+  };
+  const flip = (e) => {
+    if (e.target.closest('button, a, input')) return;
+    if (folded.has(id)) folded.delete(id); else folded.add(id);
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch { /* private window */ }
+    show();
+    if (!folded.has(id)) window.dispatchEvent(new Event('resize')); // the traffic chart measures its width
+  };
+  title.addEventListener('click', flip);
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(e); } });
+  show();
+}
+
+// A folded card still says the one thing worth knowing about it, beside its
+// title: the switches and how many pools race. Traffic writes its own.
+function foldSums() {
+  const rot = document.getElementById('rotation-toggle');
+  document.getElementById('rotation-sum').textContent = rot.checked ? 'on' : 'off';
+  const pools = document.querySelectorAll('#pool-table input[data-action="toggle-pool"]:checked').length;
+  document.getElementById('stratum-sum').textContent = document.getElementById('stratum-toggle').checked
+    ? `on · ${pools} ${pools === 1 ? 'pool' : 'pools'}` : 'off';
+}
+
+// The whole ranking open: its name and the way back to the top ten ride along
+// at the top of the screen once the title has scrolled away, so nobody has to
+// scroll to the end to close it.
+function liveStickOn() {
+  const stick = document.getElementById('live-stick');
+  const card = document.getElementById('live-peer-card');
+  stick.hidden = !showAllLivePeers;
+  stick.classList.toggle('on', showAllLivePeers
+    && card.querySelector(':scope > h2').getBoundingClientRect().bottom < 0
+    && card.getBoundingClientRect().bottom > 140);
+}
+window.addEventListener('scroll', liveStickOn, { passive: true });
+document.getElementById('live-stick-back').addEventListener('click', () => {
+  document.getElementById('live-peer-limit-toggle').click();
 });
 
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
@@ -1836,6 +1898,7 @@ document.body.addEventListener('change', async (e) => {
     return;
   }
 
+  if (e.target.id === 'stratum-toggle' || e.target.id === 'rotation-toggle' || e.target.dataset.action === 'toggle-pool') foldSums();
   if (e.target.id === 'stratum-toggle') {
     const enabled = e.target.checked;
     try {
