@@ -38,15 +38,12 @@
     </section>
 
     <!--
-      Deliberately a plain section, not a <details>.
-      This one already had its own top-10/show-all control, and having a
-      second, outer collapse on top of it meant the same word - "collapse" -
-      did two different things a few pixels apart: one narrowed the list, the
-      other made it vanish. Here, collapsing means going back to the top 10,
-      which is the state this card is for.
+      Folds by its title like every card (app.js, foldable). The top-10 toggle
+      inside only narrows the list; the chevron makes it vanish.
     -->
     <section class="card" id="live-peer-card">
       <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
+      <div class="stick" id="live-stick" hidden><div><span>Live Peer Ranking<span id="live-stick-count"></span></span><button type="button" class="secondary" id="live-stick-back">Top 10</button></div></div>
       <div class="table-wrap">
         <table id="peer-table" class="peer-table">
           <thead>
@@ -163,7 +160,7 @@
     </section>
 
     <section class="card panel">
-      <h2>Peer Rotation</h2>
+      <h2>Peer Rotation <span class="hint fold-sum" id="rotation-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
@@ -222,7 +219,7 @@
     </section>
 
     <section class="card">
-      <h2>Stratum Race</h2>
+      <h2>Stratum Race <span class="hint fold-sum" id="stratum-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="stratum-toggle">
           <input type="checkbox" id="stratum-toggle" />
@@ -309,7 +306,7 @@
 
     <!-- What the node sends and receives, per UTC day. -->
     <section class="card panel" id="traffic-card">
-      <h2>Traffic</h2>
+      <h2>Traffic <span class="hint fold-sum" id="traffic-sum"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
       <p class="hint" id="traffic-note">Updated hourly from Core's byte counters. No bar means not measured.</p>

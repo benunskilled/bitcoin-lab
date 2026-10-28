@@ -953,3 +953,33 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
    opened row with Remove. */
 .off-tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); vertical-align: 1px; }
 #pool-table tr.pool-off td:not(:first-child, .pool-enabled, :last-child) { opacity: .5; }
+
+/* Every card folds to its title on a tap and stays so on this device; open
+   unless the reader closed it (28.10.2026). The chevron is Storage's. */
+.card h2.fold-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.card h2.fold-title::before {
+  content: ''; flex: none; width: 7px; height: 7px; margin: 0 4px 0 2px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg); transition: transform .15s ease;
+}
+.card.folded h2.fold-title::before { transform: rotate(-45deg); }
+.card h2.fold-title:hover::before { border-color: var(--text); }
+.card h2.fold-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.card h2.fold-title .hint { margin-left: 0; }
+.card.folded > :not(h2) { display: none; }
+.card.folded h2 { margin-bottom: 0; }
+.card:not(.folded) .fold-sum { display: none; }
+
+/* The open ranking keeps its name and the way back at the top. */
+.stick { position: sticky; top: 0; z-index: 6; height: 0; }
+.stick > div {
+  position: absolute; left: -21px; right: -21px; top: 0; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px 8px 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 0 0 14px 14px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .35); font-size: 15px; font-weight: 600;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+.stick > div button { margin-left: auto; }
+.stick.on > div { opacity: 1; pointer-events: auto; }
+/* A soft edge under the bar, so a row passing beneath fades out instead of
+   showing half a line. */
+.stick > div::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 20px; background: linear-gradient(var(--panel) 35%, transparent); pointer-events: none; }
