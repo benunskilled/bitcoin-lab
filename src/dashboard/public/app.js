@@ -226,12 +226,10 @@ const DROP_LEVELS = 4;
 // wide as their content, and the room left shared by address, client and
 // First % in proportion to what each needs - an IPv4 address with its port, a
 // client name like /Satoshi:31.0.0/ (a longer one is cut, the open row has it
-// whole), First % with its bar. They grow and
-// shrink together, so none is cut while another has room to spare. Type is
-// fixed: the longest pill with "never first" beside it (BLOCK RELAY, MANUAL
-// LIVE), so every row stays one line high.
-const COL_FIXED = { 'col-status': 186, 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
-const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-pct': 141 };
+// whole), the longest pill (MANUAL OFFLINE), First % with its bar. They grow
+// and shrink together, so none is cut while another has room to spare.
+const COL_FIXED = { 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
+const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-status': 139, 'col-pct': 141 };
 function sizeColumns() {
   for (const t of document.querySelectorAll('table.peer-table')) {
     if (!t.offsetWidth) continue;
@@ -815,6 +813,11 @@ function sessionCell(p) {
  * scaled by - so the parked table and the rotation log keep showing it.
  */
 function firstPctCell(p) {
+  // A peer that cannot deliver a block reads "never first" instead of its
+  // 0.0% - unless it did deliver one after all (software that names itself a
+  // wallet and relays anyway): then its number, as for every other peer.
+  const never = neverFirstReason(p);
+  if (never && !p.first) return `<td title="${escapeHtml(neverFirstTitle(never))}"><span class="never">never first</span>${hbMark(p)}</td>`;
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
@@ -1038,9 +1041,14 @@ document.addEventListener('focusout', () => {
  */
 // A peer that cannot deliver a block - software that does not relay, or a
 // peer that offers no services at all, whatever it calls itself - reads
-// "never first" beside its pill. Peer Map marks the same peers. The
-// explanation lives in the tooltip, not in the table: a dashboard is not the
-// place for a paragraph.
+// "never first" in its First % cell (firstPctCell), and its pill and row are
+// dimmed. Peer Map marks the same peers. The explanation lives in the
+// tooltip, not in the table: a dashboard is not the place for a paragraph.
+function neverFirstReason(p) {
+  return cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
+    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
+}
+const neverFirstTitle = (reason) => `Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`;
 // ⚡ in the First % cell: one of the (at most three) peers Core lets send a new
 // block straight away. Whoever holds such a place wins First far more easily,
 // so it says why a peer is ahead, not only that it is.
@@ -1064,13 +1072,9 @@ const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 
 const statusLabel = (status) => STATUS_LABEL[status] || status;
 
 function statusPill(p, status) {
-  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
-    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
+  const reason = neverFirstReason(p);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
-  const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
-  // The pill is dimmed and the cell says it in words, so the fact stays
-  // visible at a glance.
-  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${statusLabel(status)}</span><span class="never" title="${title}">never first</span>`;
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${escapeHtml(neverFirstTitle(reason))}">${statusLabel(status)}</span>`;
 }
 
 // A row's buttons show when the row is opened - a tap, like a row in Peer
@@ -1112,7 +1116,7 @@ const UMBREL_APP = 'UMBREL APP';
 
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
-  const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
+  const weak = neverFirstReason(p) ? ' weak' : '';
   const canAct = actions.includes('data-action="add-manual"') || actions.includes('data-action="disconnect"') || actions.includes('data-action="untrust"');
   return `
     <tr data-key="${escapeHtml(p.address)}"${canAct ? ' tabindex="0"' : ''} class="${canAct ? 'can-act ' : ''}${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">

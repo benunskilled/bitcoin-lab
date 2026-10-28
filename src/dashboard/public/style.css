@@ -192,10 +192,10 @@ td.cell-truncate {
 th { color: var(--faint); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
 
 tr:hover td { background: #17202a; }
-/* A peer that can never deliver a block first: dimmed, and its type cell
-   says "never first" (statusPill). */
+/* A peer that can never deliver a block first: dimmed, and its First % cell
+   says "never first" (firstPctCell). */
 tr.weak td { color: var(--muted); }
-.never { display: inline-block; vertical-align: middle; margin-left: 4px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
+.never { display: inline-block; vertical-align: middle; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
 
 .pill {
   display: inline-block;
@@ -404,7 +404,7 @@ table.peer-table {
      never engages. At 390px all nine cells were clipped and Ping/Session/Total
      overprinted each other. The eight columns need roughly this much to stay
      readable; a table that does not get it turns into cards (fitTables). */
-  min-width: 860px;
+  min-width: 820px;
 }
 
 /* The scroll containers are reachable by keyboard - at narrow widths they are
@@ -422,14 +422,14 @@ table.peer-table {
 .panel-note strong { color: var(--text); font-weight: 600; }
 .col-address { width: 16%; }
 .col-client { width: 10%; }
-/* As wide as the longest pill with "never first" beside it ("BLOCK RELAY" or
-   "MANUAL LIVE", 160px) needs, so a row never grows a second line; set the same
-   in app.js (sizeColumns). overflow:hidden
+/* As wide as the longest pill, "MANUAL OFFLINE" (115px), needs - "BLOCK RELAY"
+   and "MANUAL LIVE" need real room too, which is exactly what was
+   missing before (the pill visibly ran into First Seen %). overflow:hidden
    is belt-and-suspenders alongside that width - applied to both the <th>
    and (via the same class on its <td>, see app.js) the data cell, so even
    a future longer status value clips instead of spilling into the next
    column again. */
-.col-status { width: 186px; overflow: hidden; text-overflow: ellipsis; }
+.col-status { width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .col-pct { width: 12%; }
 .col-ping { width: 6%; }
 /* As wide as "99d 23h" needs; an offline manual peer's "offline 3d 4h" takes
@@ -676,15 +676,15 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
-/* The type pill too, with "never first" beside it (sizeColumns). */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 186px; }
+/* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
 /* "First % (lifetime)" folds onto two lines before the note does. */
 .table-wrap[data-drops]:not([data-drops="0"]) .rotation-log-table th.col-pct { white-space: normal; }
-.table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 820px; }
-.table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
-.table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 740px; }
-.table-wrap[data-drops="4"]:not(.cards) table.peer-table { min-width: 600px; }
+.table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 800px; }
+.table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 740px; }
+.table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 680px; }
+.table-wrap[data-drops="4"]:not(.cards) table.peer-table { min-width: 540px; }
 /* The last step before cards: the client as a second line under the address
    (app.js, withClientLine), and the two buttons one above the other - the
    red one below, where it is in every row. */
@@ -737,11 +737,6 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    a narrower gap and a tighter pill, not from smaller text. */
 .cards.cards table.peer-table tr { column-gap: 8px; padding-left: 10px; padding-right: 10px; }
 .cards.cards table.peer-table td[data-col="col-status"] .pill { letter-spacing: .03em; }
-/* "never first" beside the type, not under it: every card the same height,
-   so a peer moving in the ranking moves nothing else (28.10.2026). */
-/* On a phone narrower than an iPhone it wraps rather than being cut. */
-.cards.cards table.peer-table td[data-col="col-status"] { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 5px; white-space: nowrap; width: auto; overflow: visible; }
-.cards.cards table.peer-table td[data-col="col-status"] .never { margin: 0; }
 /* Big enough for a finger: Remove and Disconnect have consequences. */
 .cards.cards table.peer-table td.row-actions > button.action-slot { min-height: 34px; }
 /* A parked card: "Parked 6m ago" in one line under the address, where the
