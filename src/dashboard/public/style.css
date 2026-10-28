@@ -898,16 +898,23 @@ tr.arrived > td { animation: arrived 2.4s ease-out; }
 @media (prefers-reduced-motion: reduce) { .jump-bar.corner { transition: none; } }
 
 /* Buttons only where they are wanted (28.10.2026): a row's buttons show
-   once it is opened by a tap - like a row in Peer Map - and, with a mouse,
-   while the pointer is over it. As cards they take no room until then, and a
-   chevron says the card opens. A touch screen showing the table keeps its
-   buttons: there is no pointer to hover with, and nothing would say they
-   are there. */
+   once it is opened by a tap - like a row in Peer Map; with a mouse they
+   stand there quietly and take their colour under the pointer. As cards
+   they take no room until then, and a chevron says the card opens. A
+   touch screen showing the table keeps its buttons as they were: there is
+   no pointer to hover with. */
 tr.can-act { cursor: pointer; }
 tr.can-act:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (hover: hover) {
-  .table-wrap:not(.cards) tr.can-act :is(td.row-actions > button, td:last-child > button.danger, td.pool-enabled > label) { opacity: 0; transition: opacity .12s ease; }
-  .table-wrap:not(.cards) tr.can-act:is(:hover, .open, :focus-visible, :has(:is(button, input):focus-visible)) :is(td.row-actions > button, td:last-child > button.danger, td.pool-enabled > label) { opacity: 1; }
+  /* At rest the buttons stand there quietly, grey and without their colour,
+     so it is clear there is something to do without a wall of red and blue;
+     under the pointer they take their colour (28.10.2026). Hidden entirely
+     they read as missing. */
+  .table-wrap:not(.cards) tr.can-act:not(:hover, .open, :focus-visible, :has(:is(button, input):focus-visible)) :is(td.row-actions > button, td:last-child > button.danger) {
+    color: var(--muted); background: transparent; border-color: var(--border);
+  }
+  .table-wrap:not(.cards) tr.can-act:not(:hover, .open, :focus-visible, :has(:is(button, input):focus-visible)) td.pool-enabled > label { opacity: .5; }
+  .table-wrap:not(.cards) tr.can-act :is(td.row-actions > button, td:last-child > button.danger, td.pool-enabled > label) { transition: color .12s ease, background-color .12s ease, border-color .12s ease, opacity .12s ease; }
 }
 .cards.cards tr.can-act { position: relative; padding-right: 30px; }
 .cards.cards tr.can-act::after {
