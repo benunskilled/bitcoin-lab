@@ -748,6 +748,11 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    a narrower gap and a tighter pill, not from smaller text. */
 .cards.cards table.peer-table tr { column-gap: 8px; padding-left: 10px; padding-right: 10px; }
 .cards.cards table.peer-table td[data-col="col-status"] .pill { letter-spacing: .03em; }
+/* "never first" beside the type, not under it: every card the same height,
+   so a peer moving in the ranking moves nothing else (28.10.2026). */
+/* On a phone narrower than an iPhone it wraps rather than being cut. */
+.cards.cards table.peer-table td[data-col="col-status"] { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 5px; white-space: nowrap; width: auto; overflow: visible; }
+.cards.cards table.peer-table td[data-col="col-status"] .never { margin: 0; }
 /* Big enough for a finger: Remove and Disconnect have consequences. */
 .cards.cards table.peer-table td.row-actions > button.action-slot { min-height: 34px; }
 /* A parked card: "Parked 6m ago" in one line under the address, where the

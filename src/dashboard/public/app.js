@@ -2218,7 +2218,9 @@ startEventStream();
   const byHeading = (text) => [...document.querySelectorAll('main .card h2')]
     .find((h) => h.textContent.trim().startsWith(text))?.closest('.card');
   const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Rotation', 'Peer Rotation'],
-    ['Stratum', 'Stratum Race'], ['Storage', 'Storage']];
+    ['Stratum', 'Stratum Race'], ['Traffic', 'Traffic']];
+  // Traffic rather than Storage (28.10.2026): Storage is rarely needed and
+  // sits right under Traffic, at the end of the page.
   for (const [label, heading] of targets) {
     const b = document.createElement('button');
     b.type = 'button';
