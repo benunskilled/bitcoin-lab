@@ -209,8 +209,8 @@ function truncatedCell(text, cls = '') {
 }
 
 // A table that does not fit its panel first gives up its least important
-// columns, a step at a time (data-drop="1".."5" on the <th>: sessions, then
-// total time, session, ping and last the client; for the pools seen/miss, then
+// columns, a step at a time (data-drop="1".."4" on the <th>: sessions, then
+// session, ping and last the client; for the pools seen/miss, then
 // median/p90, then host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
@@ -220,16 +220,18 @@ function truncatedCell(text, cls = '') {
 // together - one panel as cards and the next as a table looked like two
 // different pages. The rows are re-rendered all the time, so the labels are
 // put back after every change.
-const DROP_LEVELS = 5;
+const DROP_LEVELS = 4;
 
 // Column widths of the peer tables, set for each step: the short columns as
-// wide as their content, and the room left shared by address, client, type
-// and First % in proportion to what each needs - an IPv4 address with its
-// port, a client name like /Satoshi:31.0.0/, the longest pill (MANUAL
-// OFFLINE), First % with its bar. They grow and shrink together, so none is
-// cut while another has room to spare.
-const COL_FIXED = { 'col-ping': 72, 'col-session': 84, 'col-total': 92, 'col-sessions': 56, 'col-actions': 240 };
-const COL_NEED = { 'col-address': 161, 'col-client': 205, 'col-status': 139, 'col-pct': 141 };
+// wide as their content, and the room left shared by address, client and
+// First % in proportion to what each needs - an IPv4 address with its port, a
+// client name like /Satoshi:31.0.0/ (a longer one is cut, the open row has it
+// whole), First % with its bar. They grow and
+// shrink together, so none is cut while another has room to spare. Type is
+// fixed: the longest pill with "never first" beside it (BLOCK RELAY, MANUAL
+// LIVE), so every row stays one line high.
+const COL_FIXED = { 'col-status': 186, 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
+const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-pct': 141 };
 function sizeColumns() {
   for (const t of document.querySelectorAll('table.peer-table')) {
     if (!t.offsetWidth) continue;
@@ -304,11 +306,11 @@ function fitTables() {
   const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
   const before = `${fitState.level}${fitState.cards}`;
   const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  // An address or client name cut to "..." counts as too tight while there
-  // are columns left to give up before it - an ordinary one, that is: an
-  // onion address or a very long name (Knots with a comment) is not worth
-  // four columns on a wide screen.
-  const clientCut = () => [...document.querySelectorAll('table.peer-table td.client, table.peer-table td[data-col="col-address"]')]
+  // An address cut to "..." counts as too tight while there are columns left
+  // to give up before it - an ordinary one, that is: an onion address is not
+  // worth four columns on a wide screen. A client name may be cut; the open
+  // row shows it whole.
+  const clientCut = () => [...document.querySelectorAll('table.peer-table td[data-col="col-address"]')]
     .some((td) => td.clientWidth && (td.dataset.full || '').length <= 24 && td.scrollWidth > td.clientWidth);
   if (wider) for (const w of wraps) w.classList.remove('cards');
   let level = wider ? 0 : fitState.level;
@@ -1120,7 +1122,6 @@ function peerRow(p, { status = p.status, actions }) {
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
-      <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actions}</td>
     </tr>
@@ -1198,11 +1199,11 @@ function renderPeerTables(peers, options = {}) {
 
   document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers
     .map((p) => peerRow(p, { actions: actionsCell(p) }))
-    .join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
+    .join('') || `<tr><td colspan="8" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers
     .map((p) => peerRow(p, { status: p.connectionStatus, actions: actionsCell(p) }))
-    .join('') || `<tr><td colspan="9" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
+    .join('') || `<tr><td colspan="8" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
   // A slot is taken by a manual peer whether or not it happens to be
   // connected right now: Core keeps retrying an offline one and it still
@@ -1230,7 +1231,7 @@ function renderPeerTables(peers, options = {}) {
     .map((p) => peerRow(p, { actions: actionsCell(p, { lock: keepStar(p) }) }))
     .join('');
   const noManualPeersHint = manualPeers.length === 0
-    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
+    ? `<tr><td colspan="8" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
   markOpenRow();

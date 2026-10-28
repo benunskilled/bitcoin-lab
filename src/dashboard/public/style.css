@@ -195,7 +195,7 @@ tr:hover td { background: #17202a; }
 /* A peer that can never deliver a block first: dimmed, and its type cell
    says "never first" (statusPill). */
 tr.weak td { color: var(--muted); }
-.never { display: block; width: max-content; margin-top: 3px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+.never { display: inline-block; vertical-align: middle; margin-left: 4px; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
 
 .pill {
   display: inline-block;
@@ -402,9 +402,9 @@ table.peer-table {
   /* Without a floor, table-layout:fixed + width:100% means the columns shrink
      with the window instead of the wrapper scrolling: .table-wrap's overflow-x
      never engages. At 390px all nine cells were clipped and Ping/Session/Total
-     overprinted each other. The nine columns need roughly this much to stay
+     overprinted each other. The eight columns need roughly this much to stay
      readable; a table that does not get it turns into cards (fitTables). */
-  min-width: 900px;
+  min-width: 860px;
 }
 
 /* The scroll containers are reachable by keyboard - at narrow widths they are
@@ -422,33 +422,27 @@ table.peer-table {
 .panel-note strong { color: var(--text); font-weight: 600; }
 .col-address { width: 16%; }
 .col-client { width: 10%; }
-/* As wide as the longest pill, "MANUAL OFFLINE" (115px), needs - "BLOCK RELAY"
-   and "MANUAL LIVE" need real room too, which is exactly what was
-   missing before (the pill visibly ran into First Seen %). overflow:hidden
+/* As wide as the longest pill with "never first" beside it ("BLOCK RELAY" or
+   "MANUAL LIVE", 160px) needs, so a row never grows a second line; set the same
+   in app.js (sizeColumns). overflow:hidden
    is belt-and-suspenders alongside that width - applied to both the <th>
    and (via the same class on its <td>, see app.js) the data cell, so even
    a future longer status value clips instead of spilling into the next
    column again. */
-.col-status { width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.col-status { width: 186px; overflow: hidden; text-overflow: ellipsis; }
 .col-pct { width: 12%; }
 .col-ping { width: 6%; }
 /* As wide as "99d 23h" needs; an offline manual peer's "offline 3d 4h" takes
    two lines rather than the column a third more room on every row. */
-.col-session { width: 84px; }
+.col-session { width: 78px; }
 td.wrap { white-space: normal; }
-.col-total { width: 7%; }
-/* Nudged off the shared 10px th padding - purely a small optical fix so
-   the label sits a bit closer to the data it heads (see .col-actions below
-   for the opposite nudge). Only targets the header - td cells in this
-   column carry no col-* class, so the data itself is untouched. */
-th.col-total { padding-left: 4px; }
 .col-sessions { width: 5%; }
 /* Wide enough for "Add as Manual" and "Disconnect" side by side (see
    .row-actions). */
 .col-actions { width: 19%; }
-/* Same optical nudge as .col-total above, other direction - the column is
-   wide (room for two buttons) and the plain 10px padding left the label
-   sitting noticeably left of where the buttons actually start. */
+/* Nudged off the shared 10px th padding - the column is wide (room for two
+   buttons) and the plain padding left the label sitting noticeably left of
+   where the buttons actually start. */
 th.col-actions { padding-left: 20px; }
 
 /* Hero: current chain height, pulses via .bump when a new block lands */
@@ -676,34 +670,29 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    comes down with each step, so the columns that stay keep their room. */
 .table-wrap[data-drops="1"] [data-drop="1"],
 .table-wrap[data-drops="2"] [data-drop="1"], .table-wrap[data-drops="2"] [data-drop="2"],
-.table-wrap[data-drops="3"] [data-drop]:not([data-drop="4"]):not([data-drop="5"]),
-.table-wrap[data-drops="4"] [data-drop]:not([data-drop="5"]),
-.table-wrap[data-drops="5"] [data-drop] { display: none; }
+.table-wrap[data-drops="3"] [data-drop]:not([data-drop="4"]),
+.table-wrap[data-drops="4"] [data-drop] { display: none; }
 /* The two buttons need their width whatever the table's: as a share of a
    narrower table they no longer fit side by side. */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
-/* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
+/* The type pill too, with "never first" beside it (sizeColumns). */
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 186px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
-/* "Total time" may break, as "First %" does: in one line at 7% of a narrower
-   table it ran into "Actions". */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-total { white-space: normal; }
 /* "First % (lifetime)" folds onto two lines before the note does. */
 .table-wrap[data-drops]:not([data-drops="0"]) .rotation-log-table th.col-pct { white-space: normal; }
-.table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 860px; }
+.table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 820px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 800px; }
 .table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 740px; }
-.table-wrap[data-drops="4"]:not(.cards) table.peer-table { min-width: 680px; }
-.table-wrap[data-drops="5"]:not(.cards) table.peer-table { min-width: 540px; }
+.table-wrap[data-drops="4"]:not(.cards) table.peer-table { min-width: 600px; }
 /* The last step before cards: the client as a second line under the address
    (app.js, withClientLine), and the two buttons one above the other - the
    red one below, where it is in every row. */
 .addr-client { display: none; }
-.table-wrap[data-drops="5"] .addr-client { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.table-wrap[data-drops="5"]:not(.cards) td.row-actions { white-space: normal; }
-.table-wrap[data-drops="5"]:not(.cards) td.row-actions > * { display: flex; width: 112px; margin-left: auto; }
-.table-wrap[data-drops="5"]:not(.cards) td.row-actions > * + * { margin-top: 6px; }
+.table-wrap[data-drops="4"] .addr-client { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-wrap[data-drops="4"]:not(.cards) td.row-actions { white-space: normal; }
+.table-wrap[data-drops="4"]:not(.cards) td.row-actions > * { display: flex; width: 112px; margin-left: auto; }
+.table-wrap[data-drops="4"]:not(.cards) td.row-actions > * + * { margin-top: 6px; }
 
 /* Still too wide (a phone): each row becomes a small card. The name on top,
    then the values in a grid of equal cells - the column's name small above
