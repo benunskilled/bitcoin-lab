@@ -487,6 +487,7 @@ async function refreshStatus() {
   const parts = [s.network, `${s.live.total} peers connected`];
   if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
   el.textContent = parts.join(' · ');
+  el.prepend(liveDot);
   // How often a block could not be credited to one peer, in the line that
   // already exists rather than a new one: Core's last_block has one-second
   // resolution, and when the block before arrived only a moment earlier two
@@ -1034,6 +1035,38 @@ function statusPill(p, status) {
   return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${statusLabel(status)}</span><span class="never" title="${title}">never first</span>`;
 }
 
+// A row's buttons show when the row is opened - a tap, like a row in Peer
+// Map - or, with a mouse, while the pointer is over it. Four hundred rows
+// with two buttons each was a wall of red and blue on a phone (28.10.2026).
+// One row open at a time; it is known by table and peer, so a refresh that
+// rebuilds the rows keeps it open.
+let openRow = null;
+const rowId = (tr) => `${tr.closest('table').id} ${tr.dataset.key}`;
+function markOpenRow() {
+  for (const tr of document.querySelectorAll('tr.can-act')) {
+    const open = rowId(tr) === openRow;
+    tr.classList.toggle('open', open);
+    tr.setAttribute('aria-expanded', String(open));
+  }
+}
+function toggleRow(tr) {
+  openRow = rowId(tr) === openRow ? null : rowId(tr);
+  markOpenRow();
+  if (tr.classList.contains('open')) glideIntoView(tr);
+}
+document.addEventListener('click', (e) => {
+  const tr = e.target.closest && e.target.closest('tr.can-act');
+  if (!tr || e.target.closest('button, a, input, label, select')) return;
+  // A drag to select an address is not a tap.
+  if (String(window.getSelection && window.getSelection()).length) return;
+  toggleRow(tr);
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.matches || !e.target.matches('tr.can-act')) return;
+  e.preventDefault();
+  toggleRow(e.target);
+});
+
 // An app on this same Umbrel (electrs, Fulcrum, a Lightning node) connects to
 // Core like any inbound peer, but it is the owner's own software, not a peer
 // out on the network - so it gets a pill of its own instead of "INBOUND".
@@ -1042,8 +1075,9 @@ const UMBREL_APP = 'UMBREL APP';
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
   const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
+  const canAct = actions.includes('data-action="add-manual"') || actions.includes('data-action="disconnect"') || actions.includes('data-action="untrust"');
   return `
-    <tr data-key="${escapeHtml(p.address)}" class="${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
+    <tr data-key="${escapeHtml(p.address)}"${canAct ? ' tabindex="0"' : ''} class="${canAct ? 'can-act ' : ''}${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${withClientLine(addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
@@ -1160,6 +1194,7 @@ function renderPeerTables(peers, options = {}) {
     ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
+  markOpenRow();
   // Only now are the rows in the page; looking earlier found nothing on the
   // first render and moved the jump to the next refresh, twenty seconds on.
   scrollToFocusOnce();
@@ -1326,8 +1361,8 @@ function renderPools(pools) {
   if (deferRender('pools', '#pool-table', () => renderPools(pools))) return;
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
-    <tr>
-      <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
+    <tr data-key="pool:${p.id}" tabindex="0" class="can-act${p.enabled ? '' : ' pool-off'}">
+      <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}${p.enabled ? '' : ' <span class="off-tag">Off</span>'}</td>
       <td class="client">${escapeHtml(`${p.host}:${p.port}`)}</td>
       <td><b>${p.wins}</b></td>
       <td>${fmtPct(p.winPct)}</td>
@@ -1336,12 +1371,13 @@ function renderPools(pools) {
       <td>${fmtMs(p.p90Ms)}</td>
       <td>${p.seen}</td>
       <td>${p.misses}</td>
-      <td>
-        <input type="checkbox" data-action="toggle-pool" data-id="${p.id}" ${p.enabled ? 'checked' : ''} />
+      <td class="pool-enabled">
+        <label class="switch-label"><input type="checkbox" data-action="toggle-pool" data-id="${p.id}" ${p.enabled ? 'checked' : ''} /><span class="sr-only">Enabled</span></label>
       </td>
       <td><button class="secondary danger" data-action="delete-pool" data-id="${p.id}">Remove</button></td>
     </tr>
   `).join('');
+  markOpenRow();
 }
 
 // ---------------------------------------------------------------------------
@@ -1436,7 +1472,23 @@ async function refreshAll() {
   // the rejection, nothing was logged, and the tables simply kept showing
   // whatever they had - hours-old numbers presented exactly like fresh ones.
   const failed = results.filter((r) => r.status === 'rejected');
+  beat(failed.length === 0);
   reportRefreshHealth(failed.map((r) => r.reason));
+}
+
+// A dot in front of the status line beats once when fresh numbers arrive and
+// goes grey when a round failed: the page says it is alive without a clock
+// that ticks. The time is in its title.
+const liveDot = document.createElement('span');
+liveDot.className = 'live-dot';
+liveDot.setAttribute('aria-hidden', 'true');
+function beat(ok) {
+  liveDot.classList.toggle('stale', !ok);
+  if (!ok) return;
+  liveDot.title = `Updated ${new Date().toLocaleTimeString()}`;
+  liveDot.classList.remove('beat');
+  void liveDot.offsetWidth; // restart the animation
+  liveDot.classList.add('beat');
 }
 
 // Two consecutive failed rounds before saying anything: a single miss during
@@ -2125,6 +2177,12 @@ startEventStream();
 // as in a desktop app.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || (e.target.closest && e.target.closest('input, textarea, select'))) return;
+  if (openRow) {
+    openRow = null;
+    markOpenRow();
+    e.preventDefault();
+    return;
+  }
   const confirm = [...document.querySelectorAll('.reset-confirm')].find((c) => !c.hidden);
   if (confirm) {
     confirm.querySelector('[id$="-no"]')?.click();

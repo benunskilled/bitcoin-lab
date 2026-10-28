@@ -326,6 +326,15 @@ button.secondary {
 .rotation-hint p + p { margin-top: 8px; }
 .rotation-hint ul { margin: 4px 0 8px; padding-left: 18px; }
 .rotation-hint li { margin: 2px 0; }
+/* The rules in full wait behind "How it works": read once, not on every
+   visit (28.10.2026). */
+.rotation-hint .how { margin-top: 6px; }
+.rotation-hint .how summary { display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; cursor: pointer; list-style: none; color: var(--text); }
+.rotation-hint .how summary::-webkit-details-marker { display: none; }
+.rotation-hint .how summary::after { content: ""; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
+.rotation-hint .how[open] summary::after { transform: translateY(1px) rotate(-135deg); }
+.rotation-hint .how[open] > :not(summary) { animation: lab-in .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .rotation-hint .how summary::after { transition: none; } .rotation-hint .how[open] > :not(summary) { animation: none; } }
 
 .rotation-log-table .col-time { width: 14%; }
 .rotation-log-table .col-rot-action { width: 12%; }
@@ -745,8 +754,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    other cards have their type. */
 .cards.cards #parked-peer-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
 .cards.cards #parked-peer-table td:nth-child(3)::before { display: inline; margin: 0 6px 0 0; }
-/* A closed lock hangs in front of Remove, outside the shared edge. */
-.cards.cards #manual-peer-table .lock-slot { position: absolute; left: -6px; transform: translateX(-100%); padding: 0; }
+/* The lock stands in the row, in front of Remove: hung outside the card's
+   edge it was cut off by the card on a phone. */
+.cards.cards #manual-peer-table .lock-slot { padding: 0 4px 0 0; }
 /* The buttons take the whole second row and end at the right edge, one or
    two of them: the red one stands in the same place on every card, and two
    buttons no longer push first % left and cut the address short. */
@@ -886,3 +896,53 @@ tr.arrived > td { animation: arrived 2.4s ease-out; }
 .jump-bar.corner { left: auto; right: 16px; top: auto; bottom: 16px; transform: translateY(80px); }
 .jump-bar.corner.shown { transform: none; }
 @media (prefers-reduced-motion: reduce) { .jump-bar.corner { transition: none; } }
+
+/* Buttons only where they are wanted (28.10.2026): a row's buttons show
+   once it is opened by a tap - like a row in Peer Map - and, with a mouse,
+   while the pointer is over it. As cards they take no room until then, and a
+   chevron says the card opens. A touch screen showing the table keeps its
+   buttons: there is no pointer to hover with, and nothing would say they
+   are there. */
+tr.can-act { cursor: pointer; }
+tr.can-act:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (hover: hover) {
+  .table-wrap:not(.cards) tr.can-act :is(td.row-actions > button, td:last-child > button.danger, td.pool-enabled > label) { opacity: 0; transition: opacity .12s ease; }
+  .table-wrap:not(.cards) tr.can-act:is(:hover, .open, :focus-visible, :has(:is(button, input):focus-visible)) :is(td.row-actions > button, td:last-child > button.danger, td.pool-enabled > label) { opacity: 1; }
+}
+.cards.cards tr.can-act { position: relative; padding-right: 30px; }
+.cards.cards tr.can-act::after {
+  content: ""; position: absolute; right: 13px; top: 18px; width: 7px; height: 7px;
+  border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s ease;
+}
+.cards.cards tr.can-act.open::after { transform: rotate(45deg); }
+.cards.cards tr.can-act.open { background: rgba(255, 255, 255, .035); }
+.cards.cards tr.can-act:not(.open) td.row-actions > button,
+.cards.cards #pool-table tr.can-act:not(.open) :is(td:last-child, td.pool-enabled) { display: none; }
+.cards.cards tr.can-act.open :is(td.row-actions > button, td:last-child > button) { animation: lab-in .18s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .cards.cards tr.can-act::after { transition: none; }
+  .cards.cards tr.can-act.open :is(td.row-actions > button, td:last-child > button) { animation: none; }
+}
+
+/* Before the first answer, grey rows stand where the peers will be, about
+   as tall as they will be: the page does not grow by a screen at once when
+   they arrive, and it reads as loading rather than as empty. */
+tr.skeleton td { padding: 12px 14px; }
+tr.skeleton i { display: block; height: 10px; border-radius: 5px; background: var(--border); opacity: .55; animation: skeleton 1.4s ease-in-out infinite; }
+tr.skeleton i + i { width: 55%; margin-top: 8px; }
+@keyframes skeleton { 50% { opacity: .25; } }
+@media (max-width: 700px) { tr.skeleton td { height: 74px; } }
+@media (prefers-reduced-motion: reduce) { tr.skeleton i { animation: none; } }
+
+/* The dot in front of the status line: beats on fresh numbers, grey when a
+   refresh failed. */
+.live-dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #3fb950; vertical-align: 1px; }
+.live-dot.stale { background: var(--muted); }
+.live-dot.beat { animation: beat .9s ease-out; }
+@keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(63, 185, 80, .7); } 100% { box-shadow: 0 0 0 7px rgba(63, 185, 80, 0); } }
+@media (prefers-reduced-motion: reduce) { .live-dot.beat { animation: none; } }
+
+/* A pool switched off says so by its name, so its switch can wait in the
+   opened row with Remove. */
+.off-tag { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; font-size: 11px; font-weight: 500; color: var(--muted); vertical-align: 1px; }
+#pool-table tr.pool-off td:not(:first-child, .pool-enabled, :last-child) { opacity: .5; }
