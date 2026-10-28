@@ -1482,6 +1482,9 @@ async function refreshAll() {
 const liveDot = document.createElement('span');
 liveDot.className = 'live-dot';
 liveDot.setAttribute('aria-hidden', 'true');
+// Off again once it has beaten: the status line is rewritten on every
+// refresh, and putting the dot back with the class on beats it anew.
+liveDot.addEventListener('animationend', () => liveDot.classList.remove('beat'));
 function beat(ok) {
   liveDot.classList.toggle('stale', !ok);
   if (!ok) return;
