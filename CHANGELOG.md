@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.0.6 – 2026-10-27
+
+Blocks from pools that run ckpool, such as Braiins Solo, AtlasPool or Satoshi Radio, now show their own name instead of CKPool. A reload puts you back where you were.
+
 ## 2.0.5 – 2026-10-25
 
 Peers on another chain, nodes that set Knots' BIP110 or BLAKE2b bit, now read "never first". Bitcoin Lab knows the same new clients as Peer Map, Lightning wallets among them. On phones every peer is a tidy card with its buttons always in the same place, and the padlock can be found and tapped. The rotation log now shows every peer you add by hand. Inbound peers that never delivered a block first are forgotten after 30 days away. A Core restart no longer stops the recording, and Stratum Race no longer keeps redialling a pool that drops it.
