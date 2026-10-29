@@ -522,7 +522,6 @@ async function refreshStatus() {
   // one cosmetic value was missing.
   const el = document.getElementById('status');
   const parts = [s.network, `${s.live.total} peers connected`];
-  if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
   el.textContent = parts.join(' · ');
   el.prepend(liveDot);
   // How often a block could not be credited to one peer, in the line that

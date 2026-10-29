@@ -633,10 +633,6 @@ async function router(req, res, pathname, url) {
       // written into the page: a heading that states the wrong window is worse
       // than one that states none.
       recentScoreWindowBlocks: config.recentScoreWindowBlocks,
-      // The measurement data only ever grows - roughly four megabytes a day at
-      // a couple of hundred peers, measured. Shown so that is visible from the
-      // start rather than discovered when the disk fills.
-      databaseBytes: db.sizeBytes(),
       // How many recorded blocks could not be credited to one peer, stated
       // rather than assumed. Counted once per block (cached); null on an
       // install that has not seen a block yet.
