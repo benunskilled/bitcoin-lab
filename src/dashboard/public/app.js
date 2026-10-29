@@ -144,14 +144,15 @@ const KIND_RULES = [
   [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:/, null, 'whole'],
   [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)|^\/P2Pool:|^\/[^:/(]*pool[^:/(]*:/i, null, 'no-mempool'],
   // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
-  // Irium and VDS are forks and altcoins of their own.
-  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:/i, 'a client of another chain', 'whole'],
+  // Irium and VDS are forks and altcoins of their own. Bitcoin Purity, a hard
+  // fork of Knots, says "/Satoshi:29.4/Purity:1.1.0/".
+  [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:|\/Purity:/i, 'a client of another chain', 'whole'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
-  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:/i, 'a research scanner'],
+  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/trinetra:|^\/p2p-probe:|^\/EMPORION:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
-  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/bip324-probe:|^\/your-fork:/i, 'a network crawler'],
+  [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/bip324-probe:|^\/your-fork:|^\/cryptexplorer:|^\/bip110-observer:|^\/topology-probe:|^\/BlockSail:/i, 'a network crawler'],
   // Address indexers for wallets: they follow the chain and relay nothing.
   [/electrs|electrum|esplora|\/mempool|^NBXplorer-|^\/symphony:/i, 'an address indexer'],
   [/bitcoinj|breadwallet|\/bread:|bither|multibit|wasabi|Bitcoin Wallet|^\/blueberry:|^\/winnow:|^\/BitcoinKit:|^\/WalletKit:|^\/Ladybug:|^\/hodlwallet:|\/spvwallet:/i, 'a wallet'],
@@ -160,7 +161,7 @@ const KIND_RULES = [
   // Other BIP157 light clients: Kyoto, which says "Rust BIP-157". VerifiedX
   // validators follow the chain the same way for a chain of their own: headers,
   // some blocks, no transactions.
-  [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:/i, 'a light client'],
+  [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/multiseed:/i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
@@ -209,8 +210,8 @@ function truncatedCell(text, cls = '') {
 }
 
 // A table that does not fit its panel first gives up its least important
-// columns, a step at a time (data-drop="1".."5" on the <th>: sessions, then
-// total time, session, ping and last the client; for the pools seen/miss, then
+// columns, a step at a time (data-drop="1".."4" on the <th>: sessions, then
+// session, ping and last the client; for the pools seen/miss, then
 // median/p90, then host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
@@ -220,16 +221,16 @@ function truncatedCell(text, cls = '') {
 // together - one panel as cards and the next as a table looked like two
 // different pages. The rows are re-rendered all the time, so the labels are
 // put back after every change.
-const DROP_LEVELS = 5;
+const DROP_LEVELS = 4;
 
 // Column widths of the peer tables, set for each step: the short columns as
-// wide as their content, and the room left shared by address, client, type
-// and First % in proportion to what each needs - an IPv4 address with its
-// port, a client name like /Satoshi:31.0.0/, the longest pill (MANUAL
-// OFFLINE), First % with its bar. They grow and shrink together, so none is
-// cut while another has room to spare.
-const COL_FIXED = { 'col-ping': 72, 'col-session': 84, 'col-total': 92, 'col-sessions': 56, 'col-actions': 240 };
-const COL_NEED = { 'col-address': 161, 'col-client': 205, 'col-status': 139, 'col-pct': 141 };
+// wide as their content, and the room left shared by address, client and
+// First % in proportion to what each needs - an IPv4 address with its port, a
+// client name like /Satoshi:31.0.0/ (a longer one is cut, the open row has it
+// whole), the longest pill (MANUAL OFFLINE), First % with its bar. They grow
+// and shrink together, so none is cut while another has room to spare.
+const COL_FIXED = { 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
+const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-status': 139, 'col-pct': 141 };
 function sizeColumns() {
   for (const t of document.querySelectorAll('table.peer-table')) {
     if (!t.offsetWidth) continue;
@@ -304,11 +305,11 @@ function fitTables() {
   const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
   const before = `${fitState.level}${fitState.cards}`;
   const tight = () => wraps.some((w) => w.clientWidth && w.scrollWidth > w.clientWidth + 1);
-  // An address or client name cut to "..." counts as too tight while there
-  // are columns left to give up before it - an ordinary one, that is: an
-  // onion address or a very long name (Knots with a comment) is not worth
-  // four columns on a wide screen.
-  const clientCut = () => [...document.querySelectorAll('table.peer-table td.client, table.peer-table td[data-col="col-address"]')]
+  // An address cut to "..." counts as too tight while there are columns left
+  // to give up before it - an ordinary one, that is: an onion address is not
+  // worth four columns on a wide screen. A client name may be cut; the open
+  // row shows it whole.
+  const clientCut = () => [...document.querySelectorAll('table.peer-table td[data-col="col-address"]')]
     .some((td) => td.clientWidth && (td.dataset.full || '').length <= 24 && td.scrollWidth > td.clientWidth);
   if (wider) for (const w of wraps) w.classList.remove('cards');
   let level = wider ? 0 : fitState.level;
@@ -369,7 +370,29 @@ function restoreReloadY() {
 // counts as wider, so it measures from scratch.
 const fitState = { width: -Infinity, level: 0, cards: false };
 let fitTimer = null;
-const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); notePlace(); }, 50); };
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); fitPct(); notePlace(); }, 50); };
+// On a phone card, First % with ⚡ and 📡 must stay one line: a card taller
+// than the others moves every card below it. Where the line does not fit, the
+// count (312/500) goes in that card alone - the share and the marks stay, and
+// the count is still in the table on a wide screen (28.10.2026). Measured per
+// card: the share and the count are as wide as their digits. The count's
+// width comes from its text, so a hidden one is measured the same way.
+const textWidth = (() => {
+  const ctx = document.createElement('canvas').getContext('2d');
+  return (el, text) => { ctx.font = getComputedStyle(el).font; return ctx.measureText(text).width; };
+})();
+function fitPct() {
+  for (const td of document.querySelectorAll('.cards table.peer-table td[data-col="col-pct"]')) {
+    const marks = [...td.querySelectorAll('.hb')];
+    const cnt = td.querySelector('.cnt');
+    if (!cnt || !marks.length) { td.classList.remove('tight'); continue; }
+    const pct = td.querySelector('.pct');
+    const need = pct.getBoundingClientRect().width + textWidth(cnt, '\u00a0' + cnt.textContent)
+      + marks.reduce((w, m) => w + m.getBoundingClientRect().width + parseFloat(getComputedStyle(m).marginLeft), 0);
+    // Only on a change, so the observer below is not set off again.
+    if (td.classList.contains('tight') !== need > td.clientWidth) td.classList.toggle('tight');
+  }
+}
 // Re-rendered rows are cards without their labels until fitTables runs, and
 // fitTables takes the cards away for a moment to measure: either way the page
 // is shorter for an instant, and Safari clamps the scroll position to it and
@@ -381,8 +404,14 @@ let lastScrollY = window.scrollY;
 // refresh adds and drops rows above the reader, and everything below moved
 // by a few hundred pixels every twenty seconds (iPhone, 24.10.2026). Safari
 // has no scroll anchoring of its own, so the page does it: what is at the top
-// of the window - a heading, or the nth row of a table - is noted, and after
-// a refresh it is put back where it was.
+// of the window - a heading, or a row in a table - is noted, and after any
+// change of the page it is put back where it was.
+// A row is held by its place in its table, never by the peer in it
+// (28.10.2026): the lists are sorted by how well a peer delivers, and a page
+// that followed one peer up or down the ranking jumped under a reader who
+// was only looking. When a peer moves, another one stands in its place; the
+// list does not move. Every change goes through here: new data, a card
+// folded, a row opened (the observer below also watches those classes).
 const PLACE_SELECTOR = 'h2, h3, .table-wrap tbody tr';
 let placeMarks = [];
 function notePlace() {
@@ -421,15 +450,24 @@ window.addEventListener('scroll', () => {
   lastScrollY = window.scrollY;
   if (!placeFrame) placeFrame = requestAnimationFrame(() => { placeFrame = 0; notePlace(); });
 }, { passive: true });
-new MutationObserver(() => {
+// A class or attribute matters only where it can change the height of the
+// page's content: inside main, and not the beating dot or the bar that rides
+// along at the top. The jump bar outside main changes its class on every
+// scroll; counting that put the reader back after each flick, and the page
+// could not be scrolled at all (2.0.1-62/63 in the test store, 28.10.2026).
+const QUIET = '.live-dot, .stick';
+const counts = (m) => m.type === 'childList' || (m.target.closest('main') && !m.target.closest(QUIET));
+new MutationObserver((list) => {
+  if (!list.some(counts)) return;
   const y = lastScrollY;
   // Not when fitTables has just kept the reader's place itself: that move is
   // meant, and putting the old position back would undo it.
   const anchored = fitTables();
+  fitPct();
   if (!anchored && !keepPlace() && y - window.scrollY > 100) window.scrollTo(0, y);
   lastScrollY = window.scrollY;
   notePlace();
-}).observe(document.body, { childList: true, subtree: true });
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'hidden'] });
 // Only a change of width can change whether the tables fit. On an iPhone the
 // height changes all the time - Safari's toolbar shrinks and grows while the
 // page scrolls - and measuring on each of those threw the reader up the page.
@@ -484,6 +522,7 @@ async function refreshStatus() {
   const parts = [s.network, `${s.live.total} peers connected`];
   if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
   el.textContent = parts.join(' · ');
+  el.prepend(liveDot);
   // How often a block could not be credited to one peer, in the line that
   // already exists rather than a new one: Core's last_block has one-second
   // resolution, and when the block before arrived only a moment earlier two
@@ -775,6 +814,11 @@ function sessionCell(p) {
  * scaled by - so the parked table and the rotation log keep showing it.
  */
 function firstPctCell(p) {
+  // A peer that cannot deliver a block reads "never first" instead of its
+  // 0.0% - unless it did deliver one after all (software that names itself a
+  // wallet and relays anyway): then its number, as for every other peer.
+  const never = neverFirstReason(p);
+  if (never && !p.first) return `<td title="${escapeHtml(neverFirstTitle(never))}"><span class="never">never first</span>${hbMark(p)}</td>`;
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
@@ -782,7 +826,7 @@ function firstPctCell(p) {
   // a second number in every cell was noise in a table sorted by the first.
   const lifetime = windowed && p.eligible > p.recentEligible;
   const title = lifetime ? `Lifetime: ${fmtPct(p.firstPct)} (${p.first} of ${p.eligible} blocks first)` : '';
-  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span> <span class="cnt">${counts}</span>${hbMark(p)}</td>`;
+  return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span>&nbsp;<span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
 
 // The clearnet note under Outbound Peers used to get a live count of Tor/I2P
@@ -799,6 +843,44 @@ let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 // are shown until someone wants the rest.
 const ROTATION_LOG_LIMIT = 5;
 let showAllRotationLog = false; // toggled by #rotation-log-limit-toggle
+// A reload keeps what was opened, like the scroll position: "Show all" stays.
+const OPENED_KEY = 'opened:' + location.pathname;
+try {
+  const nav = performance.getEntriesByType('navigation')[0];
+  if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
+    const o = JSON.parse(sessionStorage.getItem(OPENED_KEY) || 'null');
+    if (o) { showAllLivePeers = !!o.live; showAllRotationLog = !!o.log; }
+  }
+  const keep = () => { try { sessionStorage.setItem(OPENED_KEY, JSON.stringify({ live: showAllLivePeers, log: showAllRotationLog })); } catch { /* private window */ } };
+  window.addEventListener('pagehide', keep);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
+} catch { /* no storage: nothing to keep */ }
+
+// Smooth scrolling, unless the reader asked the system for less motion.
+function glide() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
+
+// A peer that was not there at the last refresh lights up once, so what
+// changed since the last look is seen without searching. Not on the first
+// load: then everything would be new.
+const arrivedAt = new Map();
+let knownAddresses = null;
+function markArrivals(ranking) {
+  const now = Date.now();
+  const seen = new Set();
+  const walk = (v) => {
+    if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') {
+      if (typeof v.address === 'string') seen.add(v.address);
+      else Object.values(v).forEach(walk);
+    }
+  };
+  walk(ranking);
+  if (knownAddresses) for (const a of seen) if (!knownAddresses.has(a)) arrivedAt.set(a, now);
+  for (const [a, t] of arrivedAt) if (now - t > 3000 || !seen.has(a)) arrivedAt.delete(a);
+  knownAddresses = seen;
+}
 let lastRotationLog = null; // kept so the toggle can re-render without refetching
 
 // The most recent ranking payload, kept so purely visual changes (the "show
@@ -815,6 +897,7 @@ async function refreshPeers() {
   const peers = await api('/api/peers/ranking');
   if (seq !== peerRequestSeq) return;
   lastPeerRanking = peers;
+  markArrivals(peers);
   renderPeerTables(peers);
 }
 
@@ -894,8 +977,26 @@ for (const type of ['pointerup', 'pointercancel']) {
 }
 window.addEventListener('blur', pressOver);
 
+// A finger on the glass or a page still gliding: a refresh redrawn under it
+// moved the rows the reader was following, and the scroll correction that
+// keeps their place cut Safari's glide short with a jolt (iPhone, 28.10.2026).
+// The newest data waits until the page has been still for half a second.
+let touching = 0;
+let scrolledAt = 0;
+let settleTimer = null;
+const moving = () => (touching > 0 && Date.now() - touching < 15000) || Date.now() - scrolledAt < 500;
+const settle = () => {
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(() => (moving() ? settle() : flushDeferredRenders()), 520);
+};
+window.addEventListener('touchstart', () => { touching = Date.now(); }, { passive: true, capture: true });
+for (const type of ['touchend', 'touchcancel']) {
+  window.addEventListener(type, () => { touching = 0; settle(); }, { passive: true, capture: true });
+}
+window.addEventListener('scroll', () => { scrolledAt = Date.now(); settle(); }, { passive: true });
+
 function interactionInProgress(selector) {
-  if (actionsInFlight > 0 || pressing()) return true;
+  if (actionsInFlight > 0 || pressing() || moving()) return true;
   // Keyboard focus only. A mouse click leaves the focus on the button in
   // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
@@ -924,7 +1025,7 @@ document.addEventListener('focusout', () => {
 });
 
 /**
- * One row of a peer table - the same nine cells for all three of them.
+ * One row of a peer table - the same eight cells for all three of them.
  *
  * The three tables share the exact same column set, order, and widths (see the
  * shared .col-* classes in the markup / style.css) so Address/Type/.../Actions
@@ -941,9 +1042,14 @@ document.addEventListener('focusout', () => {
  */
 // A peer that cannot deliver a block - software that does not relay, or a
 // peer that offers no services at all, whatever it calls itself - reads
-// "never first" beside its pill. Peer Map marks the same peers. The
-// explanation lives in the tooltip, not in the table: a dashboard is not the
-// place for a paragraph.
+// "never first" in its First % cell (firstPctCell), and its pill and row are
+// dimmed. Peer Map marks the same peers. The explanation lives in the
+// tooltip, not in the table: a dashboard is not the place for a paragraph.
+function neverFirstReason(p) {
+  return cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
+    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
+}
+const neverFirstTitle = (reason) => `Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`;
 // ⚡ in the First % cell: one of the (at most three) peers Core lets send a new
 // block straight away. Whoever holds such a place wins First far more easily,
 // so it says why a peer is ahead, not only that it is.
@@ -955,8 +1061,10 @@ const HB_TITLE = "One of Core's three high-bandwidth peers: it may send a new bl
 // peer is ahead, but it belongs next to ⚡: an outbound peer is often both.
 const HB_FROM_TITLE = "This peer has picked your node as one of its three high-bandwidth peers: your node sends it new blocks without being asked first.";
 function hbMark(p) {
-  return (p.hb ? ` <span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
-    + (p.hbFrom ? ` <span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
+  // The gap is the span's margin, not a space: on a phone card ⚡ and 📡
+  // together were cut by two pixels (28.10.2026).
+  return (p.hb ? `<span class="hb" title="${escapeHtml(HB_TITLE)}">⚡</span>` : '')
+    + (p.hbFrom ? `<span class="hb" title="${escapeHtml(HB_FROM_TITLE)}">📡</span>` : '');
 }
 
 // Core's names for the two automatic outbound kinds, said as Peer Map and the
@@ -965,14 +1073,42 @@ const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 
 const statusLabel = (status) => STATUS_LABEL[status] || status;
 
 function statusPill(p, status) {
-  const reason = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
-    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
+  const reason = neverFirstReason(p);
   if (!reason) return `<span class="pill ${statusPillClass(status)}">${statusLabel(status)}</span>`;
-  const title = escapeHtml(`Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`);
-  // The pill is dimmed and the cell says it in words, so the fact stays
-  // visible at a glance.
-  return `<span class="pill ${statusPillClass(status)} norelay" title="${title}">${statusLabel(status)}</span><span class="never" title="${title}">never first</span>`;
+  return `<span class="pill ${statusPillClass(status)} norelay" title="${escapeHtml(neverFirstTitle(reason))}">${statusLabel(status)}</span>`;
 }
+
+// A row's buttons show when the row is opened - a tap, like a row in Peer
+// Map - or, with a mouse, while the pointer is over it. Four hundred rows
+// with two buttons each was a wall of red and blue on a phone (28.10.2026).
+// One row open at a time; it is known by table and peer, so a refresh that
+// rebuilds the rows keeps it open.
+let openRow = null;
+const rowId = (tr) => `${tr.closest('table').id} ${tr.dataset.key}`;
+function markOpenRow() {
+  for (const tr of document.querySelectorAll('tr.can-act')) {
+    const open = rowId(tr) === openRow;
+    tr.classList.toggle('open', open);
+    tr.setAttribute('aria-expanded', String(open));
+  }
+}
+function toggleRow(tr) {
+  openRow = rowId(tr) === openRow ? null : rowId(tr);
+  markOpenRow();
+  if (tr.classList.contains('open')) glideIntoView(tr);
+}
+document.addEventListener('click', (e) => {
+  const tr = e.target.closest && e.target.closest('tr.can-act');
+  if (!tr || e.target.closest('button, a, input, label, select')) return;
+  // A drag to select an address is not a tap.
+  if (String(window.getSelection && window.getSelection()).length) return;
+  toggleRow(tr);
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.matches || !e.target.matches('tr.can-act')) return;
+  e.preventDefault();
+  toggleRow(e.target);
+});
 
 // An app on this same Umbrel (electrs, Fulcrum, a Lightning node) connects to
 // Core like any inbound peer, but it is the owner's own software, not a peer
@@ -981,16 +1117,16 @@ const UMBREL_APP = 'UMBREL APP';
 
 function peerRow(p, { status = p.status, actions }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
-  const weak = cannotRelayReason(p.client) || p.offersNothing || otherChainShown(p) ? ' weak' : '';
+  const weak = neverFirstReason(p) ? ' weak' : '';
+  const canAct = actions.includes('data-action="add-manual"') || actions.includes('data-action="disconnect"') || actions.includes('data-action="untrust"');
   return `
-    <tr class="${rowClassFor(p.address)}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
+    <tr data-key="${escapeHtml(p.address)}"${canAct ? ' tabindex="0"' : ''} class="${canAct ? 'can-act ' : ''}${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
       ${withClientLine(addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
       <td>${p.minPingMs != null ? fmtMs(p.minPingMs) : '-'}</td>
       ${sessionCell(p)}
-      <td>${fmtDuration(p.totalConnectionMs)}</td>
       <td>${p.sessionsCount}</td>
       <td class="row-actions">${actions}</td>
     </tr>
@@ -1052,6 +1188,9 @@ function renderPeerTables(peers, options = {}) {
       : `showing ${visibleLivePeers.length} of ${livePeers.length} connected`)
       + (fed ? ` · 📡 ${fed} take new blocks from you first` : '');
   }
+  const stickCount = document.getElementById('live-stick-count');
+  if (stickCount) stickCount.textContent = ` · ${livePeers.length}`;
+  liveStickOn();
   if (limitToggle) {
     if (livePeers.length <= LIVE_PEER_LIMIT) {
       limitToggle.hidden = true;
@@ -1065,11 +1204,11 @@ function renderPeerTables(peers, options = {}) {
 
   document.querySelector('#peer-table tbody').innerHTML = visibleLivePeers
     .map((p) => peerRow(p, { actions: actionsCell(p) }))
-    .join('') || `<tr><td colspan="9" class="hint">No peers currently connected.</td></tr>`;
+    .join('') || `<tr><td colspan="8" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers
     .map((p) => peerRow(p, { status: p.connectionStatus, actions: actionsCell(p) }))
-    .join('') || `<tr><td colspan="9" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
+    .join('') || `<tr><td colspan="8" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
   // A slot is taken by a manual peer whether or not it happens to be
   // connected right now: Core keeps retrying an offline one and it still
@@ -1088,7 +1227,7 @@ function renderPeerTables(peers, options = {}) {
   // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td>-</td>${'<td></td>'.repeat(7)}
+      <td>-</td>${'<td></td>'.repeat(6)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
@@ -1097,9 +1236,10 @@ function renderPeerTables(peers, options = {}) {
     .map((p) => peerRow(p, { actions: actionsCell(p, { lock: keepStar(p) }) }))
     .join('');
   const noManualPeersHint = manualPeers.length === 0
-    ? `<tr><td colspan="9" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
+    ? `<tr><td colspan="8" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
     : '';
   document.querySelector('#manual-peer-table tbody').innerHTML = manualRows + noManualPeersHint + emptySlotRows;
+  markOpenRow();
   // Only now are the rows in the page; looking earlier found nothing on the
   // first render and moved the jump to the next refresh, twenty seconds on.
   scrollToFocusOnce();
@@ -1188,6 +1328,7 @@ async function refreshRotation() {
   const data = await api('/api/rotation');
   const toggle = document.getElementById('rotation-toggle');
   if (toggle && rotationToggleEpoch === epochAtRequest) toggle.checked = Boolean(data.enabled);
+  foldSums();
 
   renderParkedPeers(data.parked);
 
@@ -1243,6 +1384,7 @@ function applyStratumEnabled(enabled) {
   const toggle = document.getElementById('stratum-toggle');
   if (!toggle) return;
   if (document.activeElement !== toggle) toggle.checked = enabled;
+  foldSums();
   const body = document.getElementById('stratum-body');
   const offHint = document.getElementById('stratum-off-hint');
   if (body) body.hidden = !enabled;
@@ -1266,8 +1408,8 @@ function renderPools(pools) {
   if (deferRender('pools', '#pool-table', () => renderPools(pools))) return;
   const tbody = document.querySelector('#pool-table tbody');
   tbody.innerHTML = pools.map((p) => `
-    <tr>
-      <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}</td>
+    <tr data-key="pool:${p.id}" tabindex="0" class="can-act${p.enabled ? '' : ' pool-off'}">
+      <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}${p.enabled ? '' : ' <span class="off-tag">Off</span>'}</td>
       <td class="client">${escapeHtml(`${p.host}:${p.port}`)}</td>
       <td><b>${p.wins}</b></td>
       <td>${fmtPct(p.winPct)}</td>
@@ -1276,12 +1418,14 @@ function renderPools(pools) {
       <td>${fmtMs(p.p90Ms)}</td>
       <td>${p.seen}</td>
       <td>${p.misses}</td>
-      <td>
-        <input type="checkbox" data-action="toggle-pool" data-id="${p.id}" ${p.enabled ? 'checked' : ''} />
+      <td class="pool-enabled">
+        <label class="switch-label"><input type="checkbox" data-action="toggle-pool" data-id="${p.id}" ${p.enabled ? 'checked' : ''} /><span class="sr-only">Enabled</span></label>
       </td>
       <td><button class="secondary danger" data-action="delete-pool" data-id="${p.id}">Remove</button></td>
     </tr>
   `).join('');
+  markOpenRow();
+  foldSums();
 }
 
 // ---------------------------------------------------------------------------
@@ -1341,6 +1485,7 @@ async function refreshTraffic() {
   const t = await api('/api/traffic');
   // The arrows carry the colours of the bars, so they are the legend too.
   const arrows = (v) => `<span class="up">↑ ${escapeHtml(fmtBytes(v.sent))}</span><span class="down">↓ ${escapeHtml(fmtBytes(v.recv))}</span>`;
+  document.getElementById('traffic-sum').textContent = t.since ? `today ↑ ${fmtBytes(t.today.sent)} ↓ ${fmtBytes(t.today.recv)}` : '';
   document.getElementById('traffic-totals').innerHTML = t.since
     ? [['Today', t.today], ['Last 7 days', t.week], ['Last 30 days', t.month]]
       .map(([l, v]) => `<div class="t"><div class="l">${l}</div><div class="v">${arrows(v)}</div></div>`)
@@ -1376,7 +1521,27 @@ async function refreshAll() {
   // the rejection, nothing was logged, and the tables simply kept showing
   // whatever they had - hours-old numbers presented exactly like fresh ones.
   const failed = results.filter((r) => r.status === 'rejected');
+  beat(failed.length === 0);
+  foldSums();
   reportRefreshHealth(failed.map((r) => r.reason));
+}
+
+// A dot in front of the status line beats once when fresh numbers arrive and
+// goes grey when a round failed: the page says it is alive without a clock
+// that ticks. The time is in its title.
+const liveDot = document.createElement('span');
+liveDot.className = 'live-dot';
+liveDot.setAttribute('aria-hidden', 'true');
+// Off again once it has beaten: the status line is rewritten on every
+// refresh, and putting the dot back with the class on beats it anew.
+liveDot.addEventListener('animationend', () => liveDot.classList.remove('beat'));
+function beat(ok) {
+  liveDot.classList.toggle('stale', !ok);
+  if (!ok) return;
+  liveDot.title = `Updated ${new Date().toLocaleTimeString()}`;
+  liveDot.classList.remove('beat');
+  void liveDot.offsetWidth; // restart the animation
+  liveDot.classList.add('beat');
 }
 
 // Two consecutive failed rounds before saying anything: a single miss during
@@ -1406,6 +1571,60 @@ document.getElementById('rotation-log-limit-toggle').addEventListener('click', (
   if (lastRotationLog) renderRotationLog(lastRotationLog);
 });
 
+// Every card folds to its title on a tap and stays so on this device: open
+// unless the reader closed it (28.10.2026). Storage keeps its own <details>.
+const FOLD_KEY = 'lab.folded';
+const folded = (() => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')); } catch { return new Set(); } })();
+for (const card of document.querySelectorAll('main > section.card')) {
+  const title = card.querySelector(':scope > h2');
+  if (!title) continue;
+  const id = card.id || title.firstChild.textContent.trim();
+  title.classList.add('fold-title');
+  title.tabIndex = 0;
+  title.setAttribute('role', 'button');
+  const show = () => {
+    foldSums();
+    card.classList.toggle('folded', folded.has(id));
+    title.setAttribute('aria-expanded', String(!folded.has(id)));
+  };
+  const flip = (e) => {
+    if (e.target.closest('button, a, input')) return;
+    if (folded.has(id)) folded.delete(id); else folded.add(id);
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch { /* private window */ }
+    show();
+    if (!folded.has(id)) window.dispatchEvent(new Event('resize')); // the traffic chart measures its width
+  };
+  title.addEventListener('click', flip);
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(e); } });
+  show();
+}
+
+// A folded card still says the one thing worth knowing about it, beside its
+// title: the switches and how many pools race. Traffic writes its own.
+function foldSums() {
+  const rot = document.getElementById('rotation-toggle');
+  document.getElementById('rotation-sum').textContent = rot.checked ? 'on' : 'off';
+  const pools = document.querySelectorAll('#pool-table input[data-action="toggle-pool"]:checked').length;
+  document.getElementById('stratum-sum').textContent = document.getElementById('stratum-toggle').checked
+    ? `on · ${pools} ${pools === 1 ? 'pool' : 'pools'}` : 'off';
+}
+
+// The whole ranking open: its name and the way back to the top ten ride along
+// at the top of the screen once the title has scrolled away, so nobody has to
+// scroll to the end to close it.
+function liveStickOn() {
+  const stick = document.getElementById('live-stick');
+  const card = document.getElementById('live-peer-card');
+  stick.hidden = !showAllLivePeers;
+  stick.classList.toggle('on', showAllLivePeers
+    && card.querySelector(':scope > h2').getBoundingClientRect().bottom < 0
+    && card.getBoundingClientRect().bottom > 140);
+}
+window.addEventListener('scroll', liveStickOn, { passive: true });
+document.getElementById('live-stick-back').addEventListener('click', () => {
+  document.getElementById('live-peer-limit-toggle').click();
+});
+
 document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
   const collapsing = showAllLivePeers;
   showAllLivePeers = !showAllLivePeers;
@@ -1426,7 +1645,7 @@ document.getElementById('live-peer-limit-toggle').addEventListener('click', () =
   if (!collapsing) return;
   const card = document.getElementById('live-peer-card');
   if (card && card.getBoundingClientRect().top < 0) {
-    card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    card.scrollIntoView({ block: 'start', behavior: glide() });
   }
 });
 
@@ -1721,11 +1940,13 @@ document.body.addEventListener('change', async (e) => {
     return;
   }
 
+  if (e.target.id === 'stratum-toggle' || e.target.id === 'rotation-toggle' || e.target.dataset.action === 'toggle-pool') foldSums();
   if (e.target.id === 'stratum-toggle') {
     const enabled = e.target.checked;
     try {
       const result = await api('/api/stratum/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
       applyStratumEnabled(Boolean(result.enabled));
+      if (result.enabled) glideIntoView(document.getElementById('stratum-body'), e.target);
       showToast(
         result.enabled
           ? 'Stratum Race turned on. Pool connections open within half a minute.'
@@ -1949,6 +2170,16 @@ async function refreshStorage() {
   set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
 }
 
+// Something a tap just opened below the screen's edge is brought up, gently
+// and only as far as needed - never so far that keep (what was tapped) leaves
+// the top. Peer Map does the same for a peer's panel.
+function glideIntoView(el, keep = el) {
+  if (!el || el.hidden) return;
+  const bottom = el.getBoundingClientRect().bottom;
+  const up = Math.min(bottom + 12 - window.innerHeight, keep.getBoundingClientRect().top - 8);
+  if (up > 0) window.scrollBy({ top: up, behavior: glide() });
+}
+
 // Two steps rather than a browser confirm(): the warning can then say what is
 // actually about to go, in rows and megabytes, instead of asking whether the
 // user is sure about something unspecified.
@@ -1959,7 +2190,7 @@ function wireReset(scope) {
   const no = document.getElementById(`reset-${scope}-no`);
   if (!ask || !panel || !yes || !no) return;
 
-  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; });
+  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; glideIntoView(panel); });
   no.addEventListener('click', () => { panel.hidden = true; ask.hidden = false; });
   yes.addEventListener('click', async () => {
     yes.disabled = true;
@@ -1986,7 +2217,11 @@ function wireReset(scope) {
 }
 
 document.getElementById('storage-card').addEventListener('toggle', (e) => {
-  if (e.target.open) refreshStorage();
+  if (e.target.open) {
+    // The card is the last on the page: what it opens is below the edge.
+    glideIntoView(e.target, e.target.querySelector('summary'));
+    refreshStorage().then(() => glideIntoView(e.target, e.target.querySelector('summary')));
+  }
 });
 wireReset('peers');
 wireReset('pools');
@@ -2006,3 +2241,64 @@ wireReset('pools');
 // answered.
 startRefreshLoop();
 startEventStream();
+
+// On a phone the page is many screens long. Scrolling back up shows a small
+// bar with the sections, and it goes again when the reader scrolls on down or
+// is back at the top. Peer Map has the same.
+(function jumpBar() {
+  const bar = document.createElement('nav');
+  bar.className = 'jump-bar';
+  bar.setAttribute('aria-label', 'Jump to');
+  document.body.appendChild(bar);
+  const byHeading = (text) => [...document.querySelectorAll('main .card h2')]
+    .find((h) => h.textContent.trim().startsWith(text))?.closest('.card');
+  const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Rotation', 'Peer Rotation'],
+    ['Stratum', 'Stratum Race'], ['Traffic', 'Traffic']];
+  // Traffic rather than Storage (28.10.2026): Storage is rarely needed and
+  // sits right under Traffic, at the end of the page.
+  for (const [label, heading] of targets) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      const card = heading && byHeading(heading);
+      const y = card ? card.getBoundingClientRect().top + window.scrollY - 8 : 0;
+      window.scrollTo({ top: Math.max(0, y), behavior: glide() });
+      bar.classList.remove('shown');
+    });
+    bar.appendChild(b);
+  }
+  let lastY = window.scrollY;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    const phone = window.matchMedia('(max-width: 600px)').matches;
+    const up = y < lastY - 4;
+    const down = y > lastY + 4;
+    // With a mouse the bar sits quietly in a corner whenever the reader is
+    // far down; on a phone it comes only on the way back up.
+    bar.classList.toggle('corner', !phone);
+    if (phone ? up && y > window.innerHeight : y > window.innerHeight) bar.classList.add('shown');
+    else if (phone ? down || y < window.innerHeight / 2 : y < window.innerHeight) bar.classList.remove('shown');
+    if (up || down) lastY = y;
+  }, { passive: true });
+})();
+
+// Esc closes what a click opened: the reset question, then the storage card,
+// as in a desktop app.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || (e.target.closest && e.target.closest('input, textarea, select'))) return;
+  if (openRow) {
+    openRow = null;
+    markOpenRow();
+    e.preventDefault();
+    return;
+  }
+  const confirm = [...document.querySelectorAll('.reset-confirm')].find((c) => !c.hidden);
+  if (confirm) {
+    confirm.querySelector('[id$="-no"]')?.click();
+    e.preventDefault();
+    return;
+  }
+  const storage = document.getElementById('storage-card');
+  if (storage && storage.open) { storage.open = false; e.preventDefault(); }
+});
