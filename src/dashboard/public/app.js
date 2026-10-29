@@ -1025,7 +1025,7 @@ document.addEventListener('focusout', () => {
 });
 
 /**
- * One row of a peer table - the same nine cells for all three of them.
+ * One row of a peer table - the same eight cells for all three of them.
  *
  * The three tables share the exact same column set, order, and widths (see the
  * shared .col-* classes in the markup / style.css) so Address/Type/.../Actions
@@ -1227,7 +1227,7 @@ function renderPeerTables(peers, options = {}) {
   // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td>-</td>${'<td></td>'.repeat(7)}
+      <td>-</td>${'<td></td>'.repeat(6)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
