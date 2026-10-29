@@ -6,6 +6,7 @@
   <title>Bitcoin Lab</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta name="theme-color" content="#0b0f14" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -37,31 +38,27 @@
     </section>
 
     <!--
-      Deliberately a plain section, not a <details>.
-      This one already had its own top-10/show-all control, and having a
-      second, outer collapse on top of it meant the same word - "collapse" -
-      did two different things a few pixels apart: one narrowed the list, the
-      other made it vanish. Here, collapsing means going back to the top 10,
-      which is the state this card is for.
+      Folds by its title like every card (app.js, foldable). The top-10 toggle
+      inside only narrows the list; the chevron makes it vanish.
     -->
     <section class="card" id="live-peer-card">
       <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
+      <div class="stick" id="live-stick" hidden><div><span>Live Peer Ranking<span id="live-stick-count"></span></span><button type="button" class="secondary" id="live-stick-back">Top 10</button></div></div>
       <div class="table-wrap">
         <table id="peer-table" class="peer-table">
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client" data-drop="5">Client</th>
+              <th class="col-client" data-drop="4">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping" data-drop="4">Ping</th>
-              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-ping" data-drop="3">Ping</th>
+              <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
       <div class="inline-form">
@@ -88,17 +85,16 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client" data-drop="5">Client</th>
+              <th class="col-client" data-drop="4">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping" data-drop="4">Ping</th>
-              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-ping" data-drop="3">Ping</th>
+              <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
     </section>
@@ -146,23 +142,22 @@
           <thead>
             <tr>
               <th class="col-address">Address</th>
-              <th class="col-client" data-drop="5">Client</th>
+              <th class="col-client" data-drop="4">Client</th>
               <th class="col-status">Type</th>
               <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping" data-drop="4">Ping</th>
-              <th class="col-session" data-drop="3" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-total" data-drop="2">Total Time</th>
+              <th class="col-ping" data-drop="3">Ping</th>
+              <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
     </section>
 
     <section class="card panel">
-      <h2>Peer Rotation</h2>
+      <h2>Peer Rotation <span class="hint fold-sum" id="rotation-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
@@ -176,13 +171,16 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Every ~10 minutes, at most one promotion per pass:</p>
-        <ul>
-          <li>Promotes the best deliverer to manual, into a free slot or in place of a weaker one.</li>
-          <li>Drops an outbound peer that was connected for 50 of the last 500 blocks without delivering one first; Core picks a new one.</li>
-          <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
-        </ul>
-        <p>New slot holders are safe for 50 blocks. Peers that lose their slot while offline are parked below and come back when they answer.</p>
+        <p>Promotes the best deliverers to manual and drops outbound peers that deliver nothing first in 50 blocks.</p>
+        <details class="how">
+          <summary>How it works</summary>
+          <ul>
+            <li>Checks every ~10 minutes, at most one promotion per pass: into a free slot or in place of a weaker manual peer.</li>
+            <li>Drops an outbound peer that was connected for 50 of the last 500 blocks without delivering one first; Core picks a new one.</li>
+            <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
+          </ul>
+          <p>New slot holders are safe for 50 blocks. Peers that lose their slot while offline are parked below and come back when they answer.</p>
+        </details>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
         <h3>Parked</h3>
@@ -211,14 +209,14 @@
               <th>Note</th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
       <button type="button" id="rotation-log-limit-toggle" class="link" hidden></button>
     </section>
 
     <section class="card">
-      <h2>Stratum Race</h2>
+      <h2>Stratum Race <span class="hint fold-sum" id="stratum-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="stratum-toggle">
           <input type="checkbox" id="stratum-toggle" />
@@ -297,7 +295,7 @@
               <th></th>
             </tr>
           </thead>
-          <tbody></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="11"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="11"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="11"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
       </div>
@@ -305,7 +303,7 @@
 
     <!-- What the node sends and receives, per UTC day. -->
     <section class="card panel" id="traffic-card">
-      <h2>Traffic</h2>
+      <h2>Traffic <span class="hint fold-sum" id="traffic-sum"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
       <p class="hint" id="traffic-note">Updated hourly from Core's byte counters. No bar means not measured.</p>

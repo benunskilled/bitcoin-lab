@@ -70,7 +70,7 @@ function addPeer(address, subver, connType, direction, opts = {}) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   insert.run(peer.id, opts.corePeerId || peer.id, direction, connType, subver, startedAt, live ? null : now - (opts.offlineMinutes || 12) * 60 * 1000, ping, ping);
-  // Older, closed sessions, so "Sessions" and "Total Time" read like a peer
+  // Older, closed sessions, so "Sessions" reads like a peer
   // with a history rather than one that appeared this morning.
   const past = opts.pastSessions ?? 0;
   for (let i = 0; i < past; i++) {

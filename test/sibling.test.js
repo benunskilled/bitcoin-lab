@@ -60,3 +60,25 @@ test('two callers at once share one request', async () => {
 
   await new Promise((r) => srv.close(r));
 });
+
+test('a miss is asked again after thirty seconds, a hit only after five minutes', async (t) => {
+  // Updated together, Peer Map may still be starting when the dashboard asks.
+  let up = false;
+  let calls = 0;
+  const srv = http.createServer((req, res) => { calls += 1; res.writeHead(up ? 200 : 503); res.end(); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  process.env.PEERMAP_HEALTH_URL = `http://127.0.0.1:${srv.address().port}/api/health`;
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+
+  assert.equal(await sibling.isInstalled(), false);
+  up = true;
+  t.mock.timers.tick(20_000);
+  assert.equal(await sibling.isInstalled(), false, 'within thirty seconds the miss is kept');
+  t.mock.timers.tick(11_000);
+  assert.equal(await sibling.isInstalled(), true, 'after thirty seconds it is asked again');
+  t.mock.timers.tick(60_000);
+  assert.equal(await sibling.isInstalled(), true);
+  assert.equal(calls, 2, 'a hit is kept for five minutes');
+
+  await new Promise((r) => srv.close(r));
+});

@@ -22,6 +22,10 @@ const DEFAULT_URL = 'http://bitcoinlab-peermap_web_1:8789/api/health';
 // already generous, and it keeps a missing neighbour from costing a request on
 // every dashboard poll.
 const RECHECK_MS = 5 * 60 * 1000;
+// A miss is asked again sooner: updated together, Peer Map may still be
+// starting when this app asks, and the link stayed away for five minutes
+// (28.10.2026).
+const RECHECK_MISS_MS = 30 * 1000;
 const TIMEOUT_MS = 2000;
 
 // Read per call rather than at load: a test sets it between cases, and there
@@ -66,7 +70,7 @@ async function isInstalled() {
   // after a restart reported "not installed" and the page only caught up twenty
   // seconds later.
   if (inFlight) return inFlight;
-  if (checkedAtMs && Date.now() - checkedAtMs < RECHECK_MS) return present;
+  if (checkedAtMs && Date.now() - checkedAtMs < (present ? RECHECK_MS : RECHECK_MISS_MS)) return present;
   inFlight = ask().then((ok) => {
     present = ok;
     checkedAtMs = Date.now();
