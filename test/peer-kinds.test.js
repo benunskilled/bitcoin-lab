@@ -112,6 +112,8 @@ const AGENTS = [
   '/btcwire:0.5.0/btcd:0.25.0/', '/libbitcoin:4.0.0/', '/bcoin:v1.0.0-beta.14/', '/Gocoin:1.10.0pre/',
   // A Utreexo node: named in Peer Map, relaying in both.
   '/Floresta:0.9.1/', '/Floresta:0.9.1/mandacaru:0.15.2/',
+  // Clients identified in public source on 29 October.
+  '/BitcoinRocks:31.1.1/', '/bip110-observer:0.1/', '/EMPORION:0.3/', '/SYMMARTYS:0.3/',
   // Software that does relay, and software nobody here has heard of.
   '/Satoshi:29.0.0/', '/Satoshi:28.1.0/Knots:20250903/', '/btcwire:0.5.0/', '/Sat0shi:31.0.0/', '',
   // The three the apps used to judge differently.
@@ -156,6 +158,9 @@ test('the reason shown names the family the Go side named', () => {
     ['/uni-goettingen.de/', 'research scanner'],
     ['/mempool.space:1.0/', 'indexer'],
     ['/electrumx:1.16/', 'indexer'],
+    ['/EMPORION:0.3/', 'light client'],
+    ['/SYMMARTYS:0.3/', 'light client'],
+    ['/bip110-observer:0.1/', 'crawler'],
   ];
   for (const [agent, fragment] of expectations) {
     const reason = cannotRelayReason(agent) || '';

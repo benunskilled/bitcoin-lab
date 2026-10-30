@@ -149,7 +149,7 @@ const KIND_RULES = [
   [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:|\/Purity:/i, 'a client of another chain', 'whole'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
-  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/trinetra:|^\/p2p-probe:|^\/EMPORION:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:/i, 'a research scanner'],
+  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/trinetra:|^\/p2p-probe:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
   [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/bip324-probe:|^\/your-fork:|^\/cryptexplorer:|^\/bip110-observer:|^\/topology-probe:|^\/BlockSail:/i, 'a network crawler'],
@@ -161,7 +161,9 @@ const KIND_RULES = [
   // Other BIP157 light clients: Kyoto, which says "Rust BIP-157". VerifiedX
   // validators follow the chain the same way for a chain of their own: headers,
   // some blocks, no transactions.
-  [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/multiseed:/i, 'a light client'],
+  // EMPORION and its new name SYMMARTYS fetch headers for OpenTimestamps
+  // verification (bitcoin_headers.py in alexar76/emporion).
+  [/BIP-157|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/multiseed:|^\/EMPORION:|^\/SYMMARTYS:/i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
@@ -520,7 +522,6 @@ async function refreshStatus() {
   // one cosmetic value was missing.
   const el = document.getElementById('status');
   const parts = [s.network, `${s.live.total} peers connected`];
-  if (s.databaseBytes) parts.push(fmtBytes(s.databaseBytes));
   el.textContent = parts.join(' · ');
   el.prepend(liveDot);
   // How often a block could not be credited to one peer, in the line that
