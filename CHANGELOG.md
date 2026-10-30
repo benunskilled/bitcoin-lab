@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.1.1 – 2026-10-30
+
+The status line drops the database size, which stays under Storage. EMPORION and SYMMARTYS are recognised as light clients.
+
 ## 2.1.0 – 2026-10-29
 
 Cards fold to their title, and the page holds your place while the ranking re-sorts. A jump bar takes you to any card, and phone cards all have the same height. "Never first" now stands in the First % column, and Total Time is gone. Bitcoin Purity, a hard fork of Knots, reads as another chain, and more new clients are recognised. Built on a rebuilt Node 22.23.4 image with security updates.
