@@ -75,11 +75,14 @@
         probe has no address to dial. Said here rather than in the README
         because this is the table where it shows.
       -->
-      <p class="panel-note" id="outbound-note">
-        <strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong>
-        A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
-        app can dial back. As inbound connections they are fine.
-      </p>
+      <div class="panel-note" id="outbound-note">
+        <p><strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong></p>
+        <details class="how">
+          <summary>Why</summary>
+          <p>A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
+          app can dial back. As inbound connections they are fine.</p>
+        </details>
+      </div>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
