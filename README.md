@@ -42,7 +42,7 @@ Bitcoin Lab can only keep clearnet peers. Rotation finds good ones faster if Cor
 
 ## Reading the ranking
 
-*First %* is the share of blocks a peer brought first, of those it was connected for: 3/102 means three of 102. A green address has brought at least one block first. ⚡ marks your high-bandwidth peers. Core picks up to three of them on its own, the ones that most recently brought it a new block, and asks them to send every new block straight away instead of announcing it first. That gives them a head start. 📡 is the other way round: a peer that picked your node as one of its high-bandwidth peers. Wallets, crawlers and other peers that can never be first are marked "never first", with the reason on hover.
+*First %* is the share of recent blocks a peer brought first, of those it was connected for: 3/102 means three of 102. A green address has brought at least one block first. ⚡ marks your high-bandwidth peers. Core picks up to three of them on its own, the ones that most recently brought it a new block, and asks them to send every new block straight away instead of announcing it first. That gives them a head start. 📡 is the other way round: a peer that picked your node as one of its high-bandwidth peers. Wallets, crawlers and other peers that can never be first are marked "never first", with the reason on hover.
 
 ## Who mined it, and your traffic
 
