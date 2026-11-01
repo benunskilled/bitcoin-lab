@@ -340,7 +340,7 @@ button.secondary {
 .rotation-log-table .col-rot-action { width: 12%; }
 .rotation-log-table .col-address { width: 20%; }
 .rotation-log-table .col-pct { width: 10%; }
-/* The note is a sentence ("outbound-full-relay, 0/53 recent blocks ..."). Kept
+/* The note is a sentence ("replaced the weakest manual peer: ..."). Kept
    on one line it made this table about 900px wide, and as fitTables decides
    for all tables together, a laptop window of that width turned every panel
    into cards. It wraps instead - not cut with an ellipsis, as a tablet has
