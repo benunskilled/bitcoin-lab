@@ -105,8 +105,8 @@ async function retireOfflineManualPeers(ranking) {
       firstPct: peer.firstPct,
       eligible: peer.eligible,
       note: parked
-        ? `offline ${fmtHours(offlineMs)} - past the ${fmtHours(grace)} its record earned; parked for re-testing`
-        : `offline ${fmtHours(offlineMs)} - past the ${fmtHours(grace)} its record earned; no track record to park`,
+        ? `offline ${fmtHours(offlineMs)}, allowed ${fmtHours(grace)}; parked to re-test`
+        : `offline ${fmtHours(offlineMs)}, allowed ${fmtHours(grace)}; nothing to park`,
     });
     logger.info('rotation: retired a manual peer that stayed offline past its grace period', {
       address: peer.address,
