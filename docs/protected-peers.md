@@ -1,6 +1,6 @@
 # Protected peers stay your choice
 
-Use the padlock to keep a peer in your manual selection regardless of its ranking. Rotation will neither replace it with a stronger candidate nor park it when it goes offline. Peers you type in are protected automatically.
+Use the padlock to keep a peer in your manual selection regardless of its ranking. Rotation will neither replace it with a stronger candidate nor park it when it goes offline. The one exception: an address that has never worked as a manual connection can still be [parked](parking.md) after its waiting period. Peers you type in are protected automatically.
 
 Manual peers that were already set in Core, for example in `bitcoin.conf` or in Umbrel's Bitcoin Node settings, are taken over as protected as well. Bitcoin Lab adopts up to eight in total; any beyond that stay in Core's own list and are left untouched.
 

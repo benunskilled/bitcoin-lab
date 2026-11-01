@@ -4,11 +4,11 @@
 
 Every new block reaches your node through one of your peers. Some peers are first again and again, others never. Bitcoin Lab notes for every block who was first and ranks your peers by it. Keep the fast ones as manual peers, drop the ones that never deliver and get fresh ones to rank, or let rotation do it for you.
 
-Rotation only works on the outbound peers Core picks for you. Inbound peers are ranked too, but never kept or dropped automatically. Many of them don't accept connections at all, and the port you see is only the one they called from, so there is no address to dial back.
+Rotation only works on the outbound peers Core picks for you. Inbound peers are ranked too, but rotation never keeps them or drops them for a low score. Many of them don't accept connections at all, and the port you see is only the one they called from, so there is no address to dial back.
 
 Mining solo? Stratum Race times how fast your own pool turns a new block into fresh work, side by side with public pools.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=3)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=4)
 
 ## Why it matters
 
@@ -28,7 +28,7 @@ Core has eight manual slots that it never fills on its own, so on most nodes the
 
 1. **Watch.** See which peers bring each new block first.
 2. **Keep.** Put a proven peer into a [manual slot](docs/manual-slots.md). Core holds on to it, and Bitcoin Lab puts it back after a restart.
-3. **Keep looking.** Drop an automatic outbound peer that has gone [50 blocks](docs/why-50-blocks.md), roughly eight hours, without being first. Core finds a new one to try.
+3. **Keep looking.** Drop an automatic outbound peer that has been seen at [50 blocks](docs/why-50-blocks.md), roughly eight hours, without being first once. Core finds a new one to try.
 
 Core's two block-relay-only peers are ranked but left alone. They are there to guard against eclipse attacks.
 
