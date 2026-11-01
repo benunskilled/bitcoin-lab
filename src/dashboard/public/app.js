@@ -313,12 +313,16 @@ function fitTables() {
   // row shows it whole.
   const clientCut = () => [...document.querySelectorAll('table.peer-table td[data-col="col-address"]')]
     .some((td) => td.clientWidth && (td.dataset.full || '').length <= 24 && td.scrollWidth > td.clientWidth);
+  // A type pill cut to "MANUAL LI..." counts as too tight as well: the column
+  // can squeeze below its 140px before the table as a whole overflows.
+  const typeCut = () => [...document.querySelectorAll('table.peer-table td[data-col="col-status"]')]
+    .some((td) => td.clientWidth && td.scrollWidth > td.clientWidth + 1);
   if (wider) for (const w of wraps) w.classList.remove('cards');
   let level = wider ? 0 : fitState.level;
   for (; ; level++) {
     for (const w of wraps) w.dataset.drops = String(level);
     sizeColumns();
-    if (level === DROP_LEVELS || !(tight() || clientCut())) break;
+    if (level === DROP_LEVELS || !(tight() || clientCut() || typeCut())) break;
   }
   const cards = level === DROP_LEVELS && tight();
   for (const w of wraps) w.classList.toggle('cards', cards);
@@ -793,7 +797,10 @@ function clientCell(p) {
 function sessionCell(p) {
   if (p.live) return `<td>${fmtDuration(p.currentSessionMs)}</td>`;
   if (p.offlineSinceMs != null) {
-    return `<td class="hint wrap">offline ${fmtDuration(p.offlineSinceMs)}</td>`;
+    // The OFFLINE pill in the same row already says it; the cell keeps to the
+    // duration, so it fits one line like every other session.
+    const d = fmtDuration(p.offlineSinceMs);
+    return `<td class="hint" title="offline for ${escapeHtml(d)}">${escapeHtml(d)}</td>`;
   }
   return `<td>-</td>`;
 }
