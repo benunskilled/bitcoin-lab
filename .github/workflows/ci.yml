@@ -60,12 +60,25 @@ jobs:
     name: Node ${{ matrix.node-version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Peer Map's kinds.go, for the test that both apps judge every peer the
+      # same way. Without it that test skips, and a green run proved nothing.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: benunskilled/peer-map
+          path: peer-map
+          # That one file: anything more inside the workspace is a file
+          # `node --test` might take for one of ours.
+          sparse-checkout: kinds.go
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
       - run: npm test
+        env:
+          PEER_MAP_DIR: ${{ github.workspace }}/peer-map
 
   # Everything in the job above proves this code does what it was written to
   # do. None of it can prove the thing the app rests on: that Bitcoin Core
@@ -88,7 +101,7 @@ jobs:
     env:
       # Bumping this is the entire maintenance burden of this job, and the
       # reason to bump it is a new Core release, not a schedule.
-      CORE_VERSION: '31.1'
+      CORE_VERSION: '32.1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
