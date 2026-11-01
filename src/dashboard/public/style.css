@@ -432,10 +432,9 @@ table.peer-table {
 .col-status { width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .col-pct { width: 12%; }
 .col-ping { width: 6%; }
-/* As wide as "99d 23h" needs; an offline manual peer's "offline 3d 4h" takes
-   two lines rather than the column a third more room on every row. */
+/* As wide as "99d 23h" needs. An offline peer shows only how long, since its
+   OFFLINE pill says the rest. */
 .col-session { width: 78px; }
-td.wrap { white-space: normal; }
 .col-sessions { width: 5%; }
 /* Wide enough for "Add as Manual" and "Disconnect" side by side (see
    .row-actions). */
