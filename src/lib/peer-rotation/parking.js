@@ -282,8 +282,8 @@ async function reviveParkedPeers(ranking) {
       replacedAddress: replaced ? replaced.address : null,
       replacedFirstPct: replaced ? replaced.firstPct : null,
       note: replaced
-        ? `back and beat the weakest manual peer: ${replaced.recentFirst}/${replaced.recentEligible} recent blocks first`
-        : 'answered again and took a free manual slot',
+        ? `back, beat the weakest manual peer: ${replaced.recentFirst}/${replaced.recentEligible} recent blocks first`
+        : 'back, took a free manual slot',
     });
     logger.info('rotation: a parked peer answered again and got its manual slot back', {
       address: parked.address,

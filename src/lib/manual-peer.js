@@ -95,7 +95,7 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
       address: probed.address,
       replacedAddress: result.evicted?.address,
       replacedFirstPct: result.evicted?.firstPct,
-      note: result.evicted ? `added by hand, replaced ${result.evicted.address}` : 'added by hand',
+      note: result.evicted ? 'added by hand, replaced the weakest' : 'added by hand',
     });
   } catch (err) {
     logger.warn('rotation log entry for a manual add failed', { address: probed.address, error: err.message });
