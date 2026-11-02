@@ -4,23 +4,14 @@ const db = require('../db');
 const poolId = require('../pool-id');
 const prevhash = require('../prevhash');
 
-// Latest relay race (newest block Bitcoin Core told us about via ZMQ) plus
-// the peer(s) whose getpeerinfo.last_block matched the detection instant -
-// i.e. whichever peer(s) actually delivered this block to us first. Used
-// purely to drive the "new block" UI flash - never on the timing-critical
-// write path itself (relay-profiler.js writes these rows independently).
-function latestBlock() {
-  const race = db.instance
-    .prepare(
-      `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
-              pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
-              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs
-       FROM relay_race ORDER BY id DESC LIMIT 1`,
-    )
-    .get();
-  if (!race) return null;
+// One block as the page reads it, from relay_race.
+const RACE_COLUMNS = `id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
+  pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
+  template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs`;
 
-  const firstPeers = db.instance
+// The peers credited with First for one block, with their trusted label.
+function firstPeersOf(raceId) {
+  return db.instance
     .prepare(
       `SELECT p.address AS address, tp.label AS trustedLabel
        FROM relay_observation ro
@@ -28,7 +19,21 @@ function latestBlock() {
        LEFT JOIN trusted_peer tp ON tp.address = p.address
        WHERE ro.race_id = ? AND ro.first = 1`,
     )
-    .all(race.id);
+    .all(raceId);
+}
+
+// Latest relay race (newest block Bitcoin Core told us about via ZMQ) plus
+// the peer(s) whose getpeerinfo.last_block matched the detection instant -
+// i.e. whichever peer(s) actually delivered this block to us first. Used
+// purely to drive the "new block" UI flash - never on the timing-critical
+// write path itself (relay-profiler.js writes these rows independently).
+function latestBlock() {
+  const race = db.instance
+    .prepare(`SELECT ${RACE_COLUMNS} FROM relay_race ORDER BY id DESC LIMIT 1`)
+    .get();
+  if (!race) return null;
+
+  const firstPeers = firstPeersOf(race.id);
 
   // Two different things, and the page has to be able to tell them apart:
   // `pool` is a pool we recognise, `poolTag` on its own is the text the miner
@@ -51,25 +56,9 @@ function blockDetail(raceId = null) {
   const race = raceId == null
     ? latestBlock()
     : (() => {
-      const row = db.instance
-        .prepare(
-          `SELECT id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
-                  pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
-              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs
-           FROM relay_race WHERE id = ?`,
-        )
-        .get(raceId);
+      const row = db.instance.prepare(`SELECT ${RACE_COLUMNS} FROM relay_race WHERE id = ?`).get(raceId);
       if (!row) return null;
-      const peers = db.instance
-        .prepare(
-          `SELECT p.address AS address, tp.label AS trustedLabel
-             FROM relay_observation ro
-             JOIN peer p ON p.id = ro.peer_id
-             LEFT JOIN trusted_peer tp ON tp.address = p.address
-            WHERE ro.race_id = ? AND ro.first = 1`,
-        )
-        .all(row.id);
-      return { ...row, pool: row.poolName ? poolId.shortName(row.poolName) : null, firstPeers: peers };
+      return { ...row, pool: row.poolName ? poolId.shortName(row.poolName) : null, firstPeers: firstPeersOf(row.id) };
     })();
   if (!race) return null;
 
