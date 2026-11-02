@@ -1,0 +1,59 @@
+name: Dev compose node
+
+# The dev stack's node, with exactly the options docker-compose.dev.yml gives
+# it. Nobody starts that stack often, so an image bump to a Core that dropped
+# one of those options would otherwise sit unnoticed until somebody did.
+#
+# Its own workflow so it can run only when something it checks changes: the
+# compose file, the script it runs, or CORE_VERSION in ci.yml it is held to.
+on:
+  push:
+    branches: ['**']
+    paths:
+      - docker-compose.dev.yml
+      - test/regtest-generate.sh
+      - .github/workflows/ci.yml
+      - .github/workflows/dev-node.yml
+  pull_request:
+    paths:
+      - docker-compose.dev.yml
+      - test/regtest-generate.sh
+      - .github/workflows/ci.yml
+      - .github/workflows/dev-node.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dev-node:
+    runs-on: ubuntu-latest
+    name: Dev compose node
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start bitcoind
+        run: docker compose -f docker-compose.dev.yml up -d bitcoind
+      - name: Same Core as CI, and it mines
+        run: |
+          set -euo pipefail
+          BCLI="docker compose -f docker-compose.dev.yml exec -T bitcoind bitcoin-cli -regtest -rpcuser=bitcoinlab -rpcpassword=bitcoinlab"
+          for i in $(seq 30); do $BCLI getnetworkinfo >/dev/null 2>&1 && break; sleep 2; done
+          if ! $BCLI getnetworkinfo >/dev/null 2>&1; then
+            docker compose -f docker-compose.dev.yml logs bitcoind
+            echo "::error::The dev node did not answer RPC within a minute"
+            exit 1
+          fi
+          WANT=$(sed -n "s/^ *CORE_VERSION: '\(.*\)'/\1/p" .github/workflows/ci.yml)
+          GOT=$($BCLI getnetworkinfo | sed -n 's|.*"subversion": "/Satoshi:\([0-9.]*\)/".*|\1|p')
+          echo "dev node runs Core ${GOT}, CI tests against ${WANT}"
+          case "${GOT}" in
+            "${WANT}"|"${WANT}".0) ;;
+            *) echo "::error::docker-compose.dev.yml runs Core ${GOT}, CORE_VERSION is ${WANT}"; exit 1 ;;
+          esac
+          bash test/regtest-generate.sh
+      - if: always()
+        run: docker compose -f docker-compose.dev.yml down

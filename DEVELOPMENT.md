@@ -19,7 +19,7 @@ bash test/regtest-generate.sh
 docker compose -f docker-compose.dev.yml logs -f relay-profiler
 ```
 
-The Compose file defaults to the third-party `ruimarinho/bitcoin-core:23` image. Set `BITCOIND_IMAGE` to a suitable image when testing behaviour specific to another Core version.
+The Compose file defaults to the third-party `bitcoin/bitcoin:32.1` image, the same Core version CI tests against. Set `BITCOIND_IMAGE` to a suitable image when testing behaviour specific to another Core version.
 
 The standalone dashboard has no built-in login. Keep it on a trusted network or place it behind an authenticated proxy. On Umbrel, the app proxy handles authentication.
 
