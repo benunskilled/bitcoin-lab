@@ -328,19 +328,21 @@ button.secondary {
 .rotation-hint li { margin: 2px 0; }
 /* The rules in full wait behind "How it works": read once, not on every
    visit (28.10.2026). */
-.rotation-hint .how { margin-top: 6px; }
-.rotation-hint .how summary { display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; cursor: pointer; list-style: none; color: var(--text); }
-.rotation-hint .how summary::-webkit-details-marker { display: none; }
-.rotation-hint .how summary::after { content: ""; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
-.rotation-hint .how[open] summary::after { transform: translateY(1px) rotate(-135deg); }
-.rotation-hint .how[open] > :not(summary) { animation: lab-in .18s ease-out; }
-@media (prefers-reduced-motion: reduce) { .rotation-hint .how summary::after { transition: none; } .rotation-hint .how[open] > :not(summary) { animation: none; } }
+.how { margin-top: 6px; }
+.panel-note p { margin: 0; }
+.panel-note .how { margin-top: 0; }
+.how summary { display: inline-flex; align-items: center; gap: 6px; padding: 6px 0; cursor: pointer; list-style: none; color: var(--text); }
+.how summary::-webkit-details-marker { display: none; }
+.how summary::after { content: ""; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); transition: transform .15s ease; }
+.how[open] summary::after { transform: translateY(1px) rotate(-135deg); }
+.how[open] > :not(summary) { animation: lab-in .18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .how summary::after { transition: none; } .how[open] > :not(summary) { animation: none; } }
 
 .rotation-log-table .col-time { width: 14%; }
 .rotation-log-table .col-rot-action { width: 12%; }
 .rotation-log-table .col-address { width: 20%; }
 .rotation-log-table .col-pct { width: 10%; }
-/* The note is a sentence ("outbound-full-relay, 0/53 recent blocks ..."). Kept
+/* The note is a sentence ("replaced the weakest manual peer: ..."). Kept
    on one line it made this table about 900px wide, and as fitTables decides
    for all tables together, a laptop window of that width turned every panel
    into cards. It wraps instead - not cut with an ellipsis, as a tablet has
@@ -432,10 +434,9 @@ table.peer-table {
 .col-status { width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .col-pct { width: 12%; }
 .col-ping { width: 6%; }
-/* As wide as "99d 23h" needs; an offline manual peer's "offline 3d 4h" takes
-   two lines rather than the column a third more room on every row. */
+/* As wide as "99d 23h" needs. An offline peer shows only how long, since its
+   OFFLINE pill says the rest. */
 .col-session { width: 78px; }
-td.wrap { white-space: normal; }
 .col-sessions { width: 5%; }
 /* Wide enough for "Add as Manual" and "Disconnect" side by side (see
    .row-actions). */

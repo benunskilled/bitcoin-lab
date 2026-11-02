@@ -79,7 +79,7 @@ async function kickDeadWeight(ranking) {
         address: peer.address,
         firstPct: peer.firstPct,
         eligible: peer.recentEligible,
-        note: `${peer.connectionType}, 0/${peer.recentEligible} recent blocks first`,
+        note: `0/${peer.recentEligible} recent blocks first`,
       });
       logger.info('rotation: kicked a dead-weight outbound peer', {
         address: peer.address,

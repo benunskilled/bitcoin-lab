@@ -42,7 +42,7 @@ Bitcoin Lab can only keep clearnet peers. Rotation finds good ones faster if Cor
 
 ## Reading the ranking
 
-A green address has brought at least one block first. ⚡ marks your high-bandwidth peers. Core picks up to three of them on its own, the ones that most recently brought it a new block, and asks them to send every new block straight away instead of announcing it first. That gives them a head start. 📡 is the other way round: a peer that picked your node as one of its high-bandwidth peers. Wallets, crawlers and other peers that can never be first are marked "never first", with the reason on hover.
+*First %* is the share of recent blocks a peer brought first, of those it was connected for: 3/102 means three of 102. A green address has brought at least one block first. ⚡ marks your high-bandwidth peers. Core picks up to three of them on its own, the ones that most recently brought it a new block, and asks them to send every new block straight away instead of announcing it first. That gives them a head start. 📡 is the other way round: a peer that picked your node as one of its high-bandwidth peers. Wallets, crawlers and other peers that can never be first are marked "never first", with the reason on hover.
 
 ## Who mined it, and your traffic
 
@@ -58,9 +58,11 @@ For every new block, the first pool to send fresh work sets the reference time a
 
 ## Install
 
-Add the [Bitcoin Peer Lab community store](https://github.com/benunskilled/bitcoin-lab-community-store) on Umbrel and install **Bitcoin Lab**. It requires the official **Bitcoin Node** app. Tested with Bitcoin Core 31.1. Open it from Umbrel or at `<your-umbrel>:8790`.
+1. Add the [Bitcoin Peer Lab community store](https://github.com/benunskilled/bitcoin-lab-community-store) on Umbrel.
+2. Install **Bitcoin Lab**. It requires the official **Bitcoin Node** app.
+3. Open it from Umbrel or at `<your-umbrel>:8790`, and let it just watch for a day or so before you change anything, so you know your baseline.
 
-Let it just watch for a day or so before you change anything, so you know your baseline.
+Tested with Bitcoin Core 32.1.
 
 Bitcoin Lab talks to Core through RPC and ZMQ. It changes live connections and the `addnode` list, nothing else: it never touches `bitcoin.conf`, wallets, keys or block files. Remove the app and Core runs on as before.
 

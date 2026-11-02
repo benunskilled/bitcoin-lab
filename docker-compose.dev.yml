@@ -14,15 +14,14 @@ services:
     # A throwaway regtest node for exercising the ZMQ path - not a mirror of
     # what you run in production, and deliberately not the Umbrel bitcoin app
     # (that image bundles a whole UI). Bitcoin Core publishes no official image,
-    # so this is a third-party build and it is pinned rather than floating.
+    # so this is the third-party bitcoin/bitcoin build, which checks the release
+    # signatures with Core's verify.py. Pinned by digest, not floating.
     #
-    # It is also OLD: Core 23 is from 2022. If you are debugging something that
-    # depends on how a current Core reports peers - last_block, connection_type,
-    # v2 transport - set BITCOIND_IMAGE to a build matching the version you
-    # actually run before trusting what you see here:
+    # Keep it on the Core version in CORE_VERSION (.github/workflows/ci.yml). To
+    # try another version:
     #
-    #   BITCOIND_IMAGE=yourorg/bitcoind:29.0 docker compose -f docker-compose.dev.yml up
-    image: ${BITCOIND_IMAGE:-ruimarinho/bitcoin-core:23}
+    #   BITCOIND_IMAGE=bitcoin/bitcoin:31.0 docker compose -f docker-compose.dev.yml up
+    image: ${BITCOIND_IMAGE:-bitcoin/bitcoin:32.1@sha256:d2454aaf2ff4ce1ebbc49f4aa05ed044c907b849a80a3f4c0ad23e488e50bbe0}
     command:
       - -regtest=1
       - -server=1

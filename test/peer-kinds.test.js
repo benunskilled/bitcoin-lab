@@ -22,7 +22,9 @@ const vm = require('vm');
  * out, or nowhere at all on a CI runner that only cloned this app. Set
  * PEER_MAP_DIR to say where it is; without it, the sibling checkout is the
  * one place worth guessing. When it is not there these tests skip rather than
- * fail - a missing neighbour is not a disagreement.
+ * fail - a missing neighbour is not a disagreement. Except when PEER_MAP_DIR
+ * is set, as CI does: then a missing file is a broken checkout, and skipping
+ * would leave the run green without ever comparing.
  */
 
 const KINDS_GO = process.env.PEER_MAP_DIR
@@ -120,6 +122,9 @@ const AGENTS = [
   '/Satoshi:27.0.0(mempool.guide)/electrs:0.10.0/', '/btc-mempool:1/', '/Sat0shi:31.0.0/crawler:1/', '/CKCoinD:1.0/',
 ];
 
+if (process.env.PEER_MAP_DIR && !fs.existsSync(KINDS_GO)) {
+  throw new Error(`PEER_MAP_DIR is set, but there is no ${KINDS_GO}`);
+}
 const SKIP_WITHOUT_SIBLING = fs.existsSync(KINDS_GO)
   ? false
   : `no Peer Map checkout at ${KINDS_GO} - set PEER_MAP_DIR to compare the two apps`;

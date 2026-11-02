@@ -73,6 +73,28 @@ test('POST /api/pools rejects a malformed host and accepts a good one', async ()
   assert.deepEqual(row, { label: 'Good Pool', host: 'pool.example', port: 3333 });
 });
 
+test('POST /api/pools answers 409 only for a duplicate, 500 for any other database error', async () => {
+  const pool = { label: 'Twice', host: 'twice.example', port: 3333 };
+  const first = await api('/api/pools', { method: 'POST', body: JSON.stringify(pool) });
+  assert.equal(first.status, 200);
+  const dup = await api('/api/pools', { method: 'POST', body: JSON.stringify(pool) });
+  assert.equal(dup.status, 409);
+
+  // A read-only database stands in for a full disk: the insert fails, but not
+  // because the pool exists.
+  db.instance.pragma('query_only = ON');
+  try {
+    const broken = await api('/api/pools', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'New', host: 'new.example', port: 3333 }),
+    });
+    assert.equal(broken.status, 500);
+    assert.equal(broken.body.error, 'internal error');
+  } finally {
+    db.instance.pragma('query_only = OFF');
+  }
+});
+
 test('GET /api/health reports this process and every background service', async () => {
   const { status, body } = await api('/api/health');
   assert.equal(status, 200);

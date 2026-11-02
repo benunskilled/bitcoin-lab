@@ -860,7 +860,13 @@ async function router(req, res, pathname, url) {
         .run(parsed.value.label, parsed.value.host, parsed.value.port, Date.now());
       return sendJson(res, 200, { ok: true });
     } catch (err) {
-      return sendJson(res, 409, { ok: false, error: 'a pool with this host and port already exists' });
+      // Only UNIQUE(host, port) means a duplicate. A full disk or a locked
+      // database used to be answered the same way, with the wrong reason.
+      if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        return sendJson(res, 409, { ok: false, error: 'a pool with this host and port already exists' });
+      }
+      logger.error('adding a pool failed', { error: err.message });
+      return sendJson(res, 500, { ok: false, error: 'internal error' });
     }
   }
 

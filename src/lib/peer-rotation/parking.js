@@ -105,8 +105,8 @@ async function retireOfflineManualPeers(ranking) {
       firstPct: peer.firstPct,
       eligible: peer.eligible,
       note: parked
-        ? `offline ${fmtHours(offlineMs)} - past the ${fmtHours(grace)} its record earned; parked for re-testing`
-        : `offline ${fmtHours(offlineMs)} - past the ${fmtHours(grace)} its record earned; no track record to park`,
+        ? `offline ${fmtHours(offlineMs)}, allowed ${fmtHours(grace)}; parked to re-test`
+        : `offline ${fmtHours(offlineMs)}, allowed ${fmtHours(grace)}; nothing to park`,
     });
     logger.info('rotation: retired a manual peer that stayed offline past its grace period', {
       address: peer.address,
@@ -282,8 +282,8 @@ async function reviveParkedPeers(ranking) {
       replacedAddress: replaced ? replaced.address : null,
       replacedFirstPct: replaced ? replaced.firstPct : null,
       note: replaced
-        ? `answered again and beat the weakest manual peer: ${replaced.recentFirst}/${replaced.recentEligible} recent blocks first`
-        : 'answered again and took a free manual slot',
+        ? `back, beat the weakest manual peer: ${replaced.recentFirst}/${replaced.recentEligible} recent blocks first`
+        : 'back, took a free manual slot',
     });
     logger.info('rotation: a parked peer answered again and got its manual slot back', {
       address: parked.address,

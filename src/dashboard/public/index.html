@@ -75,11 +75,14 @@
         probe has no address to dial. Said here rather than in the README
         because this is the table where it shows.
       -->
-      <p class="panel-note" id="outbound-note">
-        <strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong>
-        A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
-        app can dial back. As inbound connections they are fine.
-      </p>
+      <div class="panel-note" id="outbound-note">
+        <p><strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong></p>
+        <details class="how">
+          <summary>Why</summary>
+          <p>A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
+          app can dial back. As inbound connections they are fine.</p>
+        </details>
+      </div>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
@@ -306,7 +309,7 @@
       <h2>Traffic <span class="hint fold-sum" id="traffic-sum"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
-      <p class="hint" id="traffic-note">Updated hourly from Core's byte counters. No bar means not measured.</p>
+      <p class="hint" id="traffic-note">Updated hourly from Core's byte counters.</p>
     </section>
 
     <!-- Closed by default and last on the page: nothing here is part of daily
