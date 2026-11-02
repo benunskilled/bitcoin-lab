@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.1.2 – 2026-11-02
+
+Shorter rotation notes, and tables drop a column before a type pill gets cut. Tested with Bitcoin Core 32.1.
+
 ## 2.1.1 – 2026-10-30
 
 The status line drops the database size, which stays under Storage. EMPORION and SYMMARTYS are recognised as light clients.
