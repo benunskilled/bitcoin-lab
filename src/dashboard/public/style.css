@@ -38,6 +38,9 @@ body {
   font-size: 14px;
 }
 
+/* Buttons do not inherit the font on their own: without this they were Arial. */
+button { font-family: inherit; }
+
 .topbar {
   display: flex;
   align-items: center;
