@@ -356,6 +356,11 @@ button.secondary {
    into cards. It wraps instead - not cut with an ellipsis, as a tablet has
    no hover to show the rest. */
 .rotation-log-table td:last-child { white-space: normal; min-width: 12em; }
+/* A run of kicks that delivered nothing, as one line that opens to the kicks. */
+.rotation-log-table tr.kick-group { cursor: pointer; }
+.rotation-log-table tr.kick-member td { color: var(--muted); }
+.rotation-log-table tr.kick-member td:first-child { padding-left: 22px; }
+.fold-mark { color: var(--muted); margin-left: 4px; font-size: 13px; }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
@@ -683,7 +688,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops="4"] [data-drop] { display: none; }
 /* The two buttons need their width whatever the table's: as a share of a
    narrower table they no longer fit side by side. */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 19%; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
 /* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
