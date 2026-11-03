@@ -226,17 +226,16 @@ function truncatedCell(text, cls = '') {
 const DROP_LEVELS = 4;
 
 // Column widths of the peer tables, set for each step: the short columns as
-// wide as their content, and the room left shared by address, client, Type
-// and First % in proportion to what each needs - an IPv4 address with its
-// port, a client name like /Satoshi:31.0.0/ (a longer one is cut, the open
-// row has it whole), the longest pill (MANUAL OFFLINE), First % with its ⚡
-// and 📡. They shrink together, so none is cut while another has room to
-// spare. They do not all grow together: Type and First % stop at COL_MAX,
-// and what they would have taken goes to the client - grown with the
-// others, they stood half empty at 1440px while client names were cut.
+// wide as their content, the other four as wide as each needs - an IPv4
+// address with its port, a client name like /Satoshi:31.0.0/ (a longer one is
+// cut, the open row has it whole), the longest pill (MANUAL OFFLINE), First %
+// with its ⚡ and 📡. A window too narrow for that shrinks those four
+// together, so none is cut while another has room to spare. A wider one
+// shares what is left among those four, the client twice over: in one or
+// two columns only, it stood as an empty band (under Type and First %, then
+// under the client), and beside the short numbers it was a gap too.
 const COL_FIXED = { 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
 const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-status': 139, 'col-pct': 141 };
-const COL_MAX = { 'col-status': 140, 'col-pct': 150 };
 function sizeColumns() {
   for (const t of document.querySelectorAll('table.peer-table')) {
     if (!t.offsetWidth) continue;
@@ -261,22 +260,13 @@ function sizeColumns() {
     }
     const spare = Math.max(0, t.offsetWidth - fixed);
     const want = (c) => (last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0);
-    const share = new Map(shown.map((th) => [th, spare * want(col(th)) / need]));
-    // What Type and First % would take beyond their most goes to the client
-    // name, the one cut most often - an address has its port and ends there.
-    // Without the Client column, to the address that carries it.
-    let over = 0;
-    for (const [th, w] of share) {
-      const max = COL_MAX[col(th)];
-      if (max && w > max) { over += w - max; share.set(th, max); }
-    }
-    const heir = shown.find((th) => col(th) === 'col-client') || shown.find((th) => col(th) === 'col-address');
-    if (heir) share.set(heir, share.get(heir) + over);
-    for (const th of shown) {
-      const c = col(th);
-      const fix = last && c === 'col-actions' ? 136 : COL_FIXED[c];
-      th.style.width = (fix || Math.floor(share.get(th))) + 'px';
-    }
+    const fixOf = (c) => (last && c === 'col-actions' ? 136 : COL_FIXED[c]);
+    const base = new Map(shown.map((th) => [th, fixOf(col(th)) || (spare < need ? spare * want(col(th)) / need : want(col(th)))]));
+    const rest = spare > need ? spare - need : 0;
+    const share = (th) => (col(th) === 'col-client' ? 2 : COL_NEED[col(th)] ? 1 : 0);
+    const shares = shown.reduce((sum, th) => sum + share(th), 0);
+    const add = (th) => (shares ? rest * share(th) / shares : 0);
+    for (const th of shown) th.style.width = Math.floor(base.get(th) + add(th)) + 'px';
   }
 }
 
