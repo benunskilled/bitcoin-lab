@@ -16,6 +16,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { URL } = require('url');
 
 const config = require('./lib/config');
@@ -92,14 +93,27 @@ const READ_ONLY_BLOCKED = new Set([
   '/api/peers/untrust', '/api/peers/manual-add', '/api/peers/add-manual', '/api/peers/disconnect', '/api/rotation/toggle',
 ]);
 
+// The ranking runs to a few hundred kB of JSON and comes again every 20 s;
+// gzip makes it a tenth of that, which counts on a phone away from home.
+// Small answers are not worth it, and images are packed already. The event
+// stream never comes through here: gzip would hold each event back until a
+// block of output was full.
+const GZIP_MIN_BYTES = 1024;
+
+function sendBody(res, status, headers, body) {
+  let out = Buffer.from(body);
+  const extra = { Vary: 'Accept-Encoding' };
+  const takesGzip = /\bgzip\b/.test(res.req?.headers['accept-encoding'] || '');
+  if (takesGzip && out.length >= GZIP_MIN_BYTES && !/^image\/(png|jpeg|webp)/.test(headers['Content-Type'])) {
+    out = zlib.gzipSync(out);
+    extra['Content-Encoding'] = 'gzip';
+  }
+  res.writeHead(status, { ...headers, ...extra, 'Content-Length': out.length });
+  res.end(out);
+}
+
 function sendJson(res, status, data) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    ...SECURITY_HEADERS,
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-  });
-  res.end(body);
+  sendBody(res, status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' }, JSON.stringify(data));
 }
 
 /**
@@ -239,7 +253,7 @@ function serveStatic(req, res, pathname) {
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, {
+    sendBody(res, 200, {
       ...SECURITY_HEADERS,
       'Content-Type': MIME[ext] || 'application/octet-stream',
       // Without an explicit directive, browsers apply heuristic caching to
@@ -249,8 +263,7 @@ function serveStatic(req, res, pathname) {
       // conditional revalidation on every load instead (cheap for a small
       // self-hosted dashboard), so updates show up on a normal reload.
       'Cache-Control': 'no-cache',
-    });
-    res.end(data);
+    }, data);
   });
 }
 
