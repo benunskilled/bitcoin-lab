@@ -1435,7 +1435,7 @@ function kickGroupRows(kicks) {
       <td><span class="pill ${rotationActionClass('kick')}">${escapeHtml(rotationActionLabel('kick'))} ×${kicks.length}</span></td>
       <td>${kicks.length} outbound peers</td>
       <td>${fmtPct(0)}</td>
-      <td class="hint">None delivered a block first (${lo === hi ? lo : `${lo}–${hi}`} recent blocks each) <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
+      <td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
     </tr>`;
   return head + (open ? kicks.map((e) => rotationEntryRow(e, 'kick-member')).join('') : '');
 }
