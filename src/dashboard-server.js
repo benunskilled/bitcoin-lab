@@ -672,7 +672,19 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'GET' && pathname === '/api/peers/ranking') {
-    return sendJson(res, 200, queries.peerRanking());
+    // Peer Map's marks ride along on the rows they are about (lib/sibling.js).
+    const marks = sibling.peerKinds();
+    const rows = queries.peerRanking();
+    if (marks.size) {
+      for (const row of rows) {
+        const m = marks.get(row.address);
+        if (!m) continue;
+        row.mapKind = m.kind;
+        if (m.why) row.mapWhy = m.why;
+        if (m.pool) row.mapPool = m.pool;
+      }
+    }
+    return sendJson(res, 200, rows);
   }
 
   // For the app next door. Peer Map shows the same peers on a map and marks

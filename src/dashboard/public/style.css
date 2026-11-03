@@ -199,6 +199,11 @@ tr:hover td { background: #17202a; }
    says "never first" (firstPctCell). */
 tr.weak td { color: var(--muted); }
 .never { display: inline-block; vertical-align: middle; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
+/* Before the client name: Disguised in Peer Map's red (red is kept for that
+   there too - orange is Bitcoin's and means something good here), a pool's
+   name plain (kindTag). */
+.kind-tag { color: var(--muted); }
+.kind-tag.disg { color: var(--bad); }
 
 .pill {
   display: inline-block;

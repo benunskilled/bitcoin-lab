@@ -80,11 +80,97 @@ async function isInstalled() {
   return inFlight;
 }
 
+// What Peer Map makes of a peer that this app cannot tell from the name alone:
+// a Core name on software that is not Core (Disguised), and the pool a node
+// belongs to. Peer Map decides that from what the peer does - which services
+// it offers, which messages it leaves out - and keeping one copy of those
+// checks, in Peer Map, keeps the two apps from contradicting each other.
+//
+// Never waited for: the ranking is answered from what was fetched last, and a
+// fetch starts at most once a minute, only while this page is being polled.
+// Peer Map answers from its own cache, so this asks Core nothing new. Peer
+// Map's list can take seconds when Core is slow, which is why nobody waits.
+const KINDS_EVERY_MS = 60 * 1000;
+const KINDS_TIMEOUT_MS = 30 * 1000;
+// Peer Map's whole list, geography included: a few hundred kilobytes for a
+// few hundred peers. Anything far larger is not that list.
+const KINDS_MAX_BYTES = 16 * 1024 * 1024;
+const kindsTarget = () => target().replace(/\/api\/health$/, '/api/peers');
+let kinds = new Map();
+let kindsAtMs = 0;
+let kindsInFlight = false;
+
+function fetchKinds() {
+  return new Promise((resolve) => {
+    let req;
+    try {
+      req = http.get(kindsTarget(), { timeout: KINDS_TIMEOUT_MS }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+        const chunks = [];
+        let size = 0;
+        res.on('data', (c) => {
+          size += c.length;
+          if (size > KINDS_MAX_BYTES) { req.destroy(); return resolve(null); }
+          chunks.push(c);
+        });
+        res.on('end', () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch { resolve(null); }
+        });
+        res.on('error', () => resolve(null));
+      });
+    } catch {
+      return resolve(null);
+    }
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
+// Only the two kinds the ranking marks; everything else Peer Map says stays
+// in Peer Map, one click away on the address.
+function kindsOf(body) {
+  const out = new Map();
+  for (const p of (body && Array.isArray(body.peers)) ? body.peers : []) {
+    if (!p || typeof p.addr !== 'string') continue;
+    const str = (v) => (typeof v === 'string' ? v.slice(0, 200) : '');
+    if (p.kind === 'Disguised') out.set(p.addr, { kind: 'Disguised', why: str(p.tell) });
+    else if (p.kind === 'Pool node') out.set(p.addr, { kind: 'Pool node', pool: str(p.pool) });
+  }
+  return out;
+}
+
+/**
+ * Peer Map's word on each peer it marks, by address - from the last answer,
+ * without waiting. An empty map when Peer Map is not installed or not yet
+ * asked; a failed fetch keeps the previous answer until the next one.
+ */
+function peerKinds() {
+  if (target() === 'off') return new Map();
+  if (!present) {
+    // Not installed (or not known to be): ask whether it is, for next time,
+    // and say nothing - old marks from an app since removed are not shown.
+    isInstalled().catch(() => {});
+    kinds = new Map();
+    return kinds;
+  }
+  if (!kindsInFlight && Date.now() - kindsAtMs >= KINDS_EVERY_MS) {
+    kindsInFlight = true;
+    kindsAtMs = Date.now();
+    fetchKinds().then((body) => {
+      if (body) kinds = kindsOf(body);
+    }).finally(() => { kindsInFlight = false; });
+  }
+  return kinds;
+}
+
 // Tests need a clean slate between cases.
 function reset() {
   checkedAtMs = 0;
   present = false;
   inFlight = null;
+  kinds = new Map();
+  kindsAtMs = 0;
+  kindsInFlight = false;
 }
 
-module.exports = { isInstalled, reset, target };
+module.exports = { isInstalled, peerKinds, reset, target };

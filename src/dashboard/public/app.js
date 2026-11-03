@@ -170,27 +170,27 @@ const KIND_RULES = [
 // named in the brackets (the pool rule without the word "mempool"). The rest read only the name outside them - a word
 // like "monitor" or "electrs" in an operator's label does not make a Core
 // node a crawler or an indexer. Peer Map's classify does the same.
-function cannotRelayReason(client) {
-  if (!client) return null;
+// The first rule that names this client, as its place in KIND_RULES, or -1.
+function kindRuleIndex(client) {
+  if (!client) return -1;
   const bare = client.replace(/\([^)]*\)/g, '');
   // "pool" inside "mempool" is no pool: "(mempool.guide)" is a node's label.
   const noMempool = client.replace(/mempool/gi, '');
-  for (const [re, what, reads] of KIND_RULES) {
-    const s = reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare;
-    if (re.test(s)) return what;
-  }
-  return null;
+  return KIND_RULES.findIndex(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
+}
+// The two rules the ranking marks a peer by when Peer Map is not there to ask.
+const MISSPELT_RULE = 0;
+const POOL_RULE = 1;
+
+function cannotRelayReason(client) {
+  const i = kindRuleIndex(client);
+  return i < 0 ? null : KIND_RULES[i][1];
 }
 
 // Whether any rule names this client at all. Peer Map flags a fork only on
 // nodes and unknown software, not on a peer it already named as something
 // else (a pool, a misspelt Core), so the Lab asks the same.
-function namedByKindRule(client) {
-  if (!client) return false;
-  const bare = client.replace(/\([^)]*\)/g, '');
-  const noMempool = client.replace(/mempool/gi, '');
-  return KIND_RULES.some(([re, , reads]) => re.test(reads === 'whole' ? client : reads === 'no-mempool' ? noMempool : bare));
-}
+const namedByKindRule = (client) => kindRuleIndex(client) >= 0;
 const otherChainShown = (p) => (p.otherChain && !namedByKindRule(p.client) ? p.otherChain : null);
 
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -766,7 +766,9 @@ function actionsCell(p, { lock = '' } = {}) {
   // that this container has no way to reach that network at all.
   const remove = `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`;
   if (p.trusted) return (lock ? `<span class="action-slot lock-slot">${lock}</span>` : placeholder) + remove;
-  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork)
+  // A peer that can never deliver a block first ("never first") would only
+  // hold a manual slot the rotation then has to free again.
+  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork || (neverFirstReason(p) && !p.first))
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
@@ -784,8 +786,34 @@ function actionsCell(p, { lock = '' } = {}) {
   return `${primary}${disconnect}`;
 }
 
+// A word in front of the client for the two kinds that change what to do
+// with a peer: one whose name is not what it runs (Disguised, red as in Peer
+// Map - it may still deliver, the First % beside it says whether), and a
+// mining pool's node, which hears of new blocks early. Every other kind is
+// already said by "never first", and a plain node needs no word at all.
+// Peer Map's answer comes first: it goes by what the peer does. Without it,
+// only what the name gives away.
+function kindTag(p) {
+  if (p.mapKind === 'Disguised') {
+    return { text: 'Disguised', cls: ' disg', title: `Peer Map: ${p.mapWhy || 'not the software its name says'}` };
+  }
+  if (p.mapKind === 'Pool node') {
+    return { text: p.mapPool || 'Pool node', cls: '', title: p.mapPool ? `Peer Map: a node of ${p.mapPool}` : "Peer Map: a mining pool's node" };
+  }
+  const i = kindRuleIndex(p.client);
+  if (i === MISSPELT_RULE) return { text: 'Disguised', cls: ' disg', title: "Bitcoin Core's name, misspelt" };
+  if (i === POOL_RULE) return { text: 'Pool node', cls: '', title: 'Its name says it belongs to a mining pool' };
+  return null;
+}
+function kindTagHtml(p) {
+  const t = kindTag(p);
+  return t ? `<span class="kind-tag${t.cls}" title="${escapeHtml(t.title)}">${escapeHtml(t.text)} · </span>` : '';
+}
+
 function clientCell(p) {
-  return truncatedCell(p.client || '-', 'client');
+  const tag = kindTagHtml(p);
+  const cell = truncatedCell(p.client || '-', 'client');
+  return tag ? cell.replace(/(<td[^>]*>)/, `$1${tag}`) : cell;
 }
 
 // Session column: current connected duration when live, otherwise how long
@@ -920,7 +948,7 @@ async function refreshPeers() {
 // .addr-client) - so the name stays on screen to the end.
 function withClientLine(cell, p) {
   if (!p.client) return cell;
-  return cell.replace(/<\/td>$/, `<small class="addr-client">${escapeHtml(p.client)}</small></td>`);
+  return cell.replace(/<\/td>$/, `<small class="addr-client">${kindTagHtml(p)}${escapeHtml(p.client)}</small></td>`);
 }
 
 function addressCell(p) {
