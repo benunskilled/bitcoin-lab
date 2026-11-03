@@ -226,13 +226,17 @@ function truncatedCell(text, cls = '') {
 const DROP_LEVELS = 4;
 
 // Column widths of the peer tables, set for each step: the short columns as
-// wide as their content, and the room left shared by address, client and
-// First % in proportion to what each needs - an IPv4 address with its port, a
-// client name like /Satoshi:31.0.0/ (a longer one is cut, the open row has it
-// whole), the longest pill (MANUAL OFFLINE), First % with its bar. They grow
-// and shrink together, so none is cut while another has room to spare.
+// wide as their content, and the room left shared by address, client, Type
+// and First % in proportion to what each needs - an IPv4 address with its
+// port, a client name like /Satoshi:31.0.0/ (a longer one is cut, the open
+// row has it whole), the longest pill (MANUAL OFFLINE), First % with its ⚡
+// and 📡. They shrink together, so none is cut while another has room to
+// spare. They do not all grow together: Type and First % stop at COL_MAX,
+// and what they would have taken goes to the client - grown with the
+// others, they stood half empty at 1440px while client names were cut.
 const COL_FIXED = { 'col-ping': 72, 'col-session': 78, 'col-sessions': 56, 'col-actions': 240 };
 const COL_NEED = { 'col-address': 161, 'col-client': 140, 'col-status': 139, 'col-pct': 141 };
+const COL_MAX = { 'col-status': 140, 'col-pct': 150 };
 function sizeColumns() {
   for (const t of document.querySelectorAll('table.peer-table')) {
     if (!t.offsetWidth) continue;
@@ -256,11 +260,22 @@ function sizeColumns() {
       need += COL_NEED['col-client'] - COL_NEED['col-address'];
     }
     const spare = Math.max(0, t.offsetWidth - fixed);
+    const want = (c) => (last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0);
+    const share = new Map(shown.map((th) => [th, spare * want(col(th)) / need]));
+    // What Type and First % would take beyond their most goes to the client
+    // name, the one cut most often - an address has its port and ends there.
+    // Without the Client column, to the address that carries it.
+    let over = 0;
+    for (const [th, w] of share) {
+      const max = COL_MAX[col(th)];
+      if (max && w > max) { over += w - max; share.set(th, max); }
+    }
+    const heir = shown.find((th) => col(th) === 'col-client') || shown.find((th) => col(th) === 'col-address');
+    if (heir) share.set(heir, share.get(heir) + over);
     for (const th of shown) {
       const c = col(th);
       const fix = last && c === 'col-actions' ? 136 : COL_FIXED[c];
-      const want = last && c === 'col-address' ? COL_NEED['col-client'] : COL_NEED[c] || 0;
-      th.style.width = (fix || Math.floor(spare * want / need)) + 'px';
+      th.style.width = (fix || Math.floor(share.get(th))) + 'px';
     }
   }
 }
@@ -1372,36 +1387,83 @@ async function refreshRotation() {
   renderRotationLog(lastRotationLog);
 }
 
-function renderRotationLog(log) {
-  const tbody = document.querySelector('#rotation-log-table tbody');
-  if (!tbody) return;
+// A kick of an outbound peer that delivered nothing first: "0/50 recent
+// blocks first". On a typical node nearly every entry is one of these, and
+// thirty lines saying the same said nothing a single line could not.
+const EMPTY_KICK = /^0\/(\d+) recent blocks first$/;
+const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
 
-  const visible = showAllRotationLog ? log : log.slice(0, ROTATION_LOG_LIMIT);
-
-  const countLabel = document.getElementById('rotation-log-count');
-  if (countLabel) {
-    countLabel.textContent = log.length <= ROTATION_LOG_LIMIT
-      ? ''
-      : `showing ${visible.length} of ${log.length}`;
+// Entries in order, with every run of two or more empty kicks in a row as
+// one group. Promotions, swaps, parks and the rest stay lines of their own:
+// they are the news.
+function rotationLogRows(log) {
+  const rows = [];
+  for (const e of log) {
+    const last = rows[rows.length - 1];
+    if (emptyKick(e) && last && last.kicks) last.kicks.push(e);
+    else rows.push(emptyKick(e) ? { kicks: [e] } : { entry: e });
   }
+  return rows.map((r) => (r.kicks && r.kicks.length === 1 ? { entry: r.kicks[0] } : r));
+}
+// Opened groups, by the time of their newest kick, which stays put while
+// newer entries arrive above it.
+const openKickGroups = new Set();
 
-  const toggle = document.getElementById('rotation-log-limit-toggle');
-  if (toggle) {
-    toggle.hidden = log.length <= ROTATION_LOG_LIMIT;
-    toggle.textContent = showAllRotationLog
-      ? `Show latest ${ROTATION_LOG_LIMIT} only`
-      : `Show all ${log.length}`;
-  }
-
-  tbody.innerHTML = visible.map((entry) => `
-    <tr>
+function rotationEntryRow(entry, cls = '') {
+  return `
+    <tr${cls ? ` class="${cls}"` : ''}>
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
       <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
-    </tr>
-  `).join('') || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
+    </tr>`;
+}
+
+function kickGroupRows(kicks) {
+  const now = Date.now();
+  const newest = kicks[0];
+  const oldest = kicks[kicks.length - 1];
+  const open = openKickGroups.has(newest.at);
+  const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
+  const lo = Math.min(...blocks);
+  const hi = Math.max(...blocks);
+  const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
+  const head = `
+    <tr class="kick-group" data-group="${newest.at}" tabindex="0" aria-expanded="${open}">
+      <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
+      <td><span class="pill ${rotationActionClass('kick')}">${escapeHtml(rotationActionLabel('kick'))} ×${kicks.length}</span></td>
+      <td>${kicks.length} outbound peers</td>
+      <td>${fmtPct(0)}</td>
+      <td class="hint">None delivered a block first (${lo === hi ? lo : `${lo}–${hi}`} recent blocks each) <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
+    </tr>`;
+  return head + (open ? kicks.map((e) => rotationEntryRow(e, 'kick-member')).join('') : '');
+}
+
+function renderRotationLog(log) {
+  const tbody = document.querySelector('#rotation-log-table tbody');
+  if (!tbody) return;
+
+  const rows = rotationLogRows(log);
+  const visible = showAllRotationLog ? rows : rows.slice(0, ROTATION_LOG_LIMIT);
+
+  const countLabel = document.getElementById('rotation-log-count');
+  if (countLabel) {
+    countLabel.textContent = rows.length <= ROTATION_LOG_LIMIT
+      ? (log.length > rows.length ? `${log.length} entries` : '')
+      : `showing ${visible.length} of ${rows.length}`;
+  }
+
+  const toggle = document.getElementById('rotation-log-limit-toggle');
+  if (toggle) {
+    toggle.hidden = rows.length <= ROTATION_LOG_LIMIT;
+    toggle.textContent = showAllRotationLog
+      ? `Show latest ${ROTATION_LOG_LIMIT} only`
+      : `Show all ${rows.length}`;
+  }
+
+  tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks) : rotationEntryRow(r.entry))).join('')
+    || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
 }
 
 /**
@@ -1598,6 +1660,22 @@ function reportRefreshHealth(errors) {
   banner.hidden = false;
   banner.textContent = `The dashboard has not been able to refresh for ${consecutiveFailedRefreshes} rounds (${errors[0].message}). The numbers below are stale.`;
 }
+
+// A group of kicks opens and closes on a click or Enter, in place.
+function toggleKickGroup(row) {
+  const at = Number(row.dataset.group);
+  if (openKickGroups.has(at)) openKickGroups.delete(at); else openKickGroups.add(at);
+  if (lastRotationLog) renderRotationLog(lastRotationLog);
+  document.querySelector(`#rotation-log-table tr.kick-group[data-group="${at}"]`)?.focus({ preventScroll: true });
+}
+document.getElementById('rotation-log-table').addEventListener('click', (e) => {
+  const row = e.target.closest('tr.kick-group');
+  if (row) toggleKickGroup(row);
+});
+document.getElementById('rotation-log-table').addEventListener('keydown', (e) => {
+  const row = e.target.closest('tr.kick-group');
+  if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleKickGroup(row); }
+});
 
 document.getElementById('rotation-log-limit-toggle').addEventListener('click', () => {
   showAllRotationLog = !showAllRotationLog;
