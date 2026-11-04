@@ -1526,11 +1526,18 @@ function renderPools(pools) {
   foldSums();
 }
 
-// The legend folds shut again with a tap anywhere on it, not only on its
-// title: on a phone the title has scrolled away by then.
-{
-  const key = document.querySelector('details.key');
-  if (key) key.querySelector('ul').addEventListener('click', () => { key.open = false; });
+// The legend and the explanations fold shut again with a tap anywhere on
+// them, not only on their title: on a phone the title has scrolled away by
+// then, and it comes back into view. Storage is left out - its buttons
+// delete data, and a tap beside one must not do anything at all.
+for (const box of document.querySelectorAll('details.key, details.how')) {
+  box.addEventListener('click', (e) => {
+    if (!box.open || e.target.closest('summary, a, button, input')) return;
+    if (String(window.getSelection()).length > 0) return;
+    box.open = false;
+    const top = box.getBoundingClientRect().top;
+    if (top < 0) window.scrollBy(0, top - 8);
+  });
 }
 
 // ---------------------------------------------------------------------------
