@@ -549,39 +549,6 @@ function fmtBytesShort(bytes) {
   return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(v < 1 ? 2 : 1)} ${units[i]}`;
 }
 
-async function handleWidgetStats(req, res) {
-  const { live, bestPeer, bestPool, trustedTotal, trustedOnline } = queries.widgetStats();
-
-  sendJson(res, 200, {
-    type: 'four-stats',
-    // The cadence Umbrel actually uses is the `refresh` in the manifest's
-    // widgets: block, not this field - it is echoed here only so the payload
-    // is self-describing. Keep the two in step. 60s is plenty for a
-    // home-screen glance, and this endpoint is polled whether or not anyone
-    // has the dashboard open, which is why widgetStats() is four small
-    // queries rather than a slice of the full rankings.
-    refresh: '60s',
-    link: '',
-    items: [
-      { title: 'Live Peers', text: String(live.total), subtext: 'connected' },
-      { title: 'Best Peer', text: bestPeer ? `${bestPeer.firstPct.toFixed(0)}%` : '-', subtext: bestPeer ? bestPeer.address : 'n/a' },
-      { title: 'Fastest Pool', text: bestPool && bestPool.avgMs != null ? `${bestPool.avgMs.toFixed(0)}ms` : '-', subtext: bestPool ? bestPool.label : 'n/a' },
-      // "3/4" rather than just a raw trusted count - a manual peer can drop
-      // and Core's own reconnect can silently stall, so whether they're
-      // ACTUALLY connected right now belongs on the at-a-glance home
-      // widget, not only visible after opening the dashboard.
-      {
-        // "Manual", not "Trusted" - the panel in the dashboard is called
-        // Manual Peers and Core calls the connection type manual. One word
-        // for one thing.
-        title: 'Manual',
-        text: `${trustedOnline}/${trustedTotal}`,
-        subtext: trustedOnline === trustedTotal ? 'manual peers online' : 'manual peers - check dashboard',
-      },
-    ],
-  });
-}
-
 async function router(req, res, pathname, url) {
   if (req.method === 'GET' && pathname === '/api/health') {
     // 200 means THIS process is serving and can read its database - that is
@@ -922,26 +889,27 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, { ok: true, enabled: body.enabled });
   }
 
-  if (req.method === 'GET' && pathname === '/api/widget/stats') {
-    return handleWidgetStats(req, res);
-  }
-
   // The node's traffic: the chart and totals.
   if (req.method === 'GET' && pathname === '/api/traffic') {
     return sendJson(res, 200, queries.trafficDays(30));
   }
 
-  // The second home-screen widget: today up, today down, the last 30 days.
+  // The home-screen widget: today up, today down, and the peers in and out.
+  // The four-tile widget it once sat beside is gone (04.11.2026): on a fresh
+  // install two of its tiles were empty, and one put a peer's address on the
+  // home screen. The refresh is the peers' - traffic alone is hourly - and it
+  // is the manifest's `refresh` that Umbrel goes by; keep the two in step.
   if (req.method === 'GET' && pathname === '/api/widget/traffic') {
     const t = queries.trafficDays(30);
+    const live = queries.liveSummary();
     return sendJson(res, 200, {
       type: 'three-stats',
-      refresh: '3600s',
+      refresh: '60s',
       link: '',
       items: [
         { text: fmtBytesShort(t.today.sent), subtext: 'sent today' },
         { text: fmtBytesShort(t.today.recv), subtext: 'received today' },
-        { text: fmtBytesShort(t.month.sent + t.month.recv), subtext: 'last 30 days' },
+        { text: `${live.inbound} / ${live.outbound}`, subtext: 'peers in / out' },
       ],
     });
   }

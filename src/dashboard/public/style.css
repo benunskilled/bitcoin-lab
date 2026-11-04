@@ -993,3 +993,14 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 /* ⚡ and 📡 after the First % numbers: a small gap of their own. */
 .hb { margin-left: 4px; }
 .cards.cards .hb { margin-left: 2px; }
+
+/* What the marks mean - phone only, folded; a wide screen says it on hover. */
+.key { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.key summary { cursor: pointer; }
+.key ul { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; gap: 7px; }
+.key li { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 10px; }
+.key li > b { justify-self: start; font-weight: 400; color: var(--text); }
+.key .hb { font-size: 13px; }
+.key .key-new { padding: 1px 8px; border-radius: 6px; background: rgba(247, 147, 26, .22); }
+.key .key-green { color: #56d364; }
+@media (max-width: 600px) { .key { display: block; } }
