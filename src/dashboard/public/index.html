@@ -247,6 +247,8 @@
         Off. No connection is made to any pool and nothing is measured. What was
         measured so far is kept.
       </p>
+      <!-- With the off line: the race is not for miners alone. -->
+      <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.</p>
       <div id="stratum-body">
       <div class="inline-form">
         <label class="hint" for="stratum-range">Range:</label>
@@ -269,8 +271,6 @@
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="datum">DATUM</button>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="pogolo">Pogolo</button>
       </div>
-      <!-- Only while no pool app is installed: the race is not for miners alone. -->
-      <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.</p>
       <form id="pool-add-form" class="inline-form">
         <input type="text" id="pool-label" aria-label="Pool name" placeholder="Label" required />
         <input

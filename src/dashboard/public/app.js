@@ -1488,6 +1488,8 @@ function applyStratumEnabled(enabled) {
   const offHint = document.getElementById('stratum-off-hint');
   if (body) body.hidden = !enabled;
   if (offHint) offHint.hidden = enabled;
+  const noMiner = document.getElementById('pool-no-miner');
+  if (noMiner) noMiner.hidden = enabled;
 }
 
 async function refreshPools() {
@@ -1910,8 +1912,6 @@ async function refreshLocalPools() {
   localPoolTemplates = Object.fromEntries(list.map((p) => [p.key, p]));
   const dismissed = dismissedPools();
   foundPools = list.filter((p) => p.installed && !p.added && !dismissed.has(p.key));
-  const noMiner = document.getElementById('pool-no-miner');
-  if (noMiner) noMiner.hidden = list.some((p) => p.installed);
   const box = document.getElementById('pool-found');
   if (!box) return;
   box.hidden = foundPools.length === 0;
