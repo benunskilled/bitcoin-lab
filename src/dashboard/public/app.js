@@ -281,7 +281,8 @@ function fitTables() {
         const th = ths[i];
         if (!th || td.dataset.label != null) return;
         // A card has no room for "(last 500)": the value next to it says x/500 anyway.
-        td.dataset.label = th.textContent.replace(/\s*\(.*\)\s*$/, '').trim();
+        // A header may name a shorter label for the card (data-card: "Last").
+        td.dataset.label = th.dataset.card || th.textContent.replace(/\s*\(.*\)\s*$/, '').trim();
         const col = [...th.classList].find((c) => c.startsWith('col-'));
         if (col) td.dataset.col = col;
         if (th.dataset.drop) td.dataset.drop = th.dataset.drop;
@@ -1511,9 +1512,8 @@ function renderPools(pools) {
       <td class="client">${escapeHtml(`${p.host}:${p.port}`)}</td>
       <td><b>${p.wins}</b></td>
       <td>${fmtPct(p.winPct)}</td>
+      <td>${fmtMs(p.lastMs)}</td>
       <td>${fmtMs(p.avgMs)}</td>
-      <td>${fmtMs(p.medianMs)}</td>
-      <td>${fmtMs(p.p90Ms)}</td>
       <td>${p.seen}</td>
       <td>${p.misses}</td>
       <td class="pool-enabled">

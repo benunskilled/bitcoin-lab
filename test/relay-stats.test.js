@@ -152,20 +152,15 @@ test('the one-time migrations really do not run twice', () => {
     'and must not re-stamp the flags either - the timestamps are the evidence it ran once',
   );
 
-  // This file shares one database across its tests, and the percentile tests
+  // This file shares one database across its tests, and the stratum tests
   // below aggregate over every stratum row present. Leave the fixture as found.
   db.instance.prepare('DELETE FROM stratum_observation WHERE race_id = ?').run(raceId);
   db.instance.prepare('DELETE FROM stratum_race WHERE id = ?').run(raceId);
   db.instance.prepare('DELETE FROM stratum_pool WHERE id = ?').run(poolId);
 });
 
-test('median and P90 match the previous implementation on every range', () => {
-  // The percentile computation moved out of JavaScript. It has to pick exactly
-  // the same sample as before, so the previous implementation is the oracle.
-  function previousPercentile(sortedAsc, p) {
-    if (!sortedAsc.length) return null;
-    return sortedAsc[Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length))];
-  }
+test('each pool shows how far behind it was in the newest race, whatever the range', () => {
+  // The "Last block" column. A pool that sent no job in that race has none.
 
   const insertRace = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)');
   const insertObs = db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)');
@@ -183,8 +178,7 @@ test('median and P90 match the previous implementation on every range', () => {
     const raceId = insertRace.run(`pct-${r}`, Date.now() - (40 - r) * 1000).lastInsertRowid;
     raceIds.push(raceId);
     poolIds.forEach((poolId, index) => {
-      // A different miss pattern per pool, so sample counts differ and the
-      // rounding edges of the percentile index actually get exercised.
+      // A different miss pattern per pool, so some miss the newest race.
       if ((r + index) % 5 === 0) {
         insertObs.run(raceId, poolId, null, null);
         return;
@@ -195,16 +189,11 @@ test('median and P90 match the previous implementation on every range', () => {
     });
   }
 
+  const newest = raceIds[raceIds.length - 1];
   for (const range of ['10', '100', 'all']) {
-    const limit = range === 'all' ? raceIds.length : Number(range);
-    const inRange = new Set(raceIds.slice(-limit));
     for (const pool of queries.stratumRanking(range)) {
-      const samples = (byPool.get(pool.id) || [])
-        .filter((s) => range === 'all' || inRange.has(s.raceId))
-        .map((s) => s.latency)
-        .sort((x, y) => x - y);
-      assert.equal(pool.medianMs, previousPercentile(samples, 0.5), `median mismatch for pool ${pool.id}, range ${range}`);
-      assert.equal(pool.p90Ms, previousPercentile(samples, 0.9), `p90 mismatch for pool ${pool.id}, range ${range}`);
+      const inNewest = (byPool.get(pool.id) || []).find((s) => s.raceId === newest);
+      assert.equal(pool.lastMs, inNewest ? inNewest.latency : null, `last-block mismatch for pool ${pool.id}, range ${range}`);
     }
   }
 });

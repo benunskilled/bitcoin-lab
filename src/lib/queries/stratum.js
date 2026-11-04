@@ -21,88 +21,6 @@ function raceIdsForRange(range) {
   return null; // unrecognized value - fail open to all-time rather than showing nothing
 }
 
-function percentile(sortedAsc, p) {
-  if (!sortedAsc.length) return null;
-  const idx = Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length));
-  return sortedAsc[idx];
-}
-
-// Two prepared seeks reused for the all-time path below. With the covering
-// index on (pool_id, latency_ms) each is an index walk that materialises a
-// single row - SQLite skips the OFFSET entries inside the index rather than
-// handing them to us.
-let nthLatencyStmt = null;
-function nthLatency(poolId, offset) {
-  if (!nthLatencyStmt) {
-    nthLatencyStmt = db.instance.prepare(
-      `SELECT latency_ms FROM stratum_observation
-        WHERE pool_id = ? AND latency_ms IS NOT NULL
-        ORDER BY latency_ms ASC LIMIT 1 OFFSET ?`,
-    );
-  }
-  const row = nthLatencyStmt.get(poolId, offset);
-  return row ? row.latency_ms : null;
-}
-
-/**
- * Median and P90 per pool, without ever loading a pool's full latency history
- * into JavaScript - which is what v1.11.1 did, once per pool, on an endpoint
- * the dashboard polls every 20 seconds. At a full retention window that was
- * hundreds of thousands of rows marshalled and sorted per request.
- *
- * Two shapes, because the right plan genuinely differs:
- *
- *  - A bounded range ("last 10/100 races") is answered by one query for all
- *    pools at once. race_id leads the primary key, so this is a handful of
- *    rows, and sorting them here is free.
- *
- *  - All-time has no selective filter, so instead of reading every row we ask
- *    the index directly for the nth smallest value. The sample count comes
- *    from the aggregate that has already been computed (seen minus misses),
- *    so this costs two index seeks per pool and nothing else.
- *
- * Both paths pick exactly the row the previous implementation did: 0-based
- * index min(n - 1, floor(p * n)) over the ascending samples.
- */
-function percentilesByPool({ pools, statsByPool, raceIds, raceFilterSql, raceFilterParams }) {
-  const result = new Map();
-
-  if (raceIds) {
-    const rows = db.instance
-      .prepare(
-        `SELECT pool_id AS poolId, latency_ms AS latencyMs
-           FROM stratum_observation
-          WHERE latency_ms IS NOT NULL ${raceFilterSql}
-          ORDER BY pool_id, latency_ms ASC`,
-      )
-      .all(...raceFilterParams);
-    const byPool = new Map();
-    for (const row of rows) {
-      if (!byPool.has(row.poolId)) byPool.set(row.poolId, []);
-      byPool.get(row.poolId).push(row.latencyMs);
-    }
-    for (const pool of pools) {
-      const samples = byPool.get(pool.id) || [];
-      result.set(pool.id, { medianMs: percentile(samples, 0.5), p90Ms: percentile(samples, 0.9) });
-    }
-    return result;
-  }
-
-  for (const pool of pools) {
-    const s = statsByPool.get(pool.id);
-    const n = s ? s.seen - s.misses : 0;
-    if (n <= 0) {
-      result.set(pool.id, { medianMs: null, p90Ms: null });
-      continue;
-    }
-    result.set(pool.id, {
-      medianMs: nthLatency(pool.id, Math.min(n - 1, Math.floor(0.5 * n))),
-      p90Ms: nthLatency(pool.id, Math.min(n - 1, Math.floor(0.9 * n))),
-    });
-  }
-  return result;
-}
-
 // The ranking only changes with a new race, a new observation or a change to
 // the pools; between those the dashboard asks every 20 seconds for the same
 // answer. Over a year of races "all" takes about 150 ms, on the one thread
@@ -153,18 +71,19 @@ function computeRanking(range, pools) {
     .all(...raceFilterParams);
   const statsByPool = new Map(stats.map((s) => [s.poolId, s]));
 
-  const percentiles = percentilesByPool({ pools, statsByPool, raceIds, raceFilterSql, raceFilterParams });
-
-  // Which pool (if any) won the single most recent race - drives the
-  // "last winner" badge regardless of which time range is selected.
+  // The single most recent race, whatever the range: which pool won it (the
+  // badge) and how far behind each pool was in it (the "Last block" column,
+  // beside the average over the range - 04.11.2026, in place of median and
+  // P90, which nobody read).
   const lastRace = db.instance.prepare(`SELECT id FROM stratum_race ORDER BY id DESC LIMIT 1`).get();
-  const lastWinnerPoolId = lastRace
-    ? db.instance.prepare(`SELECT pool_id FROM stratum_observation WHERE race_id = ? AND rank = 1`).get(lastRace.id)?.pool_id
-    : null;
+  const lastRows = lastRace
+    ? db.instance.prepare(`SELECT pool_id AS poolId, latency_ms AS latencyMs, rank FROM stratum_observation WHERE race_id = ?`).all(lastRace.id)
+    : [];
+  const lastByPool = new Map(lastRows.map((r) => [r.poolId, r]));
+  const lastWinnerPoolId = lastRows.find((r) => r.rank === 1)?.poolId ?? null;
 
   const ranked = pools.map((pool) => {
     const s = statsByPool.get(pool.id);
-    const pct = percentiles.get(pool.id);
     return {
       id: pool.id,
       label: pool.label,
@@ -177,8 +96,7 @@ function computeRanking(range, pools) {
       wins: s ? s.wins : 0,
       winPct: s && s.seen > 0 ? (100 * s.wins) / s.seen : null,
       avgMs: s ? s.avgMs : null,
-      medianMs: pct ? pct.medianMs : null,
-      p90Ms: pct ? pct.p90Ms : null,
+      lastMs: lastByPool.get(pool.id)?.latencyMs ?? null,
       wonLastRace: pool.id === lastWinnerPoolId,
     };
   });

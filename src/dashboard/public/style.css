@@ -778,7 +778,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* With ⚡ or 📡 the app measures each card (fitPct): too tight, its count goes. */
 .cards.cards table.peer-table td[data-col="col-pct"].tight .cnt { display: none; }
 /* The pools likewise: wins, win %, avg in one row; enabled and remove under it. */
-.cards.cards #pool-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cards.cards #pool-table tr { grid-template-columns: minmax(0, .6fr) repeat(3, minmax(0, 1fr)); }
 .cards.cards #pool-table tr td[data-label=""]:last-child { grid-column: auto; }
 /* The Remove button keeps its whole border: the cell is narrow at 320 px. */
 .cards.cards #pool-table tr td:last-child { overflow: visible; }
@@ -1004,3 +1004,9 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 .key .key-new { padding: 1px 8px; border-radius: 6px; background: rgba(247, 147, 26, .22); }
 .key .key-green { color: #56d364; }
 @media (max-width: 600px) { .key { display: block; } }
+/* Below 360 px four numbers do not fit a pool card: the average goes, the
+   last block stays (04.11.2026). */
+@media (max-width: 359px) {
+  .cards.cards #pool-table tr { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.4fr); }
+  .cards.cards #pool-table td[data-label="Avg"] { display: none; }
+}

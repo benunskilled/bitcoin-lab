@@ -12,7 +12,7 @@
  *                     the two rates, the grace
  *   peers.js          the other peer questions: weakest manual peer, who is
  *                     offline, what is live right now
- *   stratum.js        the pool race: wins, latencies, percentiles, deletion
+ *   stratum.js        the pool race: wins, latencies, deletion
  *   blocks.js         the newest block, who delivered it, and whether
  *                     attribution is working at all
  *   stats.js          the outbound funnel
