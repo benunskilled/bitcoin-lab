@@ -634,8 +634,13 @@ function setBlockPool(race) {
       : 'No pool we know of. This is the text the miner wrote into the block.';
   } else {
     el.removeAttribute('title');
+    // A new block comes without its pool: the coinbase is read a few seconds
+    // later. Once the line has been there it keeps its height meanwhile -
+    // gone and back, it moved the page twice under a reader at the bottom
+    // (iPhone, 04.11.2026).
+    if (!el.hidden) el.textContent = '\u00a0';
   }
-  el.hidden = !(known || raw);
+  if (known || raw) el.hidden = false;
 }
 
 function triggerBlockWave() {
