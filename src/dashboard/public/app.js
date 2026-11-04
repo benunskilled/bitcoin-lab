@@ -1962,6 +1962,11 @@ document.body.addEventListener('click', async (e) => {
     document.getElementById('pool-label').value = t.label;
     document.getElementById('pool-host').value = t.host;
     document.getElementById('pool-port').value = t.port;
+    // DATUM hands out no work until it has a payout address (Umbrel's own
+    // setup notes for the app), the other four run as installed (theirs):
+    // said here, or DATUM's misses look like a fault.
+    document.getElementById('pool-add-result').textContent = template === 'datum'
+      ? 'The other pool apps work straight away. DATUM sends work only once a Bitcoin address is set in its Config tab.' : '';
     document.getElementById('pool-add-form').querySelector('button[type="submit"]').focus();
     return;
   }
