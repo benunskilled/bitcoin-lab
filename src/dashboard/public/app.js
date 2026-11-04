@@ -45,6 +45,7 @@ let RECENT_WINDOW_BLOCKS = null;
 // this app's own server (it can see the container; a browser cannot), and the
 // port is the one Peer Map's store manifest publishes.
 let PEER_MAP_INSTALLED = false;
+const PEER_MAP_PAGE = 'https://github.com/benunskilled/peer-map';
 let PEER_MAP_PORT = 8791; // the store port; a test copy passes its own (peerMapLinkPort)
 function peerMapURL(address) {
   const base = `${location.protocol}//${location.hostname}:${PEER_MAP_PORT}/`;
@@ -520,9 +521,13 @@ async function refreshStatus() {
   if (rotationToggleBox && s.readOnly) rotationToggleBox.disabled = true;
   const siblingLink = document.getElementById('sibling-link');
   if (siblingLink) {
-    siblingLink.target = PEER_MAP_TARGET;
-    siblingLink.hidden = !PEER_MAP_INSTALLED;
-    if (PEER_MAP_INSTALLED) siblingLink.href = peerMapURL(null);
+    // Without Peer Map the same link leads to where it can be had: the
+    // header is the one quiet place for it, not a line in the tables.
+    siblingLink.hidden = false;
+    siblingLink.target = PEER_MAP_INSTALLED ? PEER_MAP_TARGET : '_blank';
+    siblingLink.href = PEER_MAP_INSTALLED ? peerMapURL(null) : PEER_MAP_PAGE;
+    if (PEER_MAP_INSTALLED) siblingLink.removeAttribute('title');
+    else siblingLink.title = 'See where your peers are and what software they run';
   }
   // The peer count comes from SQLite and the block height from a Bitcoin
   // Core RPC call. Tying them together meant a single RPC hiccup (Core
