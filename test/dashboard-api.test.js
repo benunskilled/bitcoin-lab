@@ -176,6 +176,8 @@ test('GET /api/status reports the peer counts and the manual cap', async () => {
   // The frontend sizes the Manual Peers panel from this; without it the empty
   // slot rows silently fall back to a hardcoded 8.
   assert.equal(typeof body.maxManualPeers, 'number');
+  // The folded Storage card shows this.
+  assert.ok(body.dbBytes > 0, 'the database has a size on disk');
 });
 
 test('GET /api/peers/ranking answers with an array the tables can render', async () => {

@@ -632,6 +632,9 @@ async function router(req, res, pathname, url) {
       // decide whether to offer a link there at all - a link to an app nobody
       // installed is worse than no link.
       peerMapInstalled: await sibling.isInstalled(),
+      // The database's size on disk, for the folded Storage card: three file
+      // sizes, nothing read. The split per table stays behind /api/storage.
+      dbBytes: db.sizeBytes(),
       // A test copy (see lib/config.js): read-only, and its own Peer Map port.
       readOnly: config.readOnly,
       peerMapLinkPort: config.peerMapLinkPort || undefined,
