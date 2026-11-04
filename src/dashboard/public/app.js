@@ -514,6 +514,8 @@ async function refreshStatus() {
     }
   }
   applyStratumEnabled(Boolean(s.stratumRaceEnabled));
+  // Folded, the Storage card says how big the database is.
+  if (s.dbBytes != null) document.getElementById('storage-total').textContent = fmtBytes(s.dbBytes);
   PEER_MAP_INSTALLED = Boolean(s.peerMapInstalled);
   if (s.peerMapLinkPort) PEER_MAP_PORT = s.peerMapLinkPort;
   const readOnlyBanner = document.getElementById('readonly-banner');
