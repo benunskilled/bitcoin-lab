@@ -237,18 +237,10 @@
           Time how fast mining pools hand out work on a new block
         </label>
       </div>
-      <!--
-        One sentence, under the switch, for the same reason as the rotation's:
-        this is read before flipping it. What matters to somebody switching it
-        off is that it really does stop talking to other people's servers, and
-        that they are not throwing away what they already measured.
-      -->
-      <p class="hint" id="stratum-off-hint" hidden>
-        Off. No connection is made to any pool and nothing is measured. What was
-        measured so far is kept.
-      </p>
-      <!-- With the off line: the race is not for miners alone. -->
-      <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.</p>
+      <!-- While it is off: the race is not for miners alone, and which pool
+           app needs setting up first (Umbrel's notes for each app). -->
+      <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.<br>
+        Every pool app works right away, except DATUM: it needs a Bitcoin address first.</p>
       <div id="stratum-body">
       <div class="inline-form">
         <label class="hint" for="stratum-range">Range:</label>

@@ -1485,9 +1485,7 @@ function applyStratumEnabled(enabled) {
   if (document.activeElement !== toggle) toggle.checked = enabled;
   foldSums();
   const body = document.getElementById('stratum-body');
-  const offHint = document.getElementById('stratum-off-hint');
   if (body) body.hidden = !enabled;
-  if (offHint) offHint.hidden = enabled;
   const noMiner = document.getElementById('pool-no-miner');
   if (noMiner) noMiner.hidden = enabled;
 }
