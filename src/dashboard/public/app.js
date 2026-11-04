@@ -1270,15 +1270,15 @@ function renderPeerTables(peers, options = {}) {
   const freeManualSlots = Math.max(0, MAX_MANUAL_PEERS - manualPeers.length);
   // Free capacity (below the app's manual-connection cap) as actual empty
   // rows, not just the text summary below - "how much room is left" reads
-  // the same way the filled rows above it do, at a glance. Plain dashes,
-  // same as any other empty cell in this app - no banner, no border
-  // treatment, just an empty-looking row.
+  // the same way the filled rows above it do, at a glance. It says "Free
+  // slot", as the phone card does: a lone dash per row looked broken
+  // (04.11.2026). No banner, no border treatment.
   // One cell per column, like any row: a single cell spanning eight kept its
   // span when columns were dropped, and pushed the table out of line with the
   // ones above.
   const emptySlotRows = Array.from({ length: freeManualSlots }, () => `
     <tr class="empty-slot">
-      <td>-</td>${'<td></td>'.repeat(6)}
+      <td>Free slot</td>${'<td></td>'.repeat(6)}
       <td class="row-actions"></td>
     </tr>
   `).join('');
@@ -1524,6 +1524,13 @@ function renderPools(pools) {
   `).join('');
   markOpenRow();
   foldSums();
+}
+
+// The legend folds shut again with a tap anywhere on it, not only on its
+// title: on a phone the title has scrolled away by then.
+{
+  const key = document.querySelector('details.key');
+  if (key) key.querySelector('ul').addEventListener('click', () => { key.open = false; });
 }
 
 // ---------------------------------------------------------------------------

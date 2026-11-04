@@ -231,9 +231,9 @@ function peerRankingSql() {
        `;
 }
 
-// recentRelayStats is exported for the widget, which needs the same window
-// this ranking is built on but must not pay for the ranking itself - see
-// stats.js. The cache makes the second caller free.
+// recentRelayStats is exported for parking, which needs the same window
+// this ranking is built on but must not pay for the ranking itself. The
+// cache makes the second caller free.
 // RECENT_RELAY_STATS_SQL goes with it so the suite can assert the plan this
 // statement actually gets rather than a copy of it that has drifted.
 module.exports = { peerRanking, recentRelayStats, RECENT_RELAY_STATS_SQL };

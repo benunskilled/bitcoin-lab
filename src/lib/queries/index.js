@@ -15,7 +15,7 @@
  *   stratum.js        the pool race: wins, latencies, percentiles, deletion
  *   blocks.js         the newest block, who delivered it, and whether
  *                     attribution is working at all
- *   stats.js          the widget's four numbers and the outbound funnel
+ *   stats.js          the outbound funnel
  *   maintenance.js    pruning what may be pruned
  *
  * A directory rather than a single module so that every existing
@@ -28,7 +28,7 @@ const { peerRanking } = require('./peer-ranking');
 const { weakestTrustedPeer, offlineTrustedPeers, liveSummary } = require('./peers');
 const { stratumRanking, deletePool } = require('./stratum');
 const { latestBlock, blockDetail, routeMedian, deliveredEver, unclearFirsts, attributionHealth } = require('./blocks');
-const { widgetStats, outboundFunnel } = require('./stats');
+const { outboundFunnel } = require('./stats');
 const { pruneOldData, pruneNeverFirstPeers } = require('./maintenance');
 const { trafficDays } = require('./traffic');
 
@@ -47,7 +47,6 @@ module.exports = {
   deletePool,
   pruneOldData,
   pruneNeverFirstPeers,
-  widgetStats,
   outboundFunnel,
   trafficDays,
 };

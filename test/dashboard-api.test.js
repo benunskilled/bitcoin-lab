@@ -281,15 +281,14 @@ test('PATCH /api/pools/:id will not disable a pool because the body was empty', 
   assert.equal((await api(`/api/pools/${id}`, { method: 'DELETE' })).status, 200);
 });
 
-test('GET /api/widget/stats gives Umbrel four tiles it can render', async () => {
-  const { status, body } = await api('/api/widget/stats');
+test('GET /api/widget/traffic gives Umbrel three tiles, the last one the peers in and out', async () => {
+  const { status, body } = await api('/api/widget/traffic');
   assert.equal(status, 200);
-  assert.equal(body.type, 'four-stats');
-  assert.equal(body.items.length, 4, 'the four-stats widget type requires exactly four');
-  for (const item of body.items) {
-    assert.equal(typeof item.title, 'string');
-    assert.equal(typeof item.text, 'string', 'a missing value renders as an empty tile on the home screen');
-  }
+  assert.equal(body.type, 'three-stats');
+  assert.equal(body.items.length, 3, 'the three-stats widget type requires exactly three');
+  for (const item of body.items) assert.equal(typeof item.text, 'string', 'a missing value renders as an empty tile on the home screen');
+  assert.match(body.items[2].text, /^\d+ \/ \d+$/);
+  assert.equal(body.items[2].subtext, 'peers in / out');
 });
 
 test('serveStatic refuses to walk out of the public directory', async () => {
