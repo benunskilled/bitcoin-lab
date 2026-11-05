@@ -112,6 +112,9 @@ function sendBody(res, status, headers, body) {
   res.end(out);
 }
 
+// How many pools Stratum Race may hold, the default nine included.
+const MAX_POOLS = 20;
+
 function sendJson(res, status, data) {
   sendBody(res, status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' }, JSON.stringify(data));
 }
@@ -849,6 +852,11 @@ async function router(req, res, pathname, url) {
     // single typo in this form. See lib/validate.js.
     const parsed = validatePool(body);
     if (!parsed.ok) return sendJson(res, 400, { error: parsed.error });
+    // Every pool is a socket held open and a row per block; without a limit
+    // the form could open them until the app ran out of either.
+    if (db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n >= MAX_POOLS) {
+      return sendJson(res, 409, { ok: false, error: `at most ${MAX_POOLS} pools` });
+    }
     try {
       db.instance
         .prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES (?, ?, ?, 1, 0, ?)`)
@@ -921,7 +929,16 @@ async function router(req, res, pathname, url) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://internal');
+  // A request line that is no URL at all ("//", "//a:b") made this throw
+  // outside the try below, and the process guard ended the app over it - a
+  // restart loop for anyone who sent it again. It is a bad request, nothing
+  // more.
+  let url;
+  try {
+    url = new URL(req.url, 'http://internal');
+  } catch {
+    return sendJson(res, 400, { error: 'bad request' });
+  }
   const { pathname } = url;
 
   try {
