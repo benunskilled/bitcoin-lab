@@ -392,6 +392,36 @@ test('a non-string address is refused with 422 rather than acted on', async () =
   }
 });
 
+test('a peer disconnected by hand is in the rotation log, with its recent record', async () => {
+  const rpc = require('../src/lib/rpc');
+  const { mock } = require('node:test');
+  const disconnect = mock.method(rpc, 'disconnectNode', async () => {});
+  try {
+    const { status } = await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address: '203.0.113.88:8333' }) });
+    assert.equal(status, 200);
+    assert.equal(disconnect.mock.callCount(), 1);
+    const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'disconnect' AND address = ?").get('203.0.113.88:8333');
+    assert.ok(row, 'logged');
+    assert.equal(row.note, 'by hand · 0/0 recent blocks first');
+  } finally {
+    disconnect.mock.restore();
+    db.instance.prepare("DELETE FROM rotation_log WHERE action = 'disconnect'").run();
+  }
+});
+
+test('a refused disconnect leaves no line in the rotation log', async () => {
+  const rpc = require('../src/lib/rpc');
+  const { mock } = require('node:test');
+  const disconnect = mock.method(rpc, 'disconnectNode', async () => { throw new Error('Node not found in connected nodes'); });
+  try {
+    const { status } = await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address: '203.0.113.89:8333' }) });
+    assert.equal(status, 422);
+    assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'disconnect'").get().n, 0);
+  } finally {
+    disconnect.mock.restore();
+  }
+});
+
 test('a real trusted peer is still removable, and a missing address still says so', async () => {
   // The guard must reject the type, not the route: the string path is what the
   // dashboard's Remove button uses on every manual peer.
