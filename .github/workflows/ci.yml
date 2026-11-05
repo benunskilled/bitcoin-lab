@@ -76,8 +76,10 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
+          # No npm cache in this job: it checks out a second repository at a
+          # branch picked at run time, and a cache it saves would be shared
+          # with runs on main.
           node-version: ${{ matrix.node-version }}
-          cache: npm
       - run: npm ci
       - run: npm test
         env:
