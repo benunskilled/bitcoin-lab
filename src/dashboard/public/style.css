@@ -38,6 +38,9 @@ body {
   font-size: 14px;
 }
 
+/* Buttons do not inherit the font on their own: without this they were Arial. */
+button { font-family: inherit; }
+
 .topbar {
   display: flex;
   align-items: center;
@@ -53,7 +56,8 @@ body {
 }
 
 /* The link to the other app in the pair. Quiet on purpose: it is an offer, not
-   a part of this dashboard. Hidden until the other side has answered. */
+   a part of this dashboard. Hidden until the server has said whether Peer Map
+   is installed: then it opens the app or, without it, its GitHub page. */
 .sibling-link {
   margin-right: auto;
   padding-left: 14px;
@@ -196,6 +200,11 @@ tr:hover td { background: #17202a; }
    says "never first" (firstPctCell). */
 tr.weak td { color: var(--muted); }
 .never { display: inline-block; vertical-align: middle; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
+/* Before the client name: Disguised in Peer Map's red (red is kept for that
+   there too - orange is Bitcoin's and means something good here), a pool's
+   name plain (kindTag). */
+.kind-tag { color: var(--muted); }
+.kind-tag.disg { color: var(--bad); }
 
 .pill {
   display: inline-block;
@@ -348,6 +357,11 @@ button.secondary {
    into cards. It wraps instead - not cut with an ellipsis, as a tablet has
    no hover to show the rest. */
 .rotation-log-table td:last-child { white-space: normal; min-width: 12em; }
+/* A run of kicks that delivered nothing, as one line that opens to the kicks. */
+.rotation-log-table tr.kick-group { cursor: pointer; }
+.rotation-log-table tr.kick-member td { color: var(--muted); }
+.rotation-log-table tr.kick-member td:first-child { padding-left: 22px; }
+.fold-mark { color: var(--muted); margin-left: 4px; font-size: 13px; }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
@@ -675,7 +689,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops="4"] [data-drop] { display: none; }
 /* The two buttons need their width whatever the table's: as a share of a
    narrower table they no longer fit side by side. */
-.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 240px; }
+.table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-actions { width: 19%; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-ping { width: 72px; }
 /* The type pill too: 15% of a narrower table cut "BLOCK RELAY" short (iPad). */
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
@@ -764,7 +778,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* With ⚡ or 📡 the app measures each card (fitPct): too tight, its count goes. */
 .cards.cards table.peer-table td[data-col="col-pct"].tight .cnt { display: none; }
 /* The pools likewise: wins, win %, avg in one row; enabled and remove under it. */
-.cards.cards #pool-table tr { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cards.cards #pool-table tr { grid-template-columns: minmax(0, .6fr) repeat(3, minmax(0, 1fr)); }
 .cards.cards #pool-table tr td[data-label=""]:last-child { grid-column: auto; }
 /* The Remove button keeps its whole border: the cell is narrow at 320 px. */
 .cards.cards #pool-table tr td:last-child { overflow: visible; }
@@ -979,3 +993,20 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 /* ⚡ and 📡 after the First % numbers: a small gap of their own. */
 .hb { margin-left: 4px; }
 .cards.cards .hb { margin-left: 2px; }
+
+/* What the marks mean - phone only, folded; a wide screen says it on hover. */
+.key { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.key summary { cursor: pointer; }
+.key ul { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; gap: 7px; }
+.key li { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 10px; }
+.key li > b { justify-self: start; font-weight: 400; color: var(--text); }
+.key .hb { font-size: 13px; }
+.key .key-new { padding: 1px 8px; border-radius: 6px; background: rgba(247, 147, 26, .22); }
+.key .key-green { color: #56d364; }
+@media (max-width: 600px) { .key { display: block; } }
+/* Below 360 px four numbers do not fit a pool card: the average goes, the
+   last block stays (04.11.2026). */
+@media (max-width: 359px) {
+  .cards.cards #pool-table tr { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.4fr); }
+  .cards.cards #pool-table td[data-label="Avg"] { display: none; }
+}

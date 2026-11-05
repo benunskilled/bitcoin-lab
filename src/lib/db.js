@@ -234,9 +234,9 @@ CREATE TABLE IF NOT EXISTS stratum_observation (
   PRIMARY KEY (race_id, pool_id)
 );
 -- (pool_id, latency_ms) also serves every plain pool_id lookup, so there is
--- no separate index on pool_id alone. It puts each pool's samples in latency
--- order, which is what turns the median/P90 lookups into an ordered index
--- walk instead of a sort.
+-- no separate index on pool_id alone. It was built for the median/P90
+-- lookups (gone since 04.11.2026) and is kept: the plain pool_id lookups
+-- still need an index, and this one is already on every install.
 CREATE INDEX IF NOT EXISTS idx_stratum_obs_pool_latency ON stratum_observation(pool_id, latency_ms);
 
 CREATE TABLE IF NOT EXISTS meta (
