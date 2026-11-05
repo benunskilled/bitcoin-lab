@@ -137,12 +137,12 @@ function statusPillClass(status) {
 // and without that rule first the word inside the brackets would have it
 // painted as an indexer.
 const KIND_RULES = [
-  // Mining pool software speaking p2p, or a node whose operator says in the
-  // bracketed comment that it belongs to a pool. Relays.
   // Core's name misspelt ("/Sat0shi:", "/Satoshi2:"): Peer Map's Disguised.
   // What it runs is unknown, so it is not struck - and it comes first, so the
   // rest of its agent is not read as a crawler or a wallet either.
   [/^\/Sat0shi:|^\/Satoshi[0-9X]+:|^Satoshi:/, null, 'whole'],
+  // Mining pool software speaking p2p, or a node whose operator says in the
+  // bracketed comment that it belongs to a pool. Relays.
   [/ckpool|^\/ckp2p:|^\/CKCoinD:|\([^)]*pool[^)]*\)|^\/P2Pool:|^\/[^:/(]*pool[^:/(]*:/i, null, 'no-mempool'],
   // Bitcoin Classic's "(EB8)" is Bitcoin Cash's block size; SuperBitcoin,
   // Irium and VDS are forks and altcoins of their own. Bitcoin Purity, a hard
@@ -215,7 +215,7 @@ function truncatedCell(text, cls = '') {
 // A table that does not fit its panel first gives up its least important
 // columns, a step at a time (data-drop="1".."4" on the <th>: sessions, then
 // session, ping and last the client; for the pools seen/miss, then
-// median/p90, then host). Only when even that is too wide does each row turn
+// host). Only when even that is too wide does each row turn
 // into a small card of its own (see
 // .table-wrap.cards in style.css) instead of scrolling sideways - on a phone,
 // in practice. Cards came too early before: a laptop window a little narrower
@@ -831,7 +831,7 @@ function kindTagHtml(p) {
 function clientCell(p) {
   const tag = kindTagHtml(p);
   const cell = truncatedCell(p.client || '-', 'client');
-  return tag ? cell.replace(/(<td[^>]*>)/, `$1${tag}`) : cell;
+  return tag ? cell.replace(/<td[^>]*>/, (td) => td + tag) : cell;
 }
 
 // Session column: current connected duration when live, otherwise how long
@@ -966,7 +966,7 @@ async function refreshPeers() {
 // .addr-client) - so the name stays on screen to the end.
 function withClientLine(cell, p) {
   if (!p.client) return cell;
-  return cell.replace(/<\/td>$/, `<small class="addr-client">${kindTagHtml(p)}${escapeHtml(p.client)}</small></td>`);
+  return cell.replace(/<\/td>$/, () => `<small class="addr-client">${kindTagHtml(p)}${escapeHtml(p.client)}</small></td>`);
 }
 
 function addressCell(p) {
@@ -1408,8 +1408,8 @@ function rotationLogRows(log) {
   }
   return rows.map((r) => (r.kicks && r.kicks.length === 1 ? { entry: r.kicks[0] } : r));
 }
-// Opened groups, by the time of their newest kick, which stays put while
-// newer entries arrive above it.
+// Opened groups, by the time of their oldest kick: a new empty kick joins a
+// group at the top, so its newest time moves, the oldest stays put.
 const openKickGroups = new Set();
 
 function rotationEntryRow(entry, cls = '') {
@@ -1427,13 +1427,13 @@ function kickGroupRows(kicks) {
   const now = Date.now();
   const newest = kicks[0];
   const oldest = kicks[kicks.length - 1];
-  const open = openKickGroups.has(newest.at);
+  const open = openKickGroups.has(oldest.at);
   const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
   const lo = Math.min(...blocks);
   const hi = Math.max(...blocks);
   const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
   const head = `
-    <tr class="kick-group" data-group="${newest.at}" tabindex="0" aria-expanded="${open}">
+    <tr class="kick-group" data-group="${oldest.at}" tabindex="0" aria-expanded="${open}">
       <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
       <td><span class="pill ${rotationActionClass('kick')}">${escapeHtml(rotationActionLabel('kick'))} ×${kicks.length}</span></td>
       <td>${kicks.length} outbound peers</td>
