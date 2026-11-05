@@ -673,6 +673,10 @@ function applyBlockUpdate(race) {
 
   triggerBlockWave();
   const expiry = Date.now() + HIGHLIGHT_MS;
+  // Only the newest block's peers are tinted: a second block inside the two
+  // minutes left two orange rows, and which one brought the new block was a
+  // guess (05.11.2026).
+  highlightUntil.clear();
   for (const peer of race.firstPeers) highlightUntil.set(peer.address, expiry);
   refreshPeers();
 }
