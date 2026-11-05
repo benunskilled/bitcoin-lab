@@ -1332,7 +1332,7 @@ let rotationToggleEpoch = 0;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual']);
+const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual', 'disconnect']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -1345,6 +1345,7 @@ function rotationActionLabel(action) {
   if (action === 'park') return 'Parked';
   if (action === 'revive') return 'Back';
   if (action === 'manual') return 'Added';
+  if (action === 'disconnect') return 'Disconnected';
   return action;
 }
 
@@ -1400,15 +1401,20 @@ async function refreshRotation() {
 const EMPTY_KICK = /^0\/(\d+) recent blocks first$/;
 const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
 
+// Peers dropped by hand in a row are one line too, as the empty kicks are.
+const byHand = (e) => e.action === 'disconnect';
+const logGroupOf = (e) => (emptyKick(e) ? 'kick' : byHand(e) ? 'disconnect' : null);
+
 // Entries in order, with every run of two or more empty kicks in a row as
-// one group. Promotions, swaps, parks and the rest stay lines of their own:
-// they are the news.
+// one group, and of peers dropped by hand. Promotions, swaps, parks and the
+// rest stay lines of their own: they are the news.
 function rotationLogRows(log) {
   const rows = [];
   for (const e of log) {
     const last = rows[rows.length - 1];
-    if (emptyKick(e) && last && last.kicks) last.kicks.push(e);
-    else rows.push(emptyKick(e) ? { kicks: [e] } : { entry: e });
+    const g = logGroupOf(e);
+    if (g && last && last.kind === g) last.kicks.push(e);
+    else rows.push(g ? { kind: g, kicks: [e] } : { entry: e });
   }
   return rows.map((r) => (r.kicks && r.kicks.length === 1 ? { entry: r.kicks[0] } : r));
 }
@@ -1427,22 +1433,34 @@ function rotationEntryRow(entry, cls = '') {
     </tr>`;
 }
 
-function kickGroupRows(kicks) {
+function kickGroupRows(kicks, kind = 'kick') {
   const now = Date.now();
   const newest = kicks[0];
   const oldest = kicks[kicks.length - 1];
   const open = openKickGroups.has(oldest.at);
-  const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
-  const lo = Math.min(...blocks);
-  const hi = Math.max(...blocks);
   const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
+  const mark = `<span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>`;
+  let who, pct, note;
+  if (kind === 'disconnect') {
+    // Their records differ, so the line names only what they share.
+    who = `${kicks.length} peers`;
+    pct = '';
+    note = `<td class="hint">by hand ${mark}</td>`;
+  } else {
+    const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
+    const lo = Math.min(...blocks);
+    const hi = Math.max(...blocks);
+    who = `${kicks.length} outbound peers`;
+    pct = fmtPct(0);
+    note = `<td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each ${mark}</td>`;
+  }
   const head = `
     <tr class="kick-group" data-group="${oldest.at}" tabindex="0" aria-expanded="${open}">
       <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
-      <td><span class="pill ${rotationActionClass('kick')}">${escapeHtml(rotationActionLabel('kick'))} ×${kicks.length}</span></td>
-      <td>${kicks.length} outbound peers</td>
-      <td>${fmtPct(0)}</td>
-      <td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span></td>
+      <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))} ×${kicks.length}</span></td>
+      <td>${who}</td>
+      <td>${pct}</td>
+      ${note}
     </tr>`;
   return head + (open ? kicks.map((e) => rotationEntryRow(e, 'kick-member')).join('') : '');
 }
@@ -1469,7 +1487,7 @@ function renderRotationLog(log) {
       : `Show all ${rows.length}`;
   }
 
-  tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks) : rotationEntryRow(r.entry))).join('')
+  tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks, r.kind) : rotationEntryRow(r.entry))).join('')
     || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
 }
 

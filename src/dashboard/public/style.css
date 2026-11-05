@@ -236,6 +236,8 @@ tr.weak td { color: var(--muted); }
 /* Parking is not a kick - the peer is kept and re-tested - so it gets the
    neutral treatment rather than the red one a removal gets. */
 .pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
+/* By hand, grey: it is not the rotation's red kick. */
+.pill.rotation-disconnect { background: rgba(138,153,168,.15); color: var(--muted); }
 .pill.rotation-revive { background: rgba(63,185,80,.15); color: var(--good); }
 
 /* The Add-a-Peer result line. "not reachable" is a perfectly good answer

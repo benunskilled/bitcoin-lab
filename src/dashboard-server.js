@@ -32,6 +32,7 @@ const hashblock = require('./lib/hashblock-subscriber');
 const { validatePool } = require('./lib/validate');
 const { manualAddPeer, probePeer, hostFromAddress } = require('./lib/manual-peer');
 const peerRotation = require('./lib/peer-rotation');
+const { recentRelayStats } = require('./lib/queries/peer-ranking');
 const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
 
@@ -819,10 +820,32 @@ async function router(req, res, pathname, url) {
     if (!readAddress(res, address)) return true;
     try {
       await rpc.disconnectNode(address);
-      return sendJson(res, 200, { ok: true });
     } catch (err) {
       return sendJson(res, 422, { ok: false, error: err.message });
     }
+    // In the rotation log, as a manual add is: a peer dropped by hand went
+    // without a trace there, beside the rotation's own kicks (05.11.2026).
+    // The peer is gone by now; a busy database must not turn that into an
+    // error the user would retry.
+    try {
+      // The column is the lifetime share, as for every other line; the note
+      // has the recent window, as a kick's does.
+      const peer = db.instance
+        .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
+                    LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
+        .get(address);
+      const recent = peer && recentRelayStats().get(peer.id);
+      peerRotation.logAction({
+        action: 'disconnect',
+        address,
+        firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
+        eligible: peer ? peer.eligible : null,
+        note: `by hand · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
+      });
+    } catch (err) {
+      logger.warn('rotation log entry for a disconnect failed', { address, error: err.message });
+    }
+    return sendJson(res, 200, { ok: true });
   }
 
   if (req.method === 'POST' && pathname === '/api/stratum/toggle') {
