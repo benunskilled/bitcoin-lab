@@ -571,32 +571,34 @@ th.col-actions { padding-left: 20px; }
   z-index: 999;
   pointer-events: none;
   opacity: 0;
+  background: linear-gradient(100deg,
+    transparent 0%,
+    transparent 38%,
+    rgba(247, 147, 26, .55) 48%,
+    rgba(247, 147, 26, .85) 50%,
+    rgba(247, 147, 26, .55) 52%,
+    transparent 62%,
+    transparent 100%);
+  background-size: 300% 100%;
+  background-position: 105% 0;
 }
 
+/* From just off the left edge to just off the right, at an even pace, and it
+   fades only once it is out: eased, it crossed the left half in a flash and
+   faded before it reached the right, on a phone a blink at the left edge
+   (05.11.2026). Peer Map's wave is the same. */
 .block-wave.roll {
-  animation: block-wave-roll 1.4s ease-out;
+  animation: block-wave-roll 1.4s linear;
 }
 
 @keyframes block-wave-roll {
-  0% {
-    opacity: 0;
-    background: linear-gradient(100deg,
-      transparent 0%,
-      transparent 38%,
-      rgba(247, 147, 26, .55) 48%,
-      rgba(247, 147, 26, .85) 50%,
-      rgba(247, 147, 26, .55) 52%,
-      transparent 62%,
-      transparent 100%);
-    background-size: 300% 100%;
-    background-position: 150% 0;
-  }
-  15% { opacity: 1; }
-  85% { opacity: 1; }
-  100% {
-    opacity: 0;
-    background-position: -50% 0;
-  }
+  0% { opacity: 1; background-position: 105% 0; }
+  92% { opacity: 1; }
+  100% { opacity: 0; background-position: -5% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block-wave.roll { animation: none; }
 }
 
 /* Row of the peer(s) that delivered the newest block first - fades in,
