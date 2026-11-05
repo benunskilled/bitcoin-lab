@@ -103,33 +103,35 @@ function dropOnCut(res, method, reject) {
     if (!res.complete) reject(new Error(`RPC ${method}: connection closed mid-reply`));
   });
 }
+// The body and the http.request options of one JSON-RPC call to Core.
+function request(method, params, timeoutMs) {
+  const url = new URL(config.bitcoin.rpcUrl);
+  const body = JSON.stringify({ jsonrpc: '1.0', id: `bitcoinlab-${++idCounter}`, method, params });
+  const auth = Buffer.from(`${config.bitcoin.rpcUser}:${config.bitcoin.rpcPass}`).toString('base64');
+  return {
+    body,
+    options: {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        Authorization: `Basic ${auth}`,
+      },
+      timeout: timeoutMs,
+      agent,
+    },
+  };
+}
+
 function call(method, params = [], { timeoutMs = 10000 } = {}) {
   return new Promise((resolve, reject) => {
-    const url = new URL(config.bitcoin.rpcUrl);
     const sentAtMs = Date.now();
-    const body = JSON.stringify({
-      jsonrpc: '1.0',
-      id: `bitcoinlab-${++idCounter}`,
-      method,
-      params,
-    });
-
-    const auth = Buffer.from(`${config.bitcoin.rpcUser}:${config.bitcoin.rpcPass}`).toString('base64');
-
+    const { body, options } = request(method, params, timeoutMs);
     const req = http.request(
-      {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-          Authorization: `Basic ${auth}`,
-        },
-        timeout: timeoutMs,
-        agent,
-      },
+      options,
       (res) => {
         // Before anything else is done with the response, and regardless of
         // what its status turns out to be: a 401 or a 500 carries the header
@@ -195,24 +197,10 @@ function timeCall(method, params = [], { timeoutMs = 30000, count = null } = {})
   // so a match split across two chunks is still found exactly once.
   const needle = count ? Buffer.from(count) : null;
   return new Promise((resolve, reject) => {
-    const url = new URL(config.bitcoin.rpcUrl);
-    const body = JSON.stringify({ jsonrpc: '1.0', id: `bitcoinlab-${++idCounter}`, method, params });
-    const auth = Buffer.from(`${config.bitcoin.rpcUser}:${config.bitcoin.rpcPass}`).toString('base64');
+    const { body, options } = request(method, params, timeoutMs);
     const started = process.hrtime.bigint();
     const req = http.request(
-      {
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-          Authorization: `Basic ${auth}`,
-        },
-        timeout: timeoutMs,
-        agent,
-      },
+      options,
       (res) => {
         let bytes = 0;
         let head = '';

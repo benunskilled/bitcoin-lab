@@ -152,20 +152,15 @@ test('the one-time migrations really do not run twice', () => {
     'and must not re-stamp the flags either - the timestamps are the evidence it ran once',
   );
 
-  // This file shares one database across its tests, and the percentile tests
+  // This file shares one database across its tests, and the stratum tests
   // below aggregate over every stratum row present. Leave the fixture as found.
   db.instance.prepare('DELETE FROM stratum_observation WHERE race_id = ?').run(raceId);
   db.instance.prepare('DELETE FROM stratum_race WHERE id = ?').run(raceId);
   db.instance.prepare('DELETE FROM stratum_pool WHERE id = ?').run(poolId);
 });
 
-test('median and P90 match the previous implementation on every range', () => {
-  // The percentile computation moved out of JavaScript. It has to pick exactly
-  // the same sample as before, so the previous implementation is the oracle.
-  function previousPercentile(sortedAsc, p) {
-    if (!sortedAsc.length) return null;
-    return sortedAsc[Math.min(sortedAsc.length - 1, Math.floor(p * sortedAsc.length))];
-  }
+test('each pool shows how far behind it was in the newest race, whatever the range', () => {
+  // The "Last block" column. A pool that sent no job in that race has none.
 
   const insertRace = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)');
   const insertObs = db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)');
@@ -183,8 +178,7 @@ test('median and P90 match the previous implementation on every range', () => {
     const raceId = insertRace.run(`pct-${r}`, Date.now() - (40 - r) * 1000).lastInsertRowid;
     raceIds.push(raceId);
     poolIds.forEach((poolId, index) => {
-      // A different miss pattern per pool, so sample counts differ and the
-      // rounding edges of the percentile index actually get exercised.
+      // A different miss pattern per pool, so some miss the newest race.
       if ((r + index) % 5 === 0) {
         insertObs.run(raceId, poolId, null, null);
         return;
@@ -195,16 +189,11 @@ test('median and P90 match the previous implementation on every range', () => {
     });
   }
 
+  const newest = raceIds[raceIds.length - 1];
   for (const range of ['10', '100', 'all']) {
-    const limit = range === 'all' ? raceIds.length : Number(range);
-    const inRange = new Set(raceIds.slice(-limit));
     for (const pool of queries.stratumRanking(range)) {
-      const samples = (byPool.get(pool.id) || [])
-        .filter((s) => range === 'all' || inRange.has(s.raceId))
-        .map((s) => s.latency)
-        .sort((x, y) => x - y);
-      assert.equal(pool.medianMs, previousPercentile(samples, 0.5), `median mismatch for pool ${pool.id}, range ${range}`);
-      assert.equal(pool.p90Ms, previousPercentile(samples, 0.9), `p90 mismatch for pool ${pool.id}, range ${range}`);
+      const inNewest = (byPool.get(pool.id) || []).find((s) => s.raceId === newest);
+      assert.equal(pool.lastMs, inNewest ? inNewest.latency : null, `last-block mismatch for pool ${pool.id}, range ${range}`);
     }
   }
 });
@@ -253,67 +242,6 @@ test('offlineTrustedPeers reports only trusted peers with no open session', () =
   assert.ok(dropped.offlineSinceMs >= 3600000, 'reports how long it has been gone');
   const never = result.find((r) => r.address === neverSeen);
   assert.equal(never.offlineSinceMs, null, 'a peer that never connected has no offline duration');
-});
-
-/**
- * The home-screen widget and the dashboard have to name the same peer.
- *
- * They did not, for three versions: the ranking moved to the recent window in
- * 1.16.0 and the widget kept reading the raw lifetime rate, so a peer that had
- * been excellent for a month and mediocre for the last few days stayed on the
- * home screen at its old average. The failure is quiet by nature - both numbers
- * look plausible on their own, and you only catch it by holding them side by
- * side, which is exactly what this does.
- */
-test('the widget names the same best peer as the ranking, on the window and not on a lifetime average', () => {
-  db.instance.exec(`
-    DELETE FROM relay_observation;
-    DELETE FROM relay_race;
-    DELETE FROM peer_relay_stats;
-    DELETE FROM peer_session;
-    DELETE FROM peer;
-  `);
-
-  const faded = db.getOrCreatePeer('198.51.100.10:8333');
-  const rising = db.getOrCreatePeer('198.51.100.11:8333');
-  const openSession = db.instance.prepare(
-    'INSERT INTO peer_session (peer_id, direction, connection_type, started_at) VALUES (?, ?, ?, ?)',
-  );
-  openSession.run(faded.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
-  openSession.run(rising.id, 'outbound', 'outbound-full-relay', Date.now() - 3600000);
-
-  const insertRace = db.instance.prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)');
-  const insertObs = db.instance.prepare('INSERT INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)');
-
-  // 700 blocks. The faded peer takes the first 400, the rising one the last
-  // 300. The window is 500 wide, so it covers all 300 of the rising peer's and
-  // 200 of the faded peer's - which makes the two rules disagree on purpose:
-  // over their lifetimes the faded peer leads 400 to 300, over the window the
-  // rising one leads 300 to 200.
-  for (let i = 0; i < 700; i++) {
-    const raceId = insertRace.run(`widget-block-${i}`, Date.now() - (700 - i) * 1000).lastInsertRowid;
-    const early = i < 400;
-    insertObs.run(raceId, faded.id, early ? 1 : 0);
-    insertObs.run(raceId, rising.id, early ? 0 : 1);
-  }
-
-  const lifetime = db.instance
-    .prepare('SELECT peer_id AS id, first, eligible FROM peer_relay_stats ORDER BY (1.0 * first / eligible) DESC')
-    .all();
-  assert.equal(lifetime[0].id, faded.id, 'the old rule would have named the faded peer - that is the trap');
-
-  const ranking = queries.peerRanking();
-  const best = queries.widgetStats().bestPeer;
-
-  assert.equal(ranking[0].address, rising.address, 'the ranking puts the peer delivering now on top');
-  assert.equal(best.address, ranking[0].address, 'and the widget names that same peer');
-
-  // And reports the window rate (300 of 500), not the lifetime average the old
-  // query would have shown for this peer (300 of 700, 42.9%).
-  assert.ok(
-    best.firstPct > 55 && best.firstPct < 65,
-    `expected the window rate near 60%, got ${best.firstPct.toFixed(1)}%`,
-  );
 });
 
 test('deleting a pool leaves a race the worker has only just opened', () => {

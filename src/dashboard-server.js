@@ -16,6 +16,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { URL } = require('url');
 
 const config = require('./lib/config');
@@ -92,14 +93,27 @@ const READ_ONLY_BLOCKED = new Set([
   '/api/peers/untrust', '/api/peers/manual-add', '/api/peers/add-manual', '/api/peers/disconnect', '/api/rotation/toggle',
 ]);
 
+// The ranking runs to a few hundred kB of JSON and comes again every 20 s;
+// gzip makes it a tenth of that, which counts on a phone away from home.
+// Small answers are not worth it, and images are packed already. The event
+// stream never comes through here: gzip would hold each event back until a
+// block of output was full.
+const GZIP_MIN_BYTES = 1024;
+
+function sendBody(res, status, headers, body) {
+  let out = Buffer.from(body);
+  const extra = { Vary: 'Accept-Encoding' };
+  const takesGzip = /\bgzip\b/.test(res.req?.headers['accept-encoding'] || '');
+  if (takesGzip && out.length >= GZIP_MIN_BYTES && !/^image\/(png|jpeg|webp)/.test(headers['Content-Type'])) {
+    out = zlib.gzipSync(out);
+    extra['Content-Encoding'] = 'gzip';
+  }
+  res.writeHead(status, { ...headers, ...extra, 'Content-Length': out.length });
+  res.end(out);
+}
+
 function sendJson(res, status, data) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    ...SECURITY_HEADERS,
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-  });
-  res.end(body);
+  sendBody(res, status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' }, JSON.stringify(data));
 }
 
 /**
@@ -239,7 +253,7 @@ function serveStatic(req, res, pathname) {
       return;
     }
     const ext = path.extname(filePath);
-    res.writeHead(200, {
+    sendBody(res, 200, {
       ...SECURITY_HEADERS,
       'Content-Type': MIME[ext] || 'application/octet-stream',
       // Without an explicit directive, browsers apply heuristic caching to
@@ -249,8 +263,7 @@ function serveStatic(req, res, pathname) {
       // conditional revalidation on every load instead (cheap for a small
       // self-hosted dashboard), so updates show up on a normal reload.
       'Cache-Control': 'no-cache',
-    });
-    res.end(data);
+    }, data);
   });
 }
 
@@ -536,39 +549,6 @@ function fmtBytesShort(bytes) {
   return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(v < 1 ? 2 : 1)} ${units[i]}`;
 }
 
-async function handleWidgetStats(req, res) {
-  const { live, bestPeer, bestPool, trustedTotal, trustedOnline } = queries.widgetStats();
-
-  sendJson(res, 200, {
-    type: 'four-stats',
-    // The cadence Umbrel actually uses is the `refresh` in the manifest's
-    // widgets: block, not this field - it is echoed here only so the payload
-    // is self-describing. Keep the two in step. 60s is plenty for a
-    // home-screen glance, and this endpoint is polled whether or not anyone
-    // has the dashboard open, which is why widgetStats() is four small
-    // queries rather than a slice of the full rankings.
-    refresh: '60s',
-    link: '',
-    items: [
-      { title: 'Live Peers', text: String(live.total), subtext: 'connected' },
-      { title: 'Best Peer', text: bestPeer ? `${bestPeer.firstPct.toFixed(0)}%` : '-', subtext: bestPeer ? bestPeer.address : 'n/a' },
-      { title: 'Fastest Pool', text: bestPool && bestPool.avgMs != null ? `${bestPool.avgMs.toFixed(0)}ms` : '-', subtext: bestPool ? bestPool.label : 'n/a' },
-      // "3/4" rather than just a raw trusted count - a manual peer can drop
-      // and Core's own reconnect can silently stall, so whether they're
-      // ACTUALLY connected right now belongs on the at-a-glance home
-      // widget, not only visible after opening the dashboard.
-      {
-        // "Manual", not "Trusted" - the panel in the dashboard is called
-        // Manual Peers and Core calls the connection type manual. One word
-        // for one thing.
-        title: 'Manual',
-        text: `${trustedOnline}/${trustedTotal}`,
-        subtext: trustedOnline === trustedTotal ? 'manual peers online' : 'manual peers - check dashboard',
-      },
-    ],
-  });
-}
-
 async function router(req, res, pathname, url) {
   if (req.method === 'GET' && pathname === '/api/health') {
     // 200 means THIS process is serving and can read its database - that is
@@ -652,6 +632,9 @@ async function router(req, res, pathname, url) {
       // decide whether to offer a link there at all - a link to an app nobody
       // installed is worse than no link.
       peerMapInstalled: await sibling.isInstalled(),
+      // The database's size on disk, for the folded Storage card: three file
+      // sizes, nothing read. The split per table stays behind /api/storage.
+      dbBytes: db.sizeBytes(),
       // A test copy (see lib/config.js): read-only, and its own Peer Map port.
       readOnly: config.readOnly,
       peerMapLinkPort: config.peerMapLinkPort || undefined,
@@ -659,7 +642,19 @@ async function router(req, res, pathname, url) {
   }
 
   if (req.method === 'GET' && pathname === '/api/peers/ranking') {
-    return sendJson(res, 200, queries.peerRanking());
+    // Peer Map's marks ride along on the rows they are about (lib/sibling.js).
+    const marks = sibling.peerKinds();
+    const rows = queries.peerRanking();
+    if (marks.size) {
+      for (const row of rows) {
+        const m = marks.get(row.address);
+        if (!m) continue;
+        row.mapKind = m.kind;
+        if (m.why) row.mapWhy = m.why;
+        if (m.pool) row.mapPool = m.pool;
+      }
+    }
+    return sendJson(res, 200, rows);
   }
 
   // For the app next door. Peer Map shows the same peers on a map and marks
@@ -897,26 +892,27 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, { ok: true, enabled: body.enabled });
   }
 
-  if (req.method === 'GET' && pathname === '/api/widget/stats') {
-    return handleWidgetStats(req, res);
-  }
-
   // The node's traffic: the chart and totals.
   if (req.method === 'GET' && pathname === '/api/traffic') {
     return sendJson(res, 200, queries.trafficDays(30));
   }
 
-  // The second home-screen widget: today up, today down, the last 30 days.
+  // The home-screen widget: today up, today down, and the peers in and out.
+  // The four-tile widget it once sat beside is gone (04.11.2026): on a fresh
+  // install two of its tiles were empty, and one put a peer's address on the
+  // home screen. The refresh is the peers' - traffic alone is hourly - and it
+  // is the manifest's `refresh` that Umbrel goes by; keep the two in step.
   if (req.method === 'GET' && pathname === '/api/widget/traffic') {
     const t = queries.trafficDays(30);
+    const live = queries.liveSummary();
     return sendJson(res, 200, {
       type: 'three-stats',
-      refresh: '3600s',
+      refresh: '60s',
       link: '',
       items: [
         { text: fmtBytesShort(t.today.sent), subtext: 'sent today' },
         { text: fmtBytesShort(t.today.recv), subtext: 'received today' },
-        { text: fmtBytesShort(t.month.sent + t.month.recv), subtext: 'last 30 days' },
+        { text: `${live.inbound} / ${live.outbound}`, subtext: 'peers in / out' },
       ],
     });
   }

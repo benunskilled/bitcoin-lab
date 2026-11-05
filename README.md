@@ -52,7 +52,7 @@ A traffic panel shows how much your node sent and received, per day and over the
 
 ## Stratum Race
 
-Switch on Stratum Race and add your own pool. If GoBrrr, Bassin, Public Pool, DATUM or Pogolo runs on your Umbrel, Bitcoin Lab offers to add it for you. Eight public solo pools race alongside.
+Switch on Stratum Race and add your own pool. If GoBrrr, Bassin, Public Pool, DATUM or Pogolo runs on your Umbrel, Bitcoin Lab offers to add it for you. Eight public solo pools race alongside. No miner needed: install a pool app on your Umbrel and race your own node against the solo pools.
 
 For every new block, the first pool to send fresh work sets the reference time and the others are timed against it. You see who wins, how far behind the rest are, and whether your own pool gets faster as you tune your setup. Bitcoin Lab only listens: it never submits shares, so no mining work goes to any pool. Stratum Race is off by default.
 

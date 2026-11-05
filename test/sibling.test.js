@@ -82,3 +82,50 @@ test('a miss is asked again after thirty seconds, a hit only after five minutes'
 
   await new Promise((r) => srv.close(r));
 });
+
+test("Peer Map's marks are read without waiting, and only the two the ranking shows", async () => {
+  let peerCalls = 0;
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/api/health') { res.writeHead(200); return res.end('ok\n'); }
+    peerCalls += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ peers: [
+      { addr: '198.51.100.1:8333', kind: 'Disguised', tell: 'no wtxidrelay' },
+      { addr: '198.51.100.2:8333', kind: 'Pool node', pool: 'AtlasPool' },
+      { addr: '198.51.100.3:8333', kind: 'Node (Core)' },
+      { addr: '198.51.100.4:8333', kind: 'Wallet' },
+    ] }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  process.env.PEERMAP_HEALTH_URL = `http://127.0.0.1:${srv.address().port}/api/health`;
+
+  assert.equal(await sibling.isInstalled(), true);
+  assert.equal(sibling.peerKinds().size, 0, 'the first call starts the fetch and does not wait for it');
+  for (let i = 0; i < 50 && sibling.peerKinds().size === 0; i += 1) await new Promise((r) => setTimeout(r, 10));
+  const marks = sibling.peerKinds();
+  assert.deepEqual([...marks.keys()].sort(), ['198.51.100.1:8333', '198.51.100.2:8333']);
+  assert.deepEqual(marks.get('198.51.100.1:8333'), { kind: 'Disguised', why: 'no wtxidrelay' });
+  assert.deepEqual(marks.get('198.51.100.2:8333'), { kind: 'Pool node', pool: 'AtlasPool' });
+  assert.equal(peerCalls, 1, 'within a minute Peer Map is asked once');
+
+  await new Promise((r) => srv.close(r));
+});
+
+test('without Peer Map there are no marks, and its list is not asked for', async () => {
+  let peerCalls = 0;
+  const srv = http.createServer((req, res) => {
+    if (req.url !== '/api/health') peerCalls += 1;
+    res.writeHead(503); res.end();
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  process.env.PEERMAP_HEALTH_URL = `http://127.0.0.1:${srv.address().port}/api/health`;
+
+  assert.equal(await sibling.isInstalled(), false);
+  assert.equal(sibling.peerKinds().size, 0);
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(peerCalls, 0);
+  process.env.PEERMAP_HEALTH_URL = 'off';
+  assert.equal(sibling.peerKinds().size, 0);
+
+  await new Promise((r) => srv.close(r));
+});

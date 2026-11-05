@@ -64,6 +64,17 @@
       <div class="inline-form">
         <button type="button" id="live-peer-limit-toggle" class="link" hidden></button>
       </div>
+      <!-- On a phone nothing can be hovered, so the marks are said here,
+           folded. A wide screen says them on hover. -->
+      <details class="key">
+        <summary>What the marks mean</summary>
+        <ul>
+          <li><b class="hb">⚡</b> May send you new blocks without being asked</li>
+          <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
+          <li><b class="key-new">orange row</b> Delivered the newest block first</li>
+          <li><b class="key-green">green address</b> Has delivered a block first</li>
+        </ul>
+      </details>
     </section>
 
     <section class="card panel">
@@ -226,16 +237,10 @@
           Time how fast mining pools hand out work on a new block
         </label>
       </div>
-      <!--
-        One sentence, under the switch, for the same reason as the rotation's:
-        this is read before flipping it. What matters to somebody switching it
-        off is that it really does stop talking to other people's servers, and
-        that they are not throwing away what they already measured.
-      -->
-      <p class="hint" id="stratum-off-hint" hidden>
-        Off. No connection is made to any pool and nothing is measured. What was
-        measured so far is kept.
-      </p>
+      <!-- While it is off: the race is not for miners alone, and which pool
+           app needs setting up first (Umbrel's notes for each app). -->
+      <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.<br>
+        Every pool app works right away, except DATUM: it needs a Bitcoin address first.</p>
       <div id="stratum-body">
       <div class="inline-form">
         <label class="hint" for="stratum-range">Range:</label>
@@ -289,16 +294,15 @@
               <th data-drop="3">Host:Port</th>
               <th>Wins</th>
               <th>Win %</th>
-              <th>Avg</th>
-              <th data-drop="2">Median</th>
-              <th data-drop="2">P90</th>
+              <th data-card="Last" title="How long after the first pool's job this pool's job came, for the newest block">Last block</th>
+              <th data-card="Avg" title="How long after the first pool's job this pool's job came, on average over the range">Average</th>
               <th data-drop="1">Seen</th>
               <th data-drop="1">Miss</th>
               <th>Enabled</th>
               <th></th>
             </tr>
           </thead>
-          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="11"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="11"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="11"><i></i><i></i></td></tr></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="10"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="10"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="10"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
       </div>
