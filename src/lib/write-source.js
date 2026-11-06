@@ -1,22 +1,31 @@
 'use strict';
 
-// Which containers a write may come from.
+// Which addresses a write may come from.
 //
 // On Umbrel every app joins the same Docker network, so any other installed
-// app can reach this dashboard's port directly, past the app proxy and its
-// login. refuseWrite in dashboard-server.js stops a browser on another site;
-// a container sends no browser headers and is let through there. This closes
-// that path: with TRUSTED_PROXY_HOST set (the compose file names the app's own
-// app_proxy container), a write is taken only from that container's address
-// or from inside this container. Reads stay open - Peer Map next door reads
-// them.
+// app can reach this dashboard's port directly, past Umbrel's login. refuseWrite
+// in dashboard-server.js stops a browser on another site; a container sends no
+// browser headers and is let through there. This closes that path: a write is
+// taken only from where Umbrel's own proxy connects from, or from inside this
+// container. Reads stay open - Peer Map next door reads them.
 //
-// The proxy's address comes from Docker's DNS and changes when the container
-// is recreated, so it is looked up again after a while, and once more at once
-// when a write arrives from an address not in the last answer. If the name
-// cannot be resolved at all, writes are refused rather than let through.
+// Where the proxy connects from depends on the umbrelOS version:
+//   - 2.x: the proxy runs inside umbreld on the host, so a request arrives from
+//     the Docker network's gateway (10.21.0.1, read here from the container's
+//     default route). Measured on umbrelOS 2.0.1, 06.11.2026.
+//   - 1.x: each app has its own app_proxy container. TRUSTED_PROXY_HOST names
+//     it; its address comes from Docker's DNS on every lookup and is never
+//     kept as a fixed address. On 2.x the name does not exist, and nothing more
+//     is let in.
+//
+// Not covered, and no address can cover it: apps running on the host's own
+// network (network_mode: host, e.g. Home Assistant, Plex, Pi-hole) and
+// anything else running on the node itself also arrive from the gateway.
+// umbrelOS passes the backend no proof of the user's login, so only a login of
+// the app's own could tell those apart.
 
 const dns = require('dns').promises;
+const fs = require('fs');
 
 const TTL_MS = 60 * 1000;
 const RETRY_MS = 2 * 1000;
@@ -24,35 +33,53 @@ const RETRY_MS = 2 * 1000;
 const plain = (address) => String(address || '').replace(/^::ffff:/, '');
 const isLoopback = (address) => address === '::1' || /^127\./.test(address);
 
-function makeWriteSource({ host, lookup = (h) => dns.lookup(h, { all: true }), now = Date.now } = {}) {
-  let cache = null; // { at, addresses: Set }
+// The default route's gateway from /proc/net/route (hex, little-endian), or
+// null where there is none to read (not Linux, tests).
+function readGateway(read = () => fs.readFileSync('/proc/net/route', 'utf8')) {
+  try {
+    for (const line of read().split('\n').slice(1)) {
+      const [, destination, gateway] = line.trim().split(/\s+/);
+      if (destination === '00000000' && gateway && gateway !== '00000000') {
+        return gateway.match(/../g).reverse().map((h) => parseInt(h, 16)).join('.');
+      }
+    }
+  } catch { /* no /proc here */ }
+  return null;
+}
+
+function makeWriteSource({ host, gateway = readGateway(), lookup = (h) => dns.lookup(h, { all: true }), now = Date.now } = {}) {
+  let cache = null; // { at, addresses: Set } - the 1.x proxy's addresses, empty when the name is unknown
   let lastError = null;
 
   async function resolve() {
-    lastError = null;
-    const list = await lookup(host).catch((err) => { lastError = err.code || err.message; throw err; });
-    cache = { at: now(), addresses: new Set(list.map((a) => plain(a.address))) };
+    try {
+      const list = await lookup(host);
+      lastError = null;
+      cache = { at: now(), addresses: new Set(list.map((a) => plain(a.address))) };
+    } catch (err) {
+      // On 2.x the name never resolves: remember that for a while too, so a
+      // write does not wait on DNS each time.
+      lastError = err.code || err.message;
+      cache = { at: now(), addresses: new Set() };
+    }
     return cache.addresses;
   }
 
   async function allowed(remoteAddress) {
     const from = plain(remoteAddress);
     if (isLoopback(from)) return true;
-    if (!host) return true;
-    try {
-      let addresses = cache && now() - cache.at < TTL_MS ? cache.addresses : await resolve();
-      if (!addresses.has(from) && now() - cache.at >= RETRY_MS) addresses = await resolve();
-      return addresses.has(from);
-    } catch {
-      cache = null;
-      return false;
-    }
+    if (gateway && from === gateway) return true;
+    if (!host) return !gateway; // nothing known to compare with: tests and local runs
+    let addresses = cache && now() - cache.at < TTL_MS ? cache.addresses : await resolve();
+    if (!addresses.has(from) && now() - cache.at >= RETRY_MS) addresses = await resolve();
+    return addresses.has(from);
   }
 
   // What the check saw, for a test copy that has to find out why a write was
   // refused (WRITE_SOURCE_DEBUG=1): Docker-internal addresses only.
   allowed.describe = (remoteAddress) => ({
     from: plain(remoteAddress),
+    gateway,
     proxyHost: host || null,
     proxyAddresses: cache ? [...cache.addresses] : [],
     lookupError: lastError,
@@ -60,4 +87,4 @@ function makeWriteSource({ host, lookup = (h) => dns.lookup(h, { all: true }), n
   return allowed;
 }
 
-module.exports = { makeWriteSource };
+module.exports = { makeWriteSource, readGateway };

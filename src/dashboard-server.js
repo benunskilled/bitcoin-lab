@@ -970,7 +970,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname.startsWith('/api/')) {
       // Another app on the node's Docker network sends no browser headers, so
-      // refuseWrite lets it through; only the app's own proxy may write.
+      // refuseWrite lets it through; only Umbrel's proxy may write.
       if (WRITE_METHODS.has(req.method) && !(await writeAllowedFrom(req.socket.remoteAddress))) {
         const seen = { ...writeAllowedFrom.describe(req.socket.remoteAddress), forwardedFor: req.headers['x-forwarded-for'] || null };
         logger.warn('refused a write from outside the app', { path: pathname, ...seen });
