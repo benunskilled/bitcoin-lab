@@ -95,6 +95,30 @@ test('POST /api/pools answers 409 only for a duplicate, 500 for any other databa
   }
 });
 
+test('POST /api/pools stops at twenty pools', async () => {
+  const before = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n;
+  const add = (i) => api('/api/pools', { method: 'POST', body: JSON.stringify({ label: `Cap ${i}`, host: `cap${i}.example`, port: 3333 }) });
+  try {
+    for (let i = before; i < 20; i++) assert.equal((await add(i)).status, 200);
+    const over = await add(99);
+    assert.equal(over.status, 409);
+    assert.match(over.body.error, /at most 20 pools/);
+    assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_pool').get().n, 20);
+  } finally {
+    db.instance.prepare("DELETE FROM stratum_pool WHERE host LIKE 'cap%.example'").run();
+  }
+});
+
+test('a request line that is no URL is answered 400, and the server keeps going', async () => {
+  const status = await new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: server.address().port, path: '//' }, (res) => { res.resume(); resolve(res.statusCode); });
+    req.on('error', reject);
+    req.end();
+  });
+  assert.equal(status, 400);
+  assert.equal((await api('/api/health')).status, 200);
+});
+
 test('GET /api/health reports this process and every background service', async () => {
   const { status, body } = await api('/api/health');
   assert.equal(status, 200);
@@ -365,6 +389,36 @@ test('a non-string address is refused with 422 rather than acted on', async () =
       assert.equal(status, 422, `${route} must refuse ${JSON.stringify(address)}`);
       assert.match(body.error, /address must be a string/, 'and say what it wanted instead');
     }
+  }
+});
+
+test('a peer disconnected by hand is in the rotation log, with its recent record', async () => {
+  const rpc = require('../src/lib/rpc');
+  const { mock } = require('node:test');
+  const disconnect = mock.method(rpc, 'disconnectNode', async () => {});
+  try {
+    const { status } = await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address: '203.0.113.88:8333' }) });
+    assert.equal(status, 200);
+    assert.equal(disconnect.mock.callCount(), 1);
+    const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'disconnect' AND address = ?").get('203.0.113.88:8333');
+    assert.ok(row, 'logged');
+    assert.equal(row.note, 'by hand · 0/0 recent blocks first');
+  } finally {
+    disconnect.mock.restore();
+    db.instance.prepare("DELETE FROM rotation_log WHERE action = 'disconnect'").run();
+  }
+});
+
+test('a refused disconnect leaves no line in the rotation log', async () => {
+  const rpc = require('../src/lib/rpc');
+  const { mock } = require('node:test');
+  const disconnect = mock.method(rpc, 'disconnectNode', async () => { throw new Error('Node not found in connected nodes'); });
+  try {
+    const { status } = await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address: '203.0.113.89:8333' }) });
+    assert.equal(status, 422);
+    assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'disconnect'").get().n, 0);
+  } finally {
+    disconnect.mock.restore();
   }
 });
 

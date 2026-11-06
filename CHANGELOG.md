@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.3.0 – 2026-11-06
+
+A peer you disconnect by hand now gets a line in the rotation log. Only the newest block's peers are tinted orange, the block wave runs evenly across the page, and the tab and home-screen icon is now the store icon. A request line that is no URL no longer stops the dashboard, Stratum Race takes at most 20 pools, and the pool login no longer carries the app's name.
+
 ## 2.2.0 – 2026-11-05
 
 Stratum Race shows the latest block and the average instead of median and P90, and says that a pool app works without a miner. The ranking marks disguised peers and pool nodes and offers no manual slot to a peer that can never deliver. On phones a legend explains the marks, and a tap on an open explanation folds it shut. One widget now shows traffic and your peers in and out. Storage shows the database size while folded, and pages load faster. Built on an updated Node 22 image with security fixes.
