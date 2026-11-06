@@ -222,9 +222,8 @@ module.exports = {
   // mining.notify to a connection that fails authorize. We never submit
   // shares, so the address doesn't need to be ours - this is a well-known,
   // valid, real "eater/burn" address used exactly for this kind of
-  // placeholder purpose. A worker-name suffix (address.bitcoinlab) is
-  // supported by ckpool and makes our connections identifiable in pool
-  // logs without needing a real payout address.
+  // placeholder purpose. The worker-name suffix is a plain .worker1, so the
+  // login does not name the app.
   stratumAuthorizeAddress: pick(process.env.STRATUM_AUTHORIZE_ADDRESS, '1BitcoinEaterAddressDontSendf59kuE'),
 
   // Peer snapshot poll interval for the peer-profiler (session bookkeeping,
