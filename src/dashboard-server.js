@@ -704,7 +704,8 @@ async function router(req, res, pathname, url) {
       // null where it could not be told, and on older blocks.
       recon: race.recon ?? null,
       reconMissingBytes: race.reconMissingBytes ?? null,
-      // The same for the last seven days.
+      // The same over the last day and the last seven days.
+      reconDay: queries.reconstructionDay(),
       reconWeek: queries.reconstructionWeek(),
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.

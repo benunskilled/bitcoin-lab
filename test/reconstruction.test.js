@@ -73,7 +73,7 @@ test('only the snapshot of the block right before is compared with', () => {
   assert.equal(relay.reconstructionOf(p3, { height: 104 }, 4_100_000), null);
 });
 
-test('the week counts each kind and averages what was missing when asked', () => {
+test('the day and the week count each kind and averages what was missing when asked', () => {
   db.instance.prepare(`DELETE FROM relay_observation`).run();
   db.instance.prepare(`DELETE FROM relay_race`).run();
   const now = 1_800_000_000_000;
@@ -88,4 +88,9 @@ test('the week counts each kind and averages what was missing when asked', () =>
   add(5, null, null); // not told: left out
   add(6, 'asked', 999999, now - 8 * 24 * 3600 * 1000); // older than a week
   assert.deepEqual(blocks.reconstructionWeek(now), { blocks: 4, mempool: 1, asked: 2, full: 1, askedAvgBytes: 40000 });
+  // The day holds the four within the last hours, not the one from last week.
+  assert.deepEqual(blocks.reconstructionDay(now), { blocks: 4, mempool: 1, asked: 2, full: 1, askedAvgBytes: 40000 });
+  add(7, 'mempool', 0, now - 2 * 24 * 3600 * 1000);
+  assert.equal(blocks.reconstructionDay(now + 60_000).blocks, 4);
+  assert.equal(blocks.reconstructionWeek(now + 60_000).blocks, 5);
 });
