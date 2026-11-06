@@ -337,6 +337,19 @@ function reconstructionOf(peers, header, detectedAtMs) {
   return reconstruction.classify(before, peers);
 }
 
+// The counters as they stand when the app starts, so the first block after a
+// start or an update is told too. One getpeerinfo per start, never repeated.
+// A block that arrives first wins: its snapshot is newer.
+async function takeStartSnapshot(atMs = Date.now()) {
+  try {
+    const [peers, chain] = await Promise.all([rpc.getPeerInfo(), rpc.getBlockchainInfo()]);
+    if (lastSnapshot || !chain || !Number.isInteger(chain.blocks)) return;
+    lastSnapshot = { ...reconstruction.snapshot(peers, atMs), height: chain.blocks };
+  } catch (err) {
+    logger.debug('no start snapshot - the first block is not told', { error: err.message });
+  }
+}
+
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   // Not while catching up: a full block template for every old block is load
   // on Core exactly when it is busiest, and measures nothing. The first block
@@ -462,6 +475,8 @@ function main() {
     catchUpAttribution().catch((err) => logger.warn('catch-up failed', { error: err.message }));
   }, 2000).unref?.();
 
+  takeStartSnapshot();
+
   subscription = hashblock.start({
     url: config.bitcoin.zmqHashBlockUrl,
     logger,
@@ -492,5 +507,5 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  recordRace, handleHashBlock, main, reconstructionOf, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
+  recordRace, handleHashBlock, main, reconstructionOf, takeStartSnapshot, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
 };

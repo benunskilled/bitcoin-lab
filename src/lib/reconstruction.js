@@ -14,8 +14,9 @@
 //   - "mempool": a compact block came in and nothing was asked for
 //   - "asked":   getblocktxn went out; missingBytes is what came back
 //   - "full":    no compact block, the whole block was downloaded instead
-// null when it cannot be told: no snapshot of the previous block (the app
-// just started, a block was skipped), or nothing arrived at all.
+// null when it cannot be told: no snapshot of the previous block (a block was
+// skipped, getpeerinfo failed at the start), or nothing arrived at all.
+// The app takes one snapshot when it starts, so the first block is told too.
 
 // A message header (magic, command, length, checksum) is counted in the
 // bytes too; one blocktxn answer is one header.

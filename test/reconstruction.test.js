@@ -60,6 +60,24 @@ test('a connection opened since counts from zero; an older one missing from the 
   assert.equal(classify(before, [old]), null);
 });
 
+test('the counters at the start tell the first block; a block that came first is not overwritten', async () => {
+  const rpc = require('../src/lib/rpc');
+  const saved = { getPeerInfo: rpc.getPeerInfo, getBlockchainInfo: rpc.getBlockchainInfo };
+  rpc.getPeerInfo = async () => [peer(1, { recv: { cmpctblock: 100 } })];
+  rpc.getBlockchainInfo = async () => ({ blocks: 49 });
+  try {
+    await relay.takeStartSnapshot(1_500_000);
+    const p = [peer(1, { recv: { cmpctblock: 200 } })];
+    assert.equal(relay.reconstructionOf(p, { height: 50 }, 1_600_000).kind, 'mempool');
+    // The snapshot of block 50 is newer than anything the start could bring.
+    await relay.takeStartSnapshot(1_700_000);
+    const p51 = [peer(1, { recv: { cmpctblock: 300 } })];
+    assert.equal(relay.reconstructionOf(p51, { height: 51 }, 1_800_000).kind, 'mempool');
+  } finally {
+    Object.assign(rpc, saved);
+  }
+});
+
 test('only the snapshot of the block right before is compared with', () => {
   const p0 = [peer(1, { recv: { cmpctblock: 100 } })];
   relay.reconstructionOf(p0, { height: 100 }, 2_000_000);
