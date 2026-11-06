@@ -35,6 +35,9 @@ const peerRotation = require('./lib/peer-rotation');
 const { recentRelayStats } = require('./lib/queries/peer-ranking');
 const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
+const { makeWriteSource } = require('./lib/write-source');
+
+const writeAllowedFrom = makeWriteSource({ host: config.trustedProxyHost });
 
 const PUBLIC_DIR = path.join(__dirname, 'dashboard', 'public');
 const MIME = {
@@ -966,6 +969,13 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (pathname.startsWith('/api/')) {
+      // Another app on the node's Docker network sends no browser headers, so
+      // refuseWrite lets it through; only the app's own proxy may write.
+      if (WRITE_METHODS.has(req.method) && !(await writeAllowedFrom(req.socket.remoteAddress))) {
+        logger.warn('refused a write from outside the app', { path: pathname });
+        sendJson(res, 403, { error: 'writes are only accepted through the app\'s own page' });
+        return;
+      }
       const refused = refuseWrite(req);
       if (refused) {
         logger.warn('refused a write', { path: pathname, status: refused[0], origin: req.headers.origin || null });

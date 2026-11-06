@@ -35,6 +35,10 @@ const linkPort = Number(process.env.PEERMAP_LINK_PORT);
 
 module.exports = {
   readOnly: process.env.LAB_READ_ONLY === '1',
+  // The app's own app_proxy container (bitcoinlab-node_app_proxy_1 on Umbrel):
+  // writes are taken only from there. Unset, as in tests and local runs, any
+  // source may write. See lib/write-source.js.
+  trustedProxyHost: pick(process.env.TRUSTED_PROXY_HOST, ''),
   peerMapLinkPort: Number.isInteger(linkPort) && linkPort > 0 && linkPort < 65536 ? linkPort : 0,
   bitcoin: {
     rpcUrl: `http://${bitcoinHost}:${bitcoinRpcPort}/`,
