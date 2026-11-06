@@ -26,14 +26,16 @@ const isLoopback = (address) => address === '::1' || /^127\./.test(address);
 
 function makeWriteSource({ host, lookup = (h) => dns.lookup(h, { all: true }), now = Date.now } = {}) {
   let cache = null; // { at, addresses: Set }
+  let lastError = null;
 
   async function resolve() {
-    const list = await lookup(host);
+    lastError = null;
+    const list = await lookup(host).catch((err) => { lastError = err.code || err.message; throw err; });
     cache = { at: now(), addresses: new Set(list.map((a) => plain(a.address))) };
     return cache.addresses;
   }
 
-  return async function allowed(remoteAddress) {
+  async function allowed(remoteAddress) {
     const from = plain(remoteAddress);
     if (isLoopback(from)) return true;
     if (!host) return true;
@@ -45,7 +47,17 @@ function makeWriteSource({ host, lookup = (h) => dns.lookup(h, { all: true }), n
       cache = null;
       return false;
     }
-  };
+  }
+
+  // What the check saw, for a test copy that has to find out why a write was
+  // refused (WRITE_SOURCE_DEBUG=1): Docker-internal addresses only.
+  allowed.describe = (remoteAddress) => ({
+    from: plain(remoteAddress),
+    proxyHost: host || null,
+    proxyAddresses: cache ? [...cache.addresses] : [],
+    lookupError: lastError,
+  });
+  return allowed;
 }
 
 module.exports = { makeWriteSource };

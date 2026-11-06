@@ -972,8 +972,12 @@ const server = http.createServer(async (req, res) => {
       // Another app on the node's Docker network sends no browser headers, so
       // refuseWrite lets it through; only the app's own proxy may write.
       if (WRITE_METHODS.has(req.method) && !(await writeAllowedFrom(req.socket.remoteAddress))) {
-        logger.warn('refused a write from outside the app', { path: pathname });
-        sendJson(res, 403, { error: 'writes are only accepted through the app\'s own page' });
+        const seen = { ...writeAllowedFrom.describe(req.socket.remoteAddress), forwardedFor: req.headers['x-forwarded-for'] || null };
+        logger.warn('refused a write from outside the app', { path: pathname, ...seen });
+        sendJson(res, 403, {
+          error: 'writes are only accepted through the app\'s own page',
+          ...(process.env.WRITE_SOURCE_DEBUG === '1' ? { seen } : {}),
+        });
         return;
       }
       const refused = refuseWrite(req);
