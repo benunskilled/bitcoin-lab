@@ -22,7 +22,10 @@
 // network (network_mode: host, e.g. Home Assistant, Plex, Pi-hole) and
 // anything else running on the node itself also arrive from the gateway.
 // umbrelOS passes the backend no proof of the user's login, so only a login of
-// the app's own could tell those apart.
+// the app's own could tell those apart. Umbrel knows the gap
+// (getumbrel/umbrel#1432, getumbrel/umbrel-apps#1463). The app's writes move
+// no funds, so a login of its own (from APP_PASSWORD) is left for the day
+// they do more.
 
 const dns = require('dns').promises;
 const fs = require('fs');
