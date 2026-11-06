@@ -26,6 +26,7 @@ const processGuard = require('./lib/process-guard');
 const hashblock = require('./lib/hashblock-subscriber');
 const poolId = require('./lib/pool-id');
 const stratumRace = require('./lib/stratum-race-toggle');
+const reconstruction = require('./lib/reconstruction');
 const logger = require('./lib/logger').make('relay-profiler');
 
 // A peer counts as "first" if Core recorded a block from it within this
@@ -322,6 +323,19 @@ function stratumRaceOn() {
 const CATCHUP_TAIL_MS = 30 * 1000;
 let lastCatchUpAt = null;
 let lastHashblockAt = null;
+// The snapshot taken at the previous block, so the next one can tell whether
+// Core had to ask for missing transactions (lib/reconstruction.js). Kept for
+// every block, counted or not; height says which block it belongs to.
+let lastSnapshot = null;
+
+// Compared only with the snapshot of the block right before: across a gap the
+// counters would mix several blocks.
+function reconstructionOf(peers, header, detectedAtMs) {
+  const height = header && Number.isInteger(header.height) ? header.height : null;
+  const before = lastSnapshot && height != null && lastSnapshot.height === height - 1 ? lastSnapshot : null;
+  lastSnapshot = { ...reconstruction.snapshot(peers, detectedAtMs), height };
+  return reconstruction.classify(before, peers);
+}
 
 async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
   // Not while catching up: a full block template for every old block is load
@@ -356,6 +370,7 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     });
     return;
   }
+  const recon = reconstructionOf(peers, header, detectedAtMs);
 
   // The block that ends a catch-up is at the tip by every test above - one
   // confirmation, headers equal to blocks - yet it came in the same burst as
@@ -406,6 +421,15 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     nearestLastBlockMs: nearestLastBlockDeltaMs(peers, detectedAtMs),
     processingMs: Number(elapsedMs.toFixed(2)),
   });
+
+  if (recon) {
+    try {
+      db.instance.prepare(`UPDATE relay_race SET recon = ?, recon_missing_bytes = ? WHERE id = ?`)
+        .run(recon.kind, recon.missingBytes, raceId);
+    } catch (err) {
+      logger.warn('could not store how the block was rebuilt', { error: err.message });
+    }
+  }
 
   backfillHeightAndPeerCounts(raceId, blockHash);
   template.then((t) => {
@@ -468,5 +492,5 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  recordRace, handleHashBlock, main, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
+  recordRace, handleHashBlock, main, reconstructionOf, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
 };

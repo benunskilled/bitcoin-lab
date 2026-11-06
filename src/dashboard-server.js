@@ -698,6 +698,14 @@ async function router(req, res, pathname, url) {
       // takes longer than the next.
       templateTx: race.templateTx ?? null,
       firstPingMs: race.firstPingMs ?? null,
+      // How Core rebuilt it from the compact block: 'mempool' (nothing
+      // missing), 'asked' (it asked a peer for missing transactions;
+      // reconMissingBytes is what came back) or 'full' (downloaded whole).
+      // null where it could not be told, and on older blocks.
+      recon: race.recon ?? null,
+      reconMissingBytes: race.reconMissingBytes ?? null,
+      // The same for the last seven days.
+      reconWeek: queries.reconstructionWeek(),
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
       routeMedian: queries.routeMedian(),

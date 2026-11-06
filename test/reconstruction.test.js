@@ -1,0 +1,91 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bitcoinlab-recon-'));
+process.env.SQLITE_PATH = path.join(tmpDir, 'test.db');
+process.env.DATA_DIR = tmpDir;
+process.env.LOG_LEVEL = 'error';
+
+const db = require('../src/lib/db');
+const blocks = require('../src/lib/queries/blocks');
+const relay = require('../src/relay-profiler');
+const { snapshot, classify, HEADER_BYTES } = require('../src/lib/reconstruction');
+
+test.before(() => db.open());
+
+// A peer as getpeerinfo reports it, with only the counters that matter here.
+const peer = (id, { sent = {}, recv = {}, conntime = 1000 } = {}) => ({
+  id, addr: `10.0.0.${id}:8333`, conntime, bytessent_per_msg: sent, bytesrecv_per_msg: recv,
+});
+
+test('a compact block with nothing to ask for came from the mempool', () => {
+  const before = snapshot([peer(1, { recv: { cmpctblock: 5000 } })], 2_000_000);
+  const after = [peer(1, { recv: { cmpctblock: 9000 } })];
+  assert.deepEqual(classify(before, after), { kind: 'mempool', missingBytes: 0, askedPeers: [] });
+});
+
+test('getblocktxn going out means Core asked; blocktxn coming back is what was missing', () => {
+  const before = snapshot([peer(1, { recv: { cmpctblock: 5000 } }), peer(2)], 2_000_000);
+  const after = [
+    peer(1, { sent: { getblocktxn: 60 }, recv: { cmpctblock: 9000, blocktxn: 24 + 38000 } }),
+    peer(2, { recv: { cmpctblock: 4000 } }), // a low-bandwidth copy, nothing asked of it
+  ];
+  const r = classify(before, after);
+  assert.equal(r.kind, 'asked');
+  assert.equal(r.missingBytes, 38000);
+  assert.deepEqual(r.askedPeers, ['10.0.0.1:8333']);
+});
+
+test('a block downloaded whole, with no compact block, is told apart', () => {
+  const before = snapshot([peer(1)], 2_000_000);
+  assert.equal(classify(before, [peer(1, { recv: { block: 1_500_000 } })]).kind, 'full');
+});
+
+test('without a snapshot of the block before, or with nothing new, it cannot be told', () => {
+  assert.equal(classify(null, [peer(1, { recv: { cmpctblock: 1 } })]), null);
+  const before = snapshot([peer(1, { recv: { cmpctblock: 5 } })], 2_000_000);
+  assert.equal(classify(before, [peer(1, { recv: { cmpctblock: 5 } })]), null);
+});
+
+test('a connection opened since counts from zero; an older one missing from the snapshot is left out', () => {
+  const before = snapshot([], 2_000_000);
+  const fresh = peer(7, { conntime: 2_100, sent: { getblocktxn: 40 }, recv: { blocktxn: HEADER_BYTES + 100 } });
+  assert.equal(classify(before, [fresh]).kind, 'asked');
+  const old = peer(8, { conntime: 1_000, sent: { getblocktxn: 40 }, recv: { blocktxn: 900 } });
+  assert.equal(classify(before, [old]), null);
+});
+
+test('only the snapshot of the block right before is compared with', () => {
+  const p0 = [peer(1, { recv: { cmpctblock: 100 } })];
+  relay.reconstructionOf(p0, { height: 100 }, 2_000_000);
+  const p1 = [peer(1, { recv: { cmpctblock: 200 } })];
+  assert.equal(relay.reconstructionOf(p1, { height: 101 }, 2_600_000).kind, 'mempool');
+  // 102 never came: 103 is not compared with 101.
+  const p3 = [peer(1, { recv: { cmpctblock: 400 } })];
+  assert.equal(relay.reconstructionOf(p3, { height: 103 }, 3_800_000), null);
+  // Without a header the height is unknown, and so is the next comparison.
+  assert.equal(relay.reconstructionOf(p3, null, 4_000_000), null);
+  assert.equal(relay.reconstructionOf(p3, { height: 104 }, 4_100_000), null);
+});
+
+test('the week counts each kind and averages what was missing when asked', () => {
+  db.instance.prepare(`DELETE FROM relay_observation`).run();
+  db.instance.prepare(`DELETE FROM relay_race`).run();
+  const now = 1_800_000_000_000;
+  const add = (i, recon, bytes, at = now - i * 600_000) => db.instance
+    .prepare(`INSERT INTO relay_race (block_hash, detected_at, recon, recon_missing_bytes) VALUES (?, ?, ?, ?)`)
+    .run(`h${i}`, at, recon, bytes);
+  assert.equal(blocks.reconstructionWeek(now), null);
+  add(1, 'mempool', 0);
+  add(2, 'asked', 30000);
+  add(3, 'asked', 50000);
+  add(4, 'full', null);
+  add(5, null, null); // not told: left out
+  add(6, 'asked', 999999, now - 8 * 24 * 3600 * 1000); // older than a week
+  assert.deepEqual(blocks.reconstructionWeek(now), { blocks: 4, mempool: 1, asked: 2, full: 1, askedAvgBytes: 40000 });
+});
