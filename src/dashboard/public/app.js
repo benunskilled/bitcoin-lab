@@ -1416,6 +1416,11 @@ async function refreshRotation() {
 // thirty lines saying the same said nothing a single line could not.
 const EMPTY_KICK = /^0\/(\d+) recent blocks first$/;
 const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
+// Said plainly: "0/50 recent blocks first" read like a score to work out. A
+// run says only the smallest count - every one of them went at least that
+// long without a block first, and "50–53" was noise.
+const nothingFirst = (blocks) => `nothing first in ${blocks} blocks`;
+const entryNote = (e) => (emptyKick(e) ? nothingFirst(Number(EMPTY_KICK.exec(e.note)[1])) : e.note || '-');
 
 // Peers dropped by hand in a row are one line too, as the empty kicks are.
 const byHand = (e) => e.action === 'disconnect';
@@ -1445,7 +1450,7 @@ function rotationEntryRow(entry, cls = '') {
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
-      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
+      <td class="hint">${escapeHtml(entryNote(entry))}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
     </tr>`;
 }
 
@@ -1467,12 +1472,10 @@ function kickGroupRows(kicks, kind = 'kick') {
     pct = '';
     note = `<td class="hint">by hand${mark}</td>`;
   } else {
-    const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
-    const lo = Math.min(...blocks);
-    const hi = Math.max(...blocks);
+    const lo = Math.min(...kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1])));
     who = `${kicks.length} outbound peers`;
     pct = fmtPct(0);
-    note = `<td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each${mark}</td>`;
+    note = `<td class="hint" title="None of them delivered a block first">${nothingFirst(lo)}${mark}</td>`;
   }
   const head = `
     <tr class="${opens ? 'kick-group' : 'kick-sum'}"${opens ? ` data-group="${oldest.at}" tabindex="0" aria-expanded="${open}"` : ''}>
