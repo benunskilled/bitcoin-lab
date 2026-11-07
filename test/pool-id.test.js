@@ -104,8 +104,10 @@ test('an unknown miner still leaves a readable label', () => {
   // The longest readable fragment wins, and it is capped.
   const long = 'x'.repeat(60);
   assert.equal(poolId.coinbaseLabel(hexOf(long)).length, 32);
-  // A bare UUID is an id, not a name (block 972394).
+  // A UUID is an id, not a name, and the extranonce next to it can look like
+  // text by chance (block 971531 carries "+VAR1").
   assert.equal(poolId.coinbaseLabel('036ae00e0417b0b2' + hexOf('j://85a2d481-1f50-45ce-be3d-a2c4d17cbeb8') + '003331b0'), null);
+  assert.equal(poolId.coinbaseLabel('030bed0e04' + hexOf('j://e965ff8f-b25d-4e53-9429-c6bfefefc3cb') + '00' + hexOf('+VAR1') + '01'), null);
 });
 
 // Pools that run ckpool write "ckpool" too; their own tag has to win.
