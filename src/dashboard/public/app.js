@@ -1533,7 +1533,7 @@ function applyStratumEnabled(enabled) {
 async function refreshPools() {
   // Nothing to ask for while it is off, and nowhere to put the answer.
   if (document.getElementById('stratum-body')?.hidden) return;
-  const range = document.getElementById('stratum-range').value;
+  const range = document.querySelector('#stratum-range button.on')?.dataset.range || '10';
   // First, and on its own: the quick-fill buttons need the templates even if
   // the pool list below fails to load.
   refreshLocalPools();
@@ -2153,7 +2153,16 @@ document.body.addEventListener('change', async (e) => {
     return;
   }
 
-  if (e.target.id === 'stratum-range') refreshPools();
+});
+
+document.getElementById('stratum-range').addEventListener('click', (e) => {
+  const pick = e.target.closest('button[data-range]');
+  if (!pick || pick.classList.contains('on')) return;
+  for (const b of pick.parentElement.children) {
+    b.classList.toggle('on', b === pick);
+    b.setAttribute('aria-pressed', String(b === pick));
+  }
+  refreshPools();
 });
 
 // Background services (peer-profiler, relay-profiler, stratum-race) have no
