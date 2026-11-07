@@ -33,6 +33,11 @@ const TAGS = { ...(pools.coinbase_tags || {}), ...(extra.coinbase_tags || {}) };
 // Longest first: "Foundry USA Pool" has to win against any shorter tag that
 // happens to sit inside the same coinbase.
 const TAG_LIST = Object.keys(TAGS).sort((a, b) => b.length - a.length);
+// Tags are matched as bytes against the raw script, not against
+// coinbaseText(): a few are not ASCII - F2Pool's "🐟", "七彩神仙鱼" - and
+// would never survive the printable-only text. For an ASCII tag it is the
+// same match, since a tag's bytes cannot come out of a non-printable one.
+const TAG_BYTES = TAG_LIST.map((tag) => [tag, Buffer.from(tag, 'utf8')]);
 
 // A display name is the pool's full name minus a trailing word that carries no
 // information - "Foundry USA" is Foundry, "MARA Pool" is MARA. Only a separate
@@ -99,13 +104,12 @@ function identify({ coinbaseHex = '', addresses = [] } = {}) {
     const hit = ADDRESSES[address];
     if (hit) return { name: hit.name, short: shortName(hit.name), source: 'address', tag: null };
   }
-  const text = coinbaseText(coinbaseHex);
-  if (text) {
-    for (const tag of TAG_LIST) {
-      if (text.includes(tag)) {
-        const hit = TAGS[tag];
-        return { name: hit.name, short: shortName(hit.name), source: 'tag', tag };
-      }
+  if (typeof coinbaseHex !== 'string' || !/^[0-9a-fA-F]*$/.test(coinbaseHex) || coinbaseHex.length % 2 !== 0) return null;
+  const script = Buffer.from(coinbaseHex, 'hex');
+  for (const [tag, bytes] of TAG_BYTES) {
+    if (script.includes(bytes)) {
+      const hit = TAGS[tag];
+      return { name: hit.name, short: shortName(hit.name), source: 'tag', tag };
     }
   }
   return null;

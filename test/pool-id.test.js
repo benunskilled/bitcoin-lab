@@ -49,6 +49,16 @@ test('binary bytes do not bridge two fragments', () => {
   assert.match(text, /^Foundry\u0000\u0000USA$/);
 });
 
+// Block 974982: F2Pool paid to an address the list does not know yet, and
+// its only tag is the fish - outside ASCII, so it is matched as bytes.
+test('a tag outside ASCII still identifies the pool', () => {
+  const script = '0386e00e' + Buffer.from('🐟\t/f2pool/m', 'utf8').toString('hex') + '0000';
+  const hit = poolId.identify({ coinbaseHex: script, addresses: ['1K6KoYC69NnafWJ7YgtrpwJxBLiijWqwa6'] });
+  assert.equal(hit.name, 'F2Pool');
+  assert.equal(hit.tag, '🐟');
+  assert.equal(poolId.identify({ coinbaseHex: Buffer.from('七彩神仙鱼', 'utf8').toString('hex') }).name, 'F2Pool');
+});
+
 test('short names drop a trailing filler word and nothing else', () => {
   assert.equal(poolId.shortName('Foundry USA'), 'Foundry');
   assert.equal(poolId.shortName('MARA Pool'), 'MARA');
