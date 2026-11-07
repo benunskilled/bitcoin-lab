@@ -144,3 +144,19 @@ test('the block size comes from the getblock the pool attribution reads anyway',
     Object.assign(rpc, saved);
   }
 });
+
+test('the last hundred blocks: of those, the ones that could be told', () => {
+  db.instance.prepare(`DELETE FROM relay_observation`).run();
+  db.instance.prepare(`DELETE FROM relay_race`).run();
+  const add = (i, recon, bytes) => db.instance
+    .prepare(`INSERT INTO relay_race (block_hash, detected_at, recon, recon_missing_bytes) VALUES (?, ?, ?, ?)`)
+    .run(`l${i}`, 1_000 + i, recon, bytes);
+  assert.equal(blocks.reconstructionLast(), null);
+  add(0, 'asked', 999999); // falls out of the window below
+  for (let i = 1; i <= 97; i++) add(i, 'mempool', 0);
+  add(98, 'asked', 20000);
+  add(99, null, null); // not told
+  add(100, 'asked', 40000);
+  assert.deepEqual(blocks.reconstructionLast(), { blocks: 99, mempool: 97, asked: 2, full: 0, askedAvgBytes: 30000 });
+  assert.equal(blocks.reconstructionLast(3).blocks, 2);
+});

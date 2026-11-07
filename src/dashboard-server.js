@@ -710,6 +710,9 @@ async function router(req, res, pathname, url) {
       // The same over the last day and the last seven days.
       reconDay: queries.reconstructionDay(),
       reconWeek: queries.reconstructionWeek(),
+      // The same over the last hundred blocks, the "typical" window of the
+      // route below; Peer Map reads this one.
+      reconLast100: queries.reconstructionLast(),
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
       routeMedian: queries.routeMedian(),

@@ -371,11 +371,39 @@ function reconstructionOver(windowMs, now = Date.now()) {
   return value;
 }
 
+// The same over the last hundred blocks, the window Peer Map's block card
+// calls "typical" for the route too (ROUTE_MEDIAN_BLOCKS). Of those hundred,
+// the ones that could be told; changes only with a new block.
+let reconLastCache = null;
+function reconstructionLast(n = ROUTE_MEDIAN_BLOCKS) {
+  const head = db.instance.prepare(`SELECT MAX(id) AS id, MAX(CASE WHEN recon IS NOT NULL THEN id END) AS told FROM relay_race`).get();
+  if (!head || head.told == null) return null;
+  const key = `${head.id}:${head.told}:${n}`;
+  if (reconLastCache && reconLastCache.key === key) return reconLastCache.value;
+  const r = db.instance
+    .prepare(
+      `SELECT COUNT(*) AS blocks,
+              SUM(recon = 'mempool') AS mempool,
+              SUM(recon = 'asked') AS asked,
+              SUM(recon = 'full') AS full,
+              AVG(CASE WHEN recon = 'asked' THEN recon_missing_bytes END) AS askedAvgBytes
+         FROM (SELECT recon, recon_missing_bytes FROM relay_race ORDER BY id DESC LIMIT ?)
+        WHERE recon IS NOT NULL`,
+    )
+    .get(n);
+  const value = r.blocks
+    ? { blocks: r.blocks, mempool: r.mempool, asked: r.asked, full: r.full,
+        askedAvgBytes: r.askedAvgBytes == null ? null : Math.round(r.askedAvgBytes) }
+    : null;
+  reconLastCache = { key, value };
+  return value;
+}
+
 const reconstructionDay = (now) => reconstructionOver(RECON_DAY_MS, now);
 const reconstructionWeek = (now) => reconstructionOver(RECON_WEEK_MS, now);
 
 module.exports = {
-  reconstructionDay, reconstructionWeek,
+  reconstructionDay, reconstructionWeek, reconstructionLast,
   latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, unclearFirsts, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };
