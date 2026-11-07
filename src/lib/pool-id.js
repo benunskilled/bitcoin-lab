@@ -122,6 +122,10 @@ function identify({ coinbaseHex = '', addresses = [] } = {}) {
 // such, never as a pool name - it is neither verified nor unique.
 const LABEL_MIN = 4;
 const LABEL_MAX = 32;
+// Some miners write a fresh UUID per block and no name at all ("://<uuid>",
+// 118 blocks to one address since 873376). That is an id, not a label, and
+// the byte in front of it only looks like a letter by chance.
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 function coinbaseLabel(hex) {
   const parts = coinbaseText(hex)
@@ -133,6 +137,7 @@ function coinbaseLabel(hex) {
     if (part.length < LABEL_MIN) continue;
     // Numbers alone are the block height and the extranonce, not a name.
     if (!/[A-Za-z]/.test(part)) continue;
+    if (UUID.test(part)) continue;
     if (!best || part.length > best.length) best = part;
   }
   if (!best) return null;

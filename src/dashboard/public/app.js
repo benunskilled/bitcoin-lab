@@ -637,20 +637,23 @@ function setBlockHeight(height) {
 // Who mined the block that just landed. Three states, and the difference
 // matters: a pool we recognise gets its name, an unknown miner gets the
 // text he wrote into his own coinbase (in quotes, so it never reads as a name
-// we are vouching for), and a block that says neither shows nothing at all.
+// we are vouching for), and a block that says neither reads Unknown - as on
+// mempool.space - once its coinbase has been read.
 function setBlockPool(race) {
   const el = document.getElementById('block-pool');
   if (!el) return;
   const known = race && race.pool;
   const raw = race && !known && race.poolTag ? race.poolTag : null;
+  const unknown = race && !known && !raw && race.poolSource === 'none';
   el.classList.toggle('raw', Boolean(raw));
   el.textContent = '';
-  if (known || raw) {
+  if (known || raw || unknown) {
     const name = document.createElement('b');
-    name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
+    name.textContent = known ? (race.poolName || race.pool) : raw ? `"${raw}"` : 'Unknown';
     el.append('mined by ', name);
     el.title = known ? `Mined by ${race.poolName || race.pool}, from the block's coinbase`
-      : 'No pool we know of. This is the text the miner wrote into the block.';
+      : raw ? 'No pool we know of. This is the text the miner wrote into the block.'
+        : 'No pool we know of, and no name in the block.';
   } else {
     el.removeAttribute('title');
     // A new block comes without its pool: the coinbase is read a few seconds
@@ -659,7 +662,7 @@ function setBlockPool(race) {
     // (iPhone, 04.11.2026).
     if (!el.hidden) el.textContent = '\u00a0';
   }
-  if (known || raw) el.hidden = false;
+  if (known || raw || unknown) el.hidden = false;
 }
 
 function triggerBlockWave() {
