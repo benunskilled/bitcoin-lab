@@ -75,8 +75,11 @@ function classify(before, peers) {
     const missing = Math.max(...asked.map((x) => Math.max(0, x.blocktxn - HEADER_BYTES)));
     return { kind: 'asked', missingBytes: missing, askedPeers: asked.map((x) => x.addr) };
   }
-  if (d.some((x) => x.cmpctblock > 0)) return { kind: 'mempool', missingBytes: 0, askedPeers: [] };
+  // A whole block is the stronger sign: near the tip Core only downloads one when the compact block did not
+  // work (no compact relay, or a rebuild that failed), and the slower of up to three high-bandwidth peers can
+  // send their cmpctblock after the snapshot, so a compact block alone may belong to the block before.
   if (d.some((x) => x.block > 0)) return { kind: 'full', missingBytes: null, askedPeers: [] };
+  if (d.some((x) => x.cmpctblock > 0)) return { kind: 'mempool', missingBytes: 0, askedPeers: [] };
   return null;
 }
 

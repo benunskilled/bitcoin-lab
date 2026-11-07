@@ -57,6 +57,12 @@ test('a block downloaded whole, with no compact block, is told apart', () => {
   assert.equal(classify(before, [peer(1, { recv: { block: 1_500_000 } })]).kind, 'full');
 });
 
+test('a whole block counts as downloaded whole even with a late compact block beside it', () => {
+  const before = snapshot([peer(1), peer(2)], 2_000_000);
+  const after = [peer(1, { recv: { cmpctblock: 9000 } }), peer(2, { recv: { block: 1_500_000 } })];
+  assert.equal(classify(before, after).kind, 'full');
+});
+
 test('without a snapshot of the block before, or with nothing new, it cannot be told', () => {
   assert.equal(classify(null, [peer(1, { recv: { cmpctblock: 1 } })]), null);
   const before = snapshot([peer(1, { recv: { cmpctblock: 5 } })], 2_000_000);

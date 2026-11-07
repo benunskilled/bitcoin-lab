@@ -344,7 +344,10 @@ function reconstructionOf(peers, header, detectedAtMs) {
 // A block that arrives first wins: its snapshot is newer.
 async function takeStartSnapshot(atMs = Date.now()) {
   try {
-    const [peers, chain] = await Promise.all([rpc.getPeerInfo(), rpc.getBlockchainInfo()]);
+    // The height first, then the counters: a block connecting in between is then counted in the next
+    // comparison, never in this snapshot under the height before it.
+    const chain = await rpc.getBlockchainInfo();
+    const peers = await rpc.getPeerInfo();
     if (lastSnapshot || !chain || !Number.isInteger(chain.blocks)) return;
     lastSnapshot = { ...reconstruction.snapshot(peers, atMs), height: chain.blocks };
   } catch (err) {
