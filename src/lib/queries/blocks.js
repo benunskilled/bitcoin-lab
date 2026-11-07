@@ -370,7 +370,7 @@ function reconstructionOver(windowMs, now = Date.now()) {
               SUM(recon = 'asked') AS asked,
               SUM(recon = 'full') AS full,
               AVG(CASE WHEN recon = 'asked' THEN recon_missing_bytes END) AS askedAvgBytes
-         FROM relay_race WHERE recon IS NOT NULL AND detected_at >= ?`,
+         FROM relay_race WHERE recon IN ('mempool', 'asked', 'full') AND detected_at >= ?`,
     )
     .get(now - windowMs);
   const value = r.blocks
@@ -398,7 +398,9 @@ function reconstructionLast(n = ROUTE_MEDIAN_BLOCKS) {
               SUM(recon = 'full') AS full,
               AVG(CASE WHEN recon = 'asked' THEN recon_missing_bytes END) AS askedAvgBytes
          FROM (SELECT recon, recon_missing_bytes FROM relay_race ORDER BY id DESC LIMIT ?)
-        WHERE recon IS NOT NULL`,
+        -- An unclear block is left out like an unmeasured one: it is in
+        -- neither share, so the shares still add up to the blocks counted.
+        WHERE recon IN ('mempool', 'asked', 'full')`,
     )
     .get(n);
   const value = r.blocks

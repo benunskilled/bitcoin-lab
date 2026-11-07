@@ -700,7 +700,8 @@ async function router(req, res, pathname, url) {
       firstPingMs: race.firstPingMs ?? null,
       // How Core rebuilt it from the compact block: 'mempool' (nothing
       // missing), 'asked' (it asked a peer for missing transactions;
-      // reconMissingBytes is what came back) or 'full' (downloaded whole).
+      // reconMissingBytes is what came back), 'full' (downloaded whole) or
+      // 'unclear' (both at once - lib/reconstruction.js).
       // null where it could not be told, and on older blocks.
       recon: race.recon ?? null,
       reconMissingBytes: race.reconMissingBytes ?? null,
