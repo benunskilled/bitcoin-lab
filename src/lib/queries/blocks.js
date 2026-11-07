@@ -8,7 +8,7 @@ const prevhash = require('../prevhash');
 const RACE_COLUMNS = `id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
   pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
   template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs,
-  recon, recon_missing_bytes AS reconMissingBytes`;
+  recon, recon_missing_bytes AS reconMissingBytes, block_size AS blockSize`;
 
 // The peers credited with First for one block, with their trusted label.
 function firstPeersOf(raceId) {

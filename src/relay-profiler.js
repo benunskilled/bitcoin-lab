@@ -193,8 +193,10 @@ async function attributePool(raceId, blockHash) {
   let name = null;
   let tag = null;
   let source = 'none';
+  let size = null;
   try {
     const block = await rpc.getBlock(blockHash, 1);
+    if (Number.isInteger(block.size)) size = block.size;
     const coinbaseTxid = Array.isArray(block.tx) ? block.tx[0] : null;
     if (!coinbaseTxid) return;
     const tx = await rpc.getRawTransaction(coinbaseTxid, blockHash);
@@ -216,8 +218,8 @@ async function attributePool(raceId, blockHash) {
   }
   try {
     db.instance
-      .prepare(`UPDATE relay_race SET pool_name = ?, pool_tag = ?, pool_source = ? WHERE id = ?`)
-      .run(name, tag, source, raceId);
+      .prepare(`UPDATE relay_race SET pool_name = ?, pool_tag = ?, pool_source = ?, block_size = COALESCE(?, block_size) WHERE id = ?`)
+      .run(name, tag, source, size, raceId);
     logger.debug('block attributed', { blockHash, pool: name || tag, source });
   } catch (err) {
     logger.warn('could not record the pool (non-critical)', { blockHash, error: err.message });
@@ -507,5 +509,5 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  recordRace, handleHashBlock, main, reconstructionOf, takeStartSnapshot, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
+  recordRace, handleHashBlock, main, reconstructionOf, takeStartSnapshot, attributePool, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
 };

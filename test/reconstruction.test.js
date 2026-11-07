@@ -41,6 +41,17 @@ test('getblocktxn going out means Core asked; blocktxn coming back is what was m
   assert.deepEqual(r.askedPeers, ['10.0.0.1:8333']);
 });
 
+test('two peers asked for the same transactions count once: the largest answer', () => {
+  const before = snapshot([peer(1), peer(2)], 2_000_000);
+  const after = [
+    peer(1, { sent: { getblocktxn: 60 }, recv: { cmpctblock: 9000, blocktxn: HEADER_BYTES + 40000 } }),
+    peer(2, { sent: { getblocktxn: 60 }, recv: { cmpctblock: 9000, blocktxn: HEADER_BYTES + 39000 } }),
+  ];
+  const r = classify(before, after);
+  assert.equal(r.missingBytes, 40000);
+  assert.deepEqual(r.askedPeers, ['10.0.0.1:8333', '10.0.0.2:8333']);
+});
+
 test('a block downloaded whole, with no compact block, is told apart', () => {
   const before = snapshot([peer(1)], 2_000_000);
   assert.equal(classify(before, [peer(1, { recv: { block: 1_500_000 } })]).kind, 'full');
@@ -111,4 +122,19 @@ test('the day and the week count each kind and averages what was missing when as
   add(7, 'mempool', 0, now - 2 * 24 * 3600 * 1000);
   assert.equal(blocks.reconstructionDay(now + 60_000).blocks, 4);
   assert.equal(blocks.reconstructionWeek(now + 60_000).blocks, 5);
+});
+
+test('the block size comes from the getblock the pool attribution reads anyway', async () => {
+  const rpc = require('../src/lib/rpc');
+  const saved = { getBlock: rpc.getBlock, getRawTransaction: rpc.getRawTransaction };
+  rpc.getBlock = async () => ({ size: 1_163_355, tx: ['cb'] });
+  rpc.getRawTransaction = async () => ({ vin: [{ coinbase: '' }], vout: [] });
+  try {
+    const { lastInsertRowid } = db.instance
+      .prepare(`INSERT INTO relay_race (block_hash, detected_at) VALUES ('sized', 1)`).run();
+    await relay.attributePool(lastInsertRowid, 'sized');
+    assert.equal(db.instance.prepare(`SELECT block_size AS s FROM relay_race WHERE id = ?`).get(lastInsertRowid).s, 1_163_355);
+  } finally {
+    Object.assign(rpc, saved);
+  }
 });

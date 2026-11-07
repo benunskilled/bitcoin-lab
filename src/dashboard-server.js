@@ -704,6 +704,9 @@ async function router(req, res, pathname, url) {
       // null where it could not be told, and on older blocks.
       recon: race.recon ?? null,
       reconMissingBytes: race.reconMissingBytes ?? null,
+      // The block's size in bytes, to read reconMissingBytes as a share of
+      // it. Known once the pool is attributed, a moment after the block.
+      blockSize: race.blockSize ?? null,
       // The same over the last day and the last seven days.
       reconDay: queries.reconstructionDay(),
       reconWeek: queries.reconstructionWeek(),

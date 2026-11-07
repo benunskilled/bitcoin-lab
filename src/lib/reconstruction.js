@@ -69,7 +69,10 @@ function classify(before, peers) {
   const d = deltas(before, peers);
   const asked = d.filter((x) => x.getblocktxn > 0);
   if (asked.length) {
-    const missing = asked.reduce((sum, x) => sum + Math.max(0, x.blocktxn - HEADER_BYTES), 0);
+    // Core can ask more than one peer for the same missing transactions (one
+    // per compact block in flight), and each answers with the same set: the
+    // largest single answer is what was missing, a sum would count it twice.
+    const missing = Math.max(...asked.map((x) => Math.max(0, x.blocktxn - HEADER_BYTES)));
     return { kind: 'asked', missingBytes: missing, askedPeers: asked.map((x) => x.addr) };
   }
   if (d.some((x) => x.cmpctblock > 0)) return { kind: 'mempool', missingBytes: 0, askedPeers: [] };
