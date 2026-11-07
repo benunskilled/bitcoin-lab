@@ -1480,7 +1480,7 @@ function kickGroupRows(kicks, kind = 'kick') {
   const head = `
     <tr class="${opens ? 'kick-group' : 'kick-sum'}"${opens ? ` data-group="${oldest.at}" tabindex="0" aria-expanded="${open}"` : ''}>
       <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
-      <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))} ×${kicks.length}</span></td>
+      <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))}</span></td>
       <td>${who}</td>
       <td>${pct}</td>
       ${note}
