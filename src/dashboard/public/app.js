@@ -915,7 +915,7 @@ let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 // The rotation log is a diary, and a diary is mostly interesting at the end.
 // Fifty rows is half a screenful nobody asked for, so only the most recent few
 // are shown until someone wants the rest.
-const ROTATION_LOG_LIMIT = 5;
+const ROTATION_LOG_LIMIT = 4;
 let showAllRotationLog = false; // toggled by #rotation-log-limit-toggle
 // A reload keeps what was opened, like the scroll position: "Show all" stays.
 const OPENED_KEY = 'opened:' + location.pathname;
@@ -1453,25 +1453,29 @@ function kickGroupRows(kicks, kind = 'kick') {
   const now = Date.now();
   const newest = kicks[0];
   const oldest = kicks[kicks.length - 1];
-  const open = openKickGroups.has(oldest.at);
+  // Only peers dropped by hand open up: who they were is worth a look. A run
+  // of empty kicks stays one line - the log keeps a thousand entries, and the
+  // peers in it are interchangeable, which is the whole point of the kick.
+  const opens = kind === 'disconnect';
+  const open = opens && openKickGroups.has(oldest.at);
   const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
-  const mark = `<span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>`;
+  const mark = opens ? ` <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>` : '';
   let who, pct, note;
   if (kind === 'disconnect') {
     // Their records differ, so the line names only what they share.
     who = `${kicks.length} peers`;
     pct = '';
-    note = `<td class="hint">by hand ${mark}</td>`;
+    note = `<td class="hint">by hand${mark}</td>`;
   } else {
     const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
     const lo = Math.min(...blocks);
     const hi = Math.max(...blocks);
     who = `${kicks.length} outbound peers`;
     pct = fmtPct(0);
-    note = `<td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each ${mark}</td>`;
+    note = `<td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each${mark}</td>`;
   }
   const head = `
-    <tr class="kick-group" data-group="${oldest.at}" tabindex="0" aria-expanded="${open}">
+    <tr class="${opens ? 'kick-group' : 'kick-sum'}"${opens ? ` data-group="${oldest.at}" tabindex="0" aria-expanded="${open}"` : ''}>
       <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
       <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))} ×${kicks.length}</span></td>
       <td>${who}</td>

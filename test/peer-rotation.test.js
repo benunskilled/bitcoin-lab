@@ -866,12 +866,18 @@ test('REGRESSION: a parked peer cannot evict a freshly added one, which is what 
   assert.equal(db.instance.prepare('SELECT probe_failures AS f FROM parked_peer WHERE address = ?').get(parked).f, 0);
 });
 
-test('the rotation log never holds more than it can show', async () => {
+test('the rotation log never holds more than it can show', async (t) => {
   // Nothing is kept that is not shown: the table is trimmed on every write to
   // exactly the number the dashboard offers behind "Show all", so there is no
   // retention window to reason about and no way for a misbehaving loop to
   // leave tens of thousands of rows behind before anyone notices.
-  const limit = require('../src/lib/config').rotationLogEntries;
+  // A small limit stands in for the real one: the trimming is the same at any
+  // size, and filling a thousand rows only makes the suite slow.
+  const cfg = require('../src/lib/config');
+  const saved = cfg.rotationLogEntries;
+  cfg.rotationLogEntries = 30;
+  t.after(() => { cfg.rotationLogEntries = saved; });
+  const limit = cfg.rotationLogEntries;
 
   for (let i = 0; i < limit + 15; i += 1) {
     peerRotation.logAction({ action: 'kick', address: `198.51.100.${i}:8333`, firstPct: 0, eligible: 144, note: `entry ${i}` });
@@ -927,12 +933,15 @@ test('the funnel ignores inbound peers', () => {
   assert.equal(f.delivered, 1);
 });
 
-test('promotions are remembered after the rotation log has been trimmed away', async () => {
+test('promotions are remembered after the rotation log has been trimmed away', async (t) => {
   const address = seedLivePeer({ eligible: 300, first: 100 });
   await peerRotation.promoteBestCandidate(ranking());
   assert.equal(queries.outboundFunnel().promoted, 1);
 
-  // Push the promotion out of the thirty rows the log keeps.
+  // Push the promotion out of the rows the log keeps (a small limit, as above).
+  const saved = config.rotationLogEntries;
+  config.rotationLogEntries = 30;
+  t.after(() => { config.rotationLogEntries = saved; });
   for (let i = 0; i < config.rotationLogEntries + 5; i += 1) {
     seedLivePeer({ eligible: 300, first: 0 });
     await peerRotation.kickDeadWeight(ranking());
