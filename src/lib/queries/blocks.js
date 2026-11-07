@@ -200,8 +200,12 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
     )
     .all(limit);
 
-  const core = [], peer = [], template = [], own = [], tx = [];
-  let ownLabel = null;
+  const core = [], peer = [], template = [], tx = [];
+  // Per own pool, not the fastest own pool of each block: with two of them
+  // that was a median of whichever won, shown under one pool's name - a
+  // number neither pool ever had. The route shows the own pool measured in
+  // the most of these blocks, and only its times.
+  const ownPools = new Map();
   for (const r of races) {
     const race = stratumForBlock(r.blockHash);
     if (!race || !race.createdAt) continue;
@@ -210,12 +214,18 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
     if (r.firstPingMs != null) peer.push(c - r.firstPingMs);
     if (r.templateMs != null) template.push(c + r.templateMs);
     if (r.templateTx != null) tx.push(r.templateTx);
-    const mine = race.entries.find((e) => e.own && e.latencyMs != null);
-    if (mine) {
-      own.push(mine.latencyMs);
-      ownLabel = ownLabel || mine.label;
+    for (const e of race.entries) {
+      if (!e.own || e.latencyMs == null) continue;
+      const k = `${e.host}:${e.port}`;
+      if (!ownPools.has(k)) ownPools.set(k, { label: e.label, ms: [] });
+      ownPools.get(k).ms.push(e.latencyMs);
     }
   }
+  // Ties go to the pool met first, which is the one in the newest block.
+  let ownPool = null;
+  for (const p of ownPools.values()) if (!ownPool || p.ms.length > ownPool.ms.length) ownPool = p;
+  const own = ownPool ? ownPool.ms : [];
+  const ownLabel = ownPool ? ownPool.label : null;
   const stop = (xs) => (xs.length ? { ms: median(xs), n: xs.length } : null);
   const value = core.length
     ? { blocks: core.length, core: stop(core), peer: stop(peer), template: stop(template), own: stop(own), tx: stop(tx), ownLabel }

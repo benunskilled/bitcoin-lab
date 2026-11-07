@@ -382,10 +382,49 @@ test('a flood of made-up prevhashes cannot open unlimited races', () => {
   }
 
   assert.equal(race.openRaces.size, 10, 'the cap holds');
+  race.finalizeAllRaces();
   const opened = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n;
   assert.equal(opened, 10, 'and nothing past it reached the database');
+});
 
+// An outside review held another connection's write lock for one second while
+// two pools sent their jobs 21 ms apart, and the race stored 1,033 ms: the
+// write inside the first pool's handler stood the event loop still, and the
+// second pool's data event was stamped when it came back. Nothing may touch
+// the database while a race is open.
+test('an open race writes nothing, so a locked database cannot delay a timestamp', () => {
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+  const Database = require('better-sqlite3');
+  const other = new Database(process.env.SQLITE_PATH);
+  other.prepare('BEGIN IMMEDIATE').run();
+  const before = db.instance.pragma('busy_timeout', { simple: true });
+  db.instance.pragma('busy_timeout = 1000');
+  try {
+    const t0 = hr();
+    const start = Date.now();
+    race.handleNotify(a, prevhash(77), t0);
+    race.handleNotify(b, prevhash(77), t0 + 21_000_000n);
+    assert.ok(Date.now() - start < 200, 'neither notify waited for the lock');
+  } finally {
+    other.prepare('COMMIT').run();
+    other.close();
+    db.instance.pragma(`busy_timeout = ${before}`);
+  }
+  race.finalizeRace(prevhash(77));
+  const rows = observationsFor(prevhash(77));
+  assert.deepEqual(rows.map((r) => r.latencyMs), [0, 21]);
+});
+
+// Switching the race off mid-race charges nobody a miss, but what really did
+// report is kept - it was measured on a connection that was listening.
+test('an abandoned race keeps its reports and records no misses', () => {
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+  race.handleNotify(a, prevhash(78), hr());
   race.abandonOpenRaces();
+  const rows = observationsFor(prevhash(78));
+  assert.deepEqual(rows.map((r) => [r.poolId, r.latencyMs]), [[1, 0]]);
 });
 
 test('the same prevhash in another spelling joins the race instead of opening a second one', () => {

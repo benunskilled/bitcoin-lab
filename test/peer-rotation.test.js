@@ -1329,6 +1329,47 @@ test('two adds at the same moment cannot take the manual set past its limit', as
   assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
 });
 
+// Both found by an outside review. The peer being replaced was chosen before
+// the RPCs and removed after them, so in between another swap could free the
+// same slot (both then wrote their row) or the padlock could go on it.
+test('two swaps that chose the same peer to replace cannot both take its slot', async () => {
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const holder = ranking().find((p) => p.address === weak);
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  const results = await Promise.all([
+    peerSync.addTrustedPeer('198.51.100.221:8333', null, { replace: holder }),
+    peerSync.addTrustedPeer('198.51.100.222:8333', null, { replace: holder }),
+  ]);
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+  assert.deepEqual(results.map((r) => r.ok).sort(), [false, true]);
+  const loser = results[0].ok ? '198.51.100.222:8333' : '198.51.100.221:8333';
+  assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
+});
+
+test('a swap does not remove a peer that got its padlock while the swap was waiting', async () => {
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const holder = ranking().find((p) => p.address === weak);
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    // The padlock goes on while Core is being asked.
+    if (cmd === 'add') peerSync.setKept(weak, true);
+  });
+
+  const result = await peerSync.addTrustedPeer('198.51.100.223:8333', null, { replace: holder });
+
+  assert.equal(result.ok, false);
+  const kept = db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(weak);
+  assert.equal(kept && kept.kept, 1, 'the locked peer keeps its slot');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+});
+
 test('a swap whose addnode Core refuses leaves the weakest manual peer where it was', async () => {
   // The weakest was removed first and the challenger added after; when Core
   // refused the challenger, the slot was simply empty.
