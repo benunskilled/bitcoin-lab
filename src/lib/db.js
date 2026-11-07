@@ -659,6 +659,26 @@ function runMigrations() {
       if (!existing.has('hb_from')) db.prepare(`ALTER TABLE peer_session ADD COLUMN hb_from INTEGER`).run();
     });
 
+    // How each block was rebuilt from its compact form: from the mempool alone,
+    // after asking for missing transactions (and how many bytes came back), or
+    // downloaded whole. NULL where it could not be told - see reconstruction.js.
+    migrate('relay_race_reconstruction_v2_4_0', 'recorded whether Core had to ask for missing transactions', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      if (!existing.has('recon')) db.prepare(`ALTER TABLE relay_race ADD COLUMN recon TEXT`).run();
+      if (!existing.has('recon_missing_bytes')) db.prepare(`ALTER TABLE relay_race ADD COLUMN recon_missing_bytes INTEGER`).run();
+    });
+
+    // The block's size in bytes, from the getblock the pool attribution reads
+    // anyway: what share of the block had to be asked for.
+    migrate('relay_race_block_size_v2_4_0', 'recorded each block\'s size', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      if (!existing.has('block_size')) db.prepare(`ALTER TABLE relay_race ADD COLUMN block_size INTEGER`).run();
+    });
+
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),

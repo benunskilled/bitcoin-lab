@@ -7,7 +7,8 @@ const prevhash = require('../prevhash');
 // One block as the page reads it, from relay_race.
 const RACE_COLUMNS = `id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
   pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
-  template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs`;
+  template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs,
+  recon, recon_missing_bytes AS reconMissingBytes, block_size AS blockSize`;
 
 // The peers credited with First for one block, with their trusted label.
 function firstPeersOf(raceId) {
@@ -336,7 +337,45 @@ function attributionHealth() {
   };
 }
 
+// How blocks were rebuilt over the last day and week (see
+// lib/reconstruction.js): of the blocks it could be told for, how many came
+// together from the mempool alone, how many needed missing transactions asked
+// for and what came back on average, how many were downloaded whole. null
+// before the first such block in the window.
+const RECON_DAY_MS = 24 * 60 * 60 * 1000;
+const RECON_WEEK_MS = 7 * RECON_DAY_MS;
+const reconCache = new Map();
+
+function reconstructionOver(windowMs, now = Date.now()) {
+  const head = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race WHERE recon IS NOT NULL`).get();
+  if (!head || head.id == null) return null;
+  // The window moves with the clock as well, so the key holds the minute too.
+  const key = `${head.id}:${Math.floor(now / 60000)}`;
+  const hit = reconCache.get(windowMs);
+  if (hit && hit.key === key) return hit.value;
+  const r = db.instance
+    .prepare(
+      `SELECT COUNT(*) AS blocks,
+              SUM(recon = 'mempool') AS mempool,
+              SUM(recon = 'asked') AS asked,
+              SUM(recon = 'full') AS full,
+              AVG(CASE WHEN recon = 'asked' THEN recon_missing_bytes END) AS askedAvgBytes
+         FROM relay_race WHERE recon IS NOT NULL AND detected_at >= ?`,
+    )
+    .get(now - windowMs);
+  const value = r.blocks
+    ? { blocks: r.blocks, mempool: r.mempool, asked: r.asked, full: r.full,
+        askedAvgBytes: r.askedAvgBytes == null ? null : Math.round(r.askedAvgBytes) }
+    : null;
+  reconCache.set(windowMs, { key, value });
+  return value;
+}
+
+const reconstructionDay = (now) => reconstructionOver(RECON_DAY_MS, now);
+const reconstructionWeek = (now) => reconstructionOver(RECON_WEEK_MS, now);
+
 module.exports = {
+  reconstructionDay, reconstructionWeek,
   latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, unclearFirsts, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };

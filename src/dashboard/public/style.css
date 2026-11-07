@@ -99,10 +99,11 @@ main {
   border-radius: 14px;
   padding: 18px 20px;
 }
-/* The panels re-render every few seconds. Safari anchors the scroll position
-   to something inside them, and when that is replaced it re-anchors and throws
-   the reader somewhere else on the page - so they take no part in anchoring. */
-.card { overflow-anchor: none; }
+/* The panels re-render every few seconds and keepPlace in app.js holds the
+   reader's place. Browsers anchor the scroll position on their own too (Chrome,
+   Firefox, Safari from 27), and two corrections for one change throw the reader
+   somewhere else - so nothing on the page takes part in anchoring. */
+body { overflow-anchor: none; }
 
 .card h2 {
   margin: 0 0 14px;

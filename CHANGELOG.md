@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.4.0 – 2026-11-07
+
+Bitcoin Lab now records how your node put each block together: straight from its mempool, after asking a peer for missing transactions (and how much was missing), or downloaded whole, also as a share over the last day and week. Peer Map shows it on its block card. Changes to your node are only taken through Umbrel's own login, so another app on the same Umbrel can no longer change anything. The page no longer jumps while you read.
+
 ## 2.3.0 – 2026-11-06
 
 A peer you disconnect by hand now gets a line in the rotation log. Only the newest block's peers are tinted orange, the block wave runs evenly across the page, and the tab and home-screen icon is now the store icon. A request line that is no URL no longer stops the dashboard, Stratum Race takes at most 20 pools, and the pool login no longer carries the app's name.
