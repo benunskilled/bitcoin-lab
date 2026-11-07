@@ -1420,7 +1420,20 @@ const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
 // run says only the smallest count - every one of them went at least that
 // long without a block first, and "50–53" was noise.
 const nothingFirst = (blocks) => `nothing first in ${blocks} blocks`;
-const entryNote = (e) => (emptyKick(e) ? nothingFirst(Number(EMPTY_KICK.exec(e.note)[1])) : e.note || '-');
+// A peer dropped by hand, said the same way. The stored note keeps its old
+// form ("by hand · inbound · 3/40 recent blocks first"), so older lines read
+// the new way too.
+const BY_HAND = /^by hand((?: · (?:inbound|outbound))?) · (\d+)\/(\d+) recent blocks first$/;
+function byHandNote(note) {
+  const m = BY_HAND.exec(note);
+  if (!m) return note;
+  const first = Number(m[2]);
+  const blocks = Number(m[3]);
+  const record = blocks === 0 ? 'no blocks yet' : first === 0 ? nothingFirst(blocks) : `${first} of ${blocks} blocks first`;
+  return `by hand${m[1]} · ${record}`;
+}
+const entryNote = (e) => (emptyKick(e) ? nothingFirst(Number(EMPTY_KICK.exec(e.note)[1]))
+  : e.action === 'disconnect' ? byHandNote(e.note || '') : e.note || '-');
 
 // Peers dropped by hand in a row are one line too, as the empty kicks are.
 const byHand = (e) => e.action === 'disconnect';
