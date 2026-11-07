@@ -854,12 +854,19 @@ async function router(req, res, pathname, url) {
                     LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
         .get(address);
       const recent = peer && recentRelayStats().get(peer.id);
+      // Which way the connection went, from its newest session: dropping a
+      // stranger that dialled in is a different decision from dropping one of
+      // Core's own outbound picks, and the log could not tell them apart.
+      const session = peer && db.instance
+        .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
+        .get(peer.id);
+      const way = session && /^(inbound|outbound)$/.test(session.direction) ? ` · ${session.direction}` : '';
       peerRotation.logAction({
         action: 'disconnect',
         address,
         firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
         eligible: peer ? peer.eligible : null,
-        note: `by hand · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
+        note: `by hand${way} · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
       });
     } catch (err) {
       logger.warn('rotation log entry for a disconnect failed', { address, error: err.message });

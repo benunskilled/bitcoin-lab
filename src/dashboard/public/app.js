@@ -1473,7 +1473,7 @@ function kickGroupRows(kicks, kind = 'kick') {
     note = `<td class="hint">by hand${mark}</td>`;
   } else {
     const lo = Math.min(...kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1])));
-    who = `${kicks.length} outbound peers`;
+    who = `${kicks.length} peers`;
     pct = fmtPct(0);
     note = `<td class="hint" title="None of them delivered a block first">${nothingFirst(lo)}${mark}</td>`;
   }

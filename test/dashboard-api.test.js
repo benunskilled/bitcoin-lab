@@ -409,6 +409,27 @@ test('a peer disconnected by hand is in the rotation log, with its recent record
   }
 });
 
+test('a peer disconnected by hand says whether it had dialled in or was dialled', async () => {
+  const rpc = require('../src/lib/rpc');
+  const { mock } = require('node:test');
+  const disconnect = mock.method(rpc, 'disconnectNode', async () => {});
+  try {
+    for (const [address, direction] of [['203.0.113.89:50123', 'inbound'], ['203.0.113.90:8333', 'outbound']]) {
+      const peer = db.getOrCreatePeer(address);
+      db.instance
+        .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, NULL)')
+        .run(peer.id, direction, direction === 'inbound' ? 'inbound' : 'outbound-full-relay', Date.now() - 60000);
+      // eslint-disable-next-line no-await-in-loop
+      await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
+      const row = db.instance.prepare("SELECT note FROM rotation_log WHERE action = 'disconnect' AND address = ?").get(address);
+      assert.equal(row.note, `by hand · ${direction} · 0/0 recent blocks first`);
+    }
+  } finally {
+    disconnect.mock.restore();
+    db.instance.prepare("DELETE FROM rotation_log WHERE action = 'disconnect'").run();
+  }
+});
+
 test('a refused disconnect leaves no line in the rotation log', async () => {
   const rpc = require('../src/lib/rpc');
   const { mock } = require('node:test');
