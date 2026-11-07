@@ -425,34 +425,47 @@ let lastScrollY = window.scrollY;
 // was only looking. When a peer moves, another one stands in its place; the
 // list does not move. Every change goes through here: new data, a card
 // folded, a row opened (the observer below also watches those classes).
+//
+// Headings and tables are found again by name, not by their number on the
+// page (06.11.2026): with all peers shown, a reader near the top of the
+// ranking was thrown 36,000 px down to Traffic on a refresh, because "the
+// nth heading" or "table n" had come to mean another one further down. A
+// heading's name is its own text, without the counts in its hint.
 const PLACE_SELECTOR = 'h2, h3, .table-wrap tbody tr';
 let placeMarks = [];
+let placePageHeight = 0;
+const headName = (h) => (h.firstChild && h.firstChild.textContent || '').trim();
 function notePlace() {
   placeMarks = [];
+  placePageHeight = document.documentElement.scrollHeight;
   if (window.scrollY <= 0) return;
-  const tables = [...document.querySelectorAll('.table-wrap table')];
-  const heads = [...document.querySelectorAll('h2, h3')];
   for (const e of document.querySelectorAll(PLACE_SELECTOR)) {
     const r = e.getBoundingClientRect();
     if (r.height === 0 || r.bottom <= 0) continue;
     if (r.top >= window.innerHeight) break;
-    const key = e.tagName === 'TR'
-      ? [tables.indexOf(e.closest('table')), [...e.parentNode.children].indexOf(e)]
-      : [-1, heads.indexOf(e)];
+    const table = e.tagName === 'TR' && e.closest('table');
+    if (table && !table.id) continue;
+    const key = table ? [table.id, [...e.parentNode.children].indexOf(e)] : [null, headName(e)];
+    if (!table && !key[1]) continue;
     placeMarks.push({ key, top: r.top });
     if (placeMarks.length === 3) break;
   }
 }
-function findPlace([table, i]) {
-  if (table < 0) return document.querySelectorAll('h2, h3')[i];
-  return document.querySelectorAll('.table-wrap table')[table]?.tBodies[0]?.children[i];
+function findPlace([table, which]) {
+  if (table) return document.getElementById(table)?.tBodies[0]?.children[which];
+  return [...document.querySelectorAll('h2, h3')].find((h) => headName(h) === which);
 }
-// Back where it was, by the first of the noted elements still there.
+// Back where it was, by the first of the noted elements still there. Content
+// above the reader can only push it down as far as the page has grown, give or
+// take what moved around it: a move far beyond that found the wrong element,
+// and is not made.
 function keepPlace() {
+  const grown = document.documentElement.scrollHeight - placePageHeight;
   for (const { key, top } of placeMarks) {
     const e = findPlace(key);
     if (!e || e.getBoundingClientRect().height === 0) continue;
     const d = e.getBoundingClientRect().top - top;
+    if (Math.abs(d) > Math.abs(grown) + window.innerHeight / 2) continue;
     if (Math.abs(d) >= 1) window.scrollBy(0, d);
     return true;
   }
@@ -477,7 +490,10 @@ new MutationObserver((list) => {
   // meant, and putting the old position back would undo it.
   const anchored = fitTables();
   fitPct();
-  if (!anchored && !keepPlace() && y - window.scrollY > 100) window.scrollTo(0, y);
+  // The old position only where the page still reaches it: after "Show top 10
+  // only" it no longer does, and forcing it landed the reader at the bottom.
+  const reachable = y <= document.documentElement.scrollHeight - window.innerHeight;
+  if (!anchored && !keepPlace() && y - window.scrollY > 100 && reachable) window.scrollTo(0, y);
   lastScrollY = window.scrollY;
   notePlace();
 }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'hidden'] });

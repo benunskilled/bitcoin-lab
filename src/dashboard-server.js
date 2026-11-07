@@ -35,6 +35,9 @@ const peerRotation = require('./lib/peer-rotation');
 const { recentRelayStats } = require('./lib/queries/peer-ranking');
 const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
+const { makeWriteSource } = require('./lib/write-source');
+
+const writeAllowedFrom = makeWriteSource({ host: config.trustedProxyHost });
 
 const PUBLIC_DIR = path.join(__dirname, 'dashboard', 'public');
 const MIME = {
@@ -695,6 +698,18 @@ async function router(req, res, pathname, url) {
       // takes longer than the next.
       templateTx: race.templateTx ?? null,
       firstPingMs: race.firstPingMs ?? null,
+      // How Core rebuilt it from the compact block: 'mempool' (nothing
+      // missing), 'asked' (it asked a peer for missing transactions;
+      // reconMissingBytes is what came back) or 'full' (downloaded whole).
+      // null where it could not be told, and on older blocks.
+      recon: race.recon ?? null,
+      reconMissingBytes: race.reconMissingBytes ?? null,
+      // The block's size in bytes, to read reconMissingBytes as a share of
+      // it. Known once the pool is attributed, a moment after the block.
+      blockSize: race.blockSize ?? null,
+      // The same over the last day and the last seven days.
+      reconDay: queries.reconstructionDay(),
+      reconWeek: queries.reconstructionWeek(),
       // The same route for the typical block - the median over the last
       // hundred - so a change shows up as a shorter stretch.
       routeMedian: queries.routeMedian(),
@@ -966,6 +981,17 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (pathname.startsWith('/api/')) {
+      // Another app on the node's Docker network sends no browser headers, so
+      // refuseWrite lets it through; only Umbrel's proxy may write.
+      if (WRITE_METHODS.has(req.method) && !(await writeAllowedFrom(req.socket.remoteAddress))) {
+        const seen = { ...writeAllowedFrom.describe(req.socket.remoteAddress), forwardedFor: req.headers['x-forwarded-for'] || null };
+        logger.warn('refused a write from outside the app', { path: pathname, ...seen });
+        sendJson(res, 403, {
+          error: 'writes are only accepted through the app\'s own page',
+          ...(process.env.WRITE_SOURCE_DEBUG === '1' ? { seen } : {}),
+        });
+        return;
+      }
       const refused = refuseWrite(req);
       if (refused) {
         logger.warn('refused a write', { path: pathname, status: refused[0], origin: req.headers.origin || null });
