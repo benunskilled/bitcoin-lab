@@ -2,10 +2,11 @@
 
 /**
  * Stratum Race - measures which pool delivers a new job (mining.notify with
- * a new prevhash) fastest. Completely independent of Bitcoin Core/ZMQ:
+ * a new prevhash) fastest. The timing is independent of Bitcoin Core/ZMQ:
  * every pool is timed purely from its own TCP `data` events. The first
  * pool to report a given prevhash defines 0ms; everyone else is measured
- * relative to that instant. No pool is treated specially.
+ * relative to that instant. No pool is treated specially. Core is asked only
+ * afterwards, whether the block was real (see blockKnown).
  */
 
 const config = require('./lib/config');
@@ -16,7 +17,8 @@ const { isValidHost, isValidPort } = require('./lib/validate');
 const logger = require('./lib/logger').make('stratum-race');
 const { StratumPoolConnection } = require('./lib/stratum-client');
 const toggle = require('./lib/stratum-race-toggle');
-const { canonical } = require('./lib/prevhash');
+const { canonical, encodings } = require('./lib/prevhash');
+const rpc = require('./lib/rpc');
 
 // Pools only ever change through the dashboard, and a few minutes' delay in
 // noticing that is imperceptible - this used to run every 30 seconds, which
@@ -257,17 +259,79 @@ function writeRace(race, { misses }) {
   }
 }
 
+/**
+ * Does Core know the block this race was about?
+ *
+ * The client only lets a well-formed hash through, and a pool can still send
+ * one that is shaped right and made up: it opened a race, came first in it,
+ * and every other pool was charged a miss for a block that never existed. An
+ * outside review did exactly that. The pools are ones the owner chose, so this
+ * is a guard against a broken or dishonest pool, not a likely event - and one
+ * getblockheader per block is all it costs.
+ *
+ * Asked only once the race is over, on the side: the timing itself still never
+ * waits for Core. true when Core has the header, false when it says it has no
+ * such block in any of the spellings, null when Core could not be asked.
+ */
+async function blockKnown(prevhash) {
+  let unreachable = false;
+  for (const hash of encodings(prevhash)) {
+    try {
+      await rpc.getBlockHeader(hash);
+      return true;
+    } catch (err) {
+      if (!/\(code -5\)/.test(err.message || '')) unreachable = true;
+    }
+  }
+  return unreachable ? null : false;
+}
+
+// Core usually has the block well before the race's eight seconds are up (it
+// is what the pools build on). When it does not yet, it is asked again; after
+// the last try a block it still does not know is dropped, while a Core that
+// could not be asked at all is given the benefit of the doubt - the pools are
+// the owner's own, and losing every race while Core restarts would be worse.
+const VERIFY_RETRY_MS = [60_000, 10 * 60_000];
+
+let verify = blockKnown;
+
+async function settleRace(race, attempt = 0) {
+  let known;
+  try {
+    known = await verify(race.prevhash);
+  } catch (err) {
+    known = null;
+  }
+  if (known === true) return writeRace(race, { misses: true });
+  if (attempt < VERIFY_RETRY_MS.length) {
+    const t = setTimeout(() => settleRace(race, attempt + 1), VERIFY_RETRY_MS[attempt]);
+    if (t.unref) t.unref();
+    return undefined;
+  }
+  if (known === null) {
+    logger.warn('Core could not be asked about a race\'s block - recorded unchecked', { prevhash: race.prevhash });
+    return writeRace(race, { misses: true });
+  }
+  logger.warn('a pool sent a job for a block Core does not know - race not recorded', {
+    prevhash: race.prevhash,
+    first: race.results.length ? race.results[0].label : null,
+  });
+  return undefined;
+}
+
+// Returns once the race is written (or set aside to be checked again), so the
+// tests can wait for it.
 function finalizeRace(hash) {
   const prevhash = canonical(hash);
   const race = openRaces.get(prevhash);
-  if (!race) return;
+  if (!race) return Promise.resolve();
   openRaces.delete(prevhash);
   clearTimeout(race.timer);
-  writeRace(race, { misses: true });
+  return settleRace(race);
 }
 
 function finalizeAllRaces() {
-  for (const prevhash of [...openRaces.keys()]) finalizeRace(prevhash);
+  return Promise.all([...openRaces.keys()].map((prevhash) => finalizeRace(prevhash)));
 }
 
 /**
@@ -397,6 +461,8 @@ function stopAllConnections() {
  * user, and charging every pool a miss for it would bias Win % and Miss in
  * exactly the way the comments above spend so long guarding against. The race
  * row stays with whatever really did report; nobody is charged for the rest.
+ * It is written without asking Core about its block (the process may be on
+ * its way out): with no misses written, a made-up hash costs no other pool.
  */
 function abandonOpenRaces() {
   for (const race of openRaces.values()) {
@@ -498,4 +564,8 @@ module.exports = {
   active,
   openRaces,
   main,
+  blockKnown,
+  // Tests only: stand in for Core's answer.
+  setVerifier: (fn) => { verify = fn || blockKnown; },
+  VERIFY_RETRY_MS,
 };

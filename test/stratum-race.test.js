@@ -41,25 +41,26 @@ test.before(() => {
   db.open();
 });
 
-test.beforeEach(() => {
+test.beforeEach(async () => {
   // The race is a switch now and an absent flag means off, so every test that
   // exercises the worker has to turn it on first - exactly like a real install
   // does once, from the dashboard.
   toggle.setEnabled(true);
-  race.finalizeAllRaces();
+  race.setVerifier(async () => true);
+  await race.finalizeAllRaces();
   race.openRaces.clear();
   db.instance.prepare('DELETE FROM stratum_observation').run();
   db.instance.prepare('DELETE FROM stratum_race').run();
 });
 
-test('the first pool to report a prevhash defines 0ms and rank 1', () => {
+test('the first pool to report a prevhash defines 0ms and rank 1', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
   const t0 = hr();
   race.handleNotify(a, prevhash(1), t0);
   race.handleNotify(b, prevhash(1), t0 + 2_000_000n); // +2ms
-  race.finalizeRace(prevhash(1));
+  await race.finalizeRace(prevhash(1));
 
   const rows = observationsFor(prevhash(1));
   assert.equal(rows.length, 2);
@@ -73,25 +74,25 @@ test('the first pool to report a prevhash defines 0ms and rank 1', () => {
 // has to be the moment the first job ARRIVED. It used to be stamped once the
 // line had been parsed and handed over - a step later - which made the stretch
 // from Core to the owner's pool look longer than it was.
-test('the race starts at the arrival of the first job, not when it was processed', () => {
+test('the race starts at the arrival of the first job, not when it was processed', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
   const arrivedAt = Date.now() - 5_000; // well before this line runs
   race.handleNotify(a, prevhash(9), hr(), arrivedAt);
   race.handleNotify(b, prevhash(9), hr(), arrivedAt + 40);
-  race.finalizeRace(prevhash(9));
+  await race.finalizeRace(prevhash(9));
 
   const row = db.instance.prepare('SELECT created_at AS createdAt FROM stratum_race WHERE prevhash = ?').get(prevhash(9));
   assert.equal(row.createdAt, arrivedAt);
 });
 
-test('a pool that never reports is scored as a miss when the race is finalized', () => {
+test('a pool that never reports is scored as a miss when the race is finalized', async () => {
   const [a, b, c] = [fakePool(1, 'A'), fakePool(2, 'B'), fakePool(3, 'C')];
   watchPools(a, b, c);
 
   race.handleNotify(a, prevhash(2), hr());
-  race.finalizeRace(prevhash(2));
+  await race.finalizeRace(prevhash(2));
 
   const rows = observationsFor(prevhash(2));
   assert.equal(rows.length, 3);
@@ -100,7 +101,7 @@ test('a pool that never reports is scored as a miss when the race is finalized',
   assert.equal(rows[2].latencyMs, null, 'C never reported');
 });
 
-test('REGRESSION: a lagging pool re-sending the previous prevhash must not end the live race', () => {
+test('REGRESSION: a lagging pool re-sending the previous prevhash must not end the live race', async () => {
   // v1.11.1 called finalizeCurrentRace() before checking whether the incoming
   // prevhash was stale, so a pool that was one block behind closed the race
   // for the block everyone else was still reporting - and every pool that had
@@ -117,7 +118,7 @@ test('REGRESSION: a lagging pool re-sending the previous prevhash must not end t
   race.handleNotify(a, OLD, hr());
   race.handleNotify(b, OLD, hr());
   race.handleNotify(c, OLD, hr());
-  race.finalizeRace(OLD);
+  await race.finalizeRace(OLD);
 
   // New block: A is first.
   race.handleNotify(a, NEW, hr());
@@ -130,7 +131,7 @@ test('REGRESSION: a lagging pool re-sending the previous prevhash must not end t
   // B and C then report the new block normally.
   race.handleNotify(b, NEW, hr());
   race.handleNotify(c, NEW, hr());
-  race.finalizeRace(NEW);
+  await race.finalizeRace(NEW);
 
   const rows = observationsFor(NEW);
   assert.equal(rows.length, 3);
@@ -143,7 +144,7 @@ test('REGRESSION: a lagging pool re-sending the previous prevhash must not end t
   assert.equal(observationsFor(OLD).filter((r) => r.latencyMs === null).length, 0);
 });
 
-test('two genuinely different prevhashes can be in flight at once', () => {
+test('two genuinely different prevhashes can be in flight at once', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
@@ -151,33 +152,33 @@ test('two genuinely different prevhashes can be in flight at once', () => {
   race.handleNotify(b, prevhash(21), hr());
   assert.equal(race.openRaces.size, 2);
 
-  race.finalizeAllRaces();
+  await race.finalizeAllRaces();
   assert.equal(race.openRaces.size, 0);
   assert.equal(observationsFor(prevhash(20)).length, 2);
   assert.equal(observationsFor(prevhash(21)).length, 2);
 });
 
-test('only a pool first report counts, repeats are ignored', () => {
+test('only a pool first report counts, repeats are ignored', async () => {
   const a = fakePool(1, 'A');
   watchPools(a);
 
   const t0 = hr();
   race.handleNotify(a, prevhash(30), t0);
   race.handleNotify(a, prevhash(30), t0 + 5_000_000n); // job refresh, same prevhash
-  race.finalizeRace(prevhash(30));
+  await race.finalizeRace(prevhash(30));
 
   const rows = observationsFor(prevhash(30));
   assert.equal(rows.length, 1);
   assert.equal(rows[0].latencyMs, 0, 'the later refresh must not overwrite the first timing');
 });
 
-test('a report for an already-closed race stays a miss', () => {
+test('a report for an already-closed race stays a miss', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
   const t0 = hr();
   race.handleNotify(a, prevhash(40), t0);
-  race.finalizeRace(prevhash(40)); // B is recorded as a miss here
+  await race.finalizeRace(prevhash(40)); // B is recorded as a miss here
 
   // B's notify arrives after the race closed. rememberPrevhash() has already
   // marked this prevhash as seen, so handleNotify takes the stale-prevhash
@@ -196,7 +197,7 @@ test('a report for an already-closed race stays a miss', () => {
   assert.equal(rows[1].latencyMs, null, 'a report for an already-closed race is not timeable and stays a miss');
 });
 
-test('REGRESSION: an invalid pool port disables that pool instead of crashing the service', () => {
+test('REGRESSION: an invalid pool port disables that pool instead of crashing the service', async () => {
   // net.connect() throws ERR_SOCKET_BAD_PORT synchronously, and
   // syncConnections() runs on a timer - so before v1.12.0 one malformed row
   // killed this process on every tick, including immediately after every
@@ -216,7 +217,7 @@ test('REGRESSION: an invalid pool port disables that pool instead of crashing th
   db.instance.prepare(`DELETE FROM stratum_pool WHERE label = 'Typo Pool'`).run();
 });
 
-test('switched off, the worker drops every connection and starts none', () => {
+test('switched off, the worker drops every connection and starts none', async () => {
   // Fake connection objects, never real sockets: syncConnections() with the
   // switch ON would dial, and a unit test must not open a TCP connection to
   // anything.
@@ -235,7 +236,7 @@ test('switched off, the worker drops every connection and starts none', () => {
   db.instance.prepare(`DELETE FROM stratum_pool WHERE label = 'Late Pool'`).run();
 });
 
-test('switching off abandons an open race instead of charging everyone a miss', () => {
+test('switching off abandons an open race instead of charging everyone a miss', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
@@ -251,7 +252,7 @@ test('switching off abandons an open race instead of charging everyone a miss', 
   assert.ok(rows[0].latencyMs != null, 'and it is a real result, not a miss charged to the other pool');
 });
 
-test('shutting the process down abandons an open race instead of charging everyone a miss', () => {
+test('shutting the process down abandons an open race instead of charging everyone a miss', async () => {
   // The separate path from the one above: not the user switching the feature
   // off, but SIGTERM - a container restart or an app update. It used to run
   // finalizeAllRaces(), so a restart inside the race window charged a miss to
@@ -271,7 +272,7 @@ test('shutting the process down abandons an open race instead of charging everyo
   assert.ok(rows[0].latencyMs != null, 'and B is not charged a miss for a restart it had no part in');
 });
 
-test('a race that really timed out still charges a miss', () => {
+test('a race that really timed out still charges a miss', async () => {
   // The other half of the same rule, so the fix above cannot quietly become
   // "never record a miss again". A pool that had its eight seconds and said
   // nothing is a fact about the pool, and that one counts.
@@ -279,14 +280,14 @@ test('a race that really timed out still charges a miss', () => {
   watchPools(a, b);
 
   race.handleNotify(a, prevhash(72), hr());
-  race.finalizeRace(prevhash(72));
+  await race.finalizeRace(prevhash(72));
 
   const rows = observationsFor(prevhash(72));
   assert.equal(rows.length, 2, 'both pools have a row');
   assert.equal(rows.find((r) => r.poolId === 2).latencyMs, null, 'and the silent one is a miss');
 });
 
-test('applyToggle acts only when the switch has actually moved', () => {
+test('applyToggle acts only when the switch has actually moved', async () => {
   // Every pool disabled, so switching on has nothing to dial.
   db.instance.prepare('UPDATE stratum_pool SET enabled = 0').run();
 
@@ -314,7 +315,7 @@ test('applyToggle acts only when the switch has actually moved', () => {
 // block first - and charged a miss to any pool whose handshake took longer
 // than the race timeout.
 
-test('the first job after connect opens no race - it is the job the pool was already on', () => {
+test('the first job after connect opens no race - it is the job the pool was already on', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
 
@@ -333,7 +334,7 @@ test('the first job after connect opens no race - it is the job the pool was alr
   assert.equal(race.openRaces.size, 0, 'a prevhash seen on connect is already spent');
 });
 
-test('the first real block after a cold start is raced normally', () => {
+test('the first real block after a cold start is raced normally', async () => {
   // The other half of the rule, so it cannot quietly become "never race
   // anything". Once the connections are up, a job is news and is timed.
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
@@ -345,7 +346,7 @@ test('the first real block after a cold start is raced normally', () => {
   const t0 = hr();
   race.handleNotify(a, prevhash(82), t0);
   race.handleNotify(b, prevhash(82), t0 + 3_000_000n); // +3ms
-  race.finalizeRace(prevhash(82));
+  await race.finalizeRace(prevhash(82));
 
   const rows = observationsFor(prevhash(82));
   assert.equal(rows.length, 2);
@@ -353,7 +354,7 @@ test('the first real block after a cold start is raced normally', () => {
   assert.deepEqual(rows.map((r) => r.rank), [1, 2]);
 });
 
-test('a pool that finishes connecting mid-race is neither timed nor charged a miss', () => {
+test('a pool that finishes connecting mid-race is neither timed nor charged a miss', async () => {
   // It plainly has the job - it just cannot be timed on it, because what its
   // arrival measures is our socket. A miss would blame the pool for that.
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
@@ -362,7 +363,7 @@ test('a pool that finishes connecting mid-race is neither timed nor charged a mi
   const t0 = hr();
   race.handleNotify(a, prevhash(83), t0);
   race.handleNotify(b, prevhash(83), t0 + 40_000_000n, Date.now(), true);
-  race.finalizeRace(prevhash(83));
+  await race.finalizeRace(prevhash(83));
 
   const rows = observationsFor(prevhash(83));
   assert.equal(rows.length, 1, 'only the pool that could be timed has a row');
@@ -370,7 +371,7 @@ test('a pool that finishes connecting mid-race is neither timed nor charged a mi
   assert.equal(rows[0].latencyMs, 0);
 });
 
-test('a flood of made-up prevhashes cannot open unlimited races', () => {
+test('a flood of made-up prevhashes cannot open unlimited races', async () => {
   // The client only lets a well-formed 64-hex prevhash through, so this is the
   // second guard, for hashes that are shaped right and still invented. Without
   // it each one is a stratum_race row, an open race and a timer.
@@ -382,7 +383,7 @@ test('a flood of made-up prevhashes cannot open unlimited races', () => {
   }
 
   assert.equal(race.openRaces.size, 10, 'the cap holds');
-  race.finalizeAllRaces();
+  await race.finalizeAllRaces();
   const opened = db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n;
   assert.equal(opened, 10, 'and nothing past it reached the database');
 });
@@ -392,7 +393,7 @@ test('a flood of made-up prevhashes cannot open unlimited races', () => {
 // write inside the first pool's handler stood the event loop still, and the
 // second pool's data event was stamped when it came back. Nothing may touch
 // the database while a race is open.
-test('an open race writes nothing, so a locked database cannot delay a timestamp', () => {
+test('an open race writes nothing, so a locked database cannot delay a timestamp', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
   const Database = require('better-sqlite3');
@@ -411,14 +412,14 @@ test('an open race writes nothing, so a locked database cannot delay a timestamp
     other.close();
     db.instance.pragma(`busy_timeout = ${before}`);
   }
-  race.finalizeRace(prevhash(77));
+  await race.finalizeRace(prevhash(77));
   const rows = observationsFor(prevhash(77));
   assert.deepEqual(rows.map((r) => r.latencyMs), [0, 21]);
 });
 
 // Switching the race off mid-race charges nobody a miss, but what really did
 // report is kept - it was measured on a connection that was listening.
-test('an abandoned race keeps its reports and records no misses', () => {
+test('an abandoned race keeps its reports and records no misses', async () => {
   const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
   watchPools(a, b);
   race.handleNotify(a, prevhash(78), hr());
@@ -427,7 +428,7 @@ test('an abandoned race keeps its reports and records no misses', () => {
   assert.deepEqual(rows.map((r) => [r.poolId, r.latencyMs]), [[1, 0]]);
 });
 
-test('the same prevhash in another spelling joins the race instead of opening a second one', () => {
+test('the same prevhash in another spelling joins the race instead of opening a second one', async () => {
   const [a, b, c] = [fakePool(1, 'A'), fakePool(2, 'B'), fakePool(3, 'C')];
   watchPools(a, b, c);
   const hash = 'ab'.repeat(4) + '12345678' + '0'.repeat(48);
@@ -438,7 +439,7 @@ test('the same prevhash in another spelling joins the race instead of opening a 
   race.handleNotify(a, hash, t0);
   race.handleNotify(b, hash.toUpperCase(), t0 + 1_000_000n);
   race.handleNotify(c, otherOrder, t0 + 3_000_000n);
-  race.finalizeAllRaces();
+  await race.finalizeAllRaces();
 
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM stratum_race').get().n, 1, 'one block, one race');
   const rows = db.instance
@@ -446,4 +447,68 @@ test('the same prevhash in another spelling joins the race instead of opening a 
     .all();
   assert.deepEqual(rows.map((r) => r.rank), [1, 2, 3]);
   assert.deepEqual(rows.map((r) => r.latencyMs), [0, 1, 3]);
+});
+
+// Found by an outside review: one pool sending a made-up hash that is shaped
+// right came first in its own race, and every other pool was charged a miss.
+test('a race for a block Core does not know is not recorded, and nobody is charged', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+  let asked = 0;
+  race.setVerifier(async () => { asked += 1; return false; });
+
+  race.handleNotify(a, prevhash(91), hr());
+  await race.finalizeRace(prevhash(91));
+  for (const ms of race.VERIFY_RETRY_MS) {
+    t.mock.timers.tick(ms);
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(asked, 1 + race.VERIFY_RETRY_MS.length, 'asked again before giving up');
+  assert.deepEqual(observationsFor(prevhash(91)), []);
+});
+
+test('a block Core learns of a little later is recorded on the next try', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+  let known = false;
+  race.setVerifier(async () => known);
+
+  race.handleNotify(a, prevhash(92), hr());
+  await race.finalizeRace(prevhash(92));
+  assert.deepEqual(observationsFor(prevhash(92)), [], 'not yet');
+  known = true;
+  t.mock.timers.tick(race.VERIFY_RETRY_MS[0]);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(observationsFor(prevhash(92)).map((r) => [r.poolId, r.latencyMs]), [[1, 0], [2, null]]);
+});
+
+test('when Core cannot be asked at all, the race is recorded unchecked', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const a = fakePool(1, 'A');
+  watchPools(a);
+  race.setVerifier(async () => null);
+
+  race.handleNotify(a, prevhash(93), hr());
+  await race.finalizeRace(prevhash(93));
+  for (const ms of race.VERIFY_RETRY_MS) {
+    t.mock.timers.tick(ms);
+    await new Promise((r) => setImmediate(r));
+  }
+  assert.equal(observationsFor(prevhash(93)).length, 1);
+});
+
+test('blockKnown tries every spelling and tells "no such block" from "Core did not answer"', async (t) => {
+  const rpc = require('../src/lib/rpc');
+  const real = '00000000000000000001a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7';
+  t.mock.method(rpc, 'getBlockHeader', async (h) => {
+    if (h === real) return { hash: real };
+    throw new Error('RPC getblockheader failed: Block not found (code -5)');
+  });
+  const { encodings } = require('../src/lib/prevhash');
+  assert.equal(await race.blockKnown(encodings(real)[3]), true);
+  assert.equal(await race.blockKnown(prevhash(94)), false);
+  rpc.getBlockHeader.mock.mockImplementation(async () => { throw new Error('RPC getblockheader: timed out after 10000ms'); });
+  assert.equal(await race.blockKnown(prevhash(94)), null);
 });
