@@ -484,6 +484,38 @@ test('a block Core learns of a little later is recorded on the next try', async 
   assert.deepEqual(observationsFor(prevhash(92)).map((r) => [r.poolId, r.latencyMs]), [[1, 0], [2, null]]);
 });
 
+// From a release review: a race checked again is written minutes later, and
+// the misses went to whoever was enabled by then.
+test('a pool added while a race waits for Core is not charged for it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const [a, b, c] = [fakePool(1, 'A'), fakePool(2, 'B'), fakePool(3, 'C')];
+  watchPools(a, b);
+  let known = false;
+  race.setVerifier(async () => known);
+
+  race.handleNotify(a, prevhash(95), hr());
+  await race.finalizeRace(prevhash(95));
+  race.active.set(c.id, { conn: { stop() {} }, pool: c });
+  known = true;
+  t.mock.timers.tick(race.VERIFY_RETRY_MS[0]);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(observationsFor(prevhash(95)).map((r) => [r.poolId, r.latencyMs]), [[1, 0], [2, null]]);
+});
+
+test('a race waiting for Core is written without misses when the worker stops', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const [a, b] = [fakePool(1, 'A'), fakePool(2, 'B')];
+  watchPools(a, b);
+  race.setVerifier(async () => false);
+
+  race.handleNotify(a, prevhash(96), hr());
+  await race.finalizeRace(prevhash(96));
+  assert.equal(race.pendingRaces.size, 1);
+  race.abandonOpenRaces();
+  assert.equal(race.pendingRaces.size, 0);
+  assert.deepEqual(observationsFor(prevhash(96)).map((r) => [r.poolId, r.latencyMs]), [[1, 0]]);
+});
+
 test('when Core cannot be asked at all, the race is recorded unchecked', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const a = fakePool(1, 'A');

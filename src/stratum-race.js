@@ -213,9 +213,10 @@ function syncConnections() {
  * write with the other's timing - a coincidence too rare to build for.)
  */
 function writeRace(race, { misses }) {
-  const s = statements();
+  let s;
   let id;
   try {
+    s = statements();
     const info = s.openRace.run(race.prevhash, race.createdAt);
     if (info.changes === 0) {
       // Already in the database from an earlier run - the original start
@@ -248,8 +249,10 @@ function writeRace(race, { misses }) {
     }
   }
   if (!misses) return;
-  // Anyone still enabled who never reported for this race gets a miss.
-  for (const poolId of active.keys()) {
+  // Anyone enabled when the race closed who never reported for it gets a miss.
+  // The list is taken at close, not now: a race Core is asked about again is
+  // written minutes later, and a pool added in between was never in it.
+  for (const poolId of race.watched || active.keys()) {
     if (race.reported.has(poolId) || race.excused.has(poolId)) continue;
     try {
       s.recordMiss.run(id, poolId);
@@ -295,6 +298,10 @@ const VERIFY_RETRY_MS = [60_000, 10 * 60_000];
 
 let verify = blockKnown;
 
+// Races waiting for Core to be asked again. A restart or the switch going off
+// writes them without misses, like a race still open (abandonOpenRaces).
+const pendingRaces = new Set();
+
 async function settleRace(race, attempt = 0) {
   let known;
   try {
@@ -304,8 +311,13 @@ async function settleRace(race, attempt = 0) {
   }
   if (known === true) return writeRace(race, { misses: true });
   if (attempt < VERIFY_RETRY_MS.length) {
-    const t = setTimeout(() => settleRace(race, attempt + 1), VERIFY_RETRY_MS[attempt]);
-    if (t.unref) t.unref();
+    race.retry = setTimeout(() => {
+      pendingRaces.delete(race);
+      settleRace(race, attempt + 1).catch((err) =>
+        logger.warn('failed to settle race', { prevhash: race.prevhash, error: err.message }));
+    }, VERIFY_RETRY_MS[attempt]);
+    if (race.retry.unref) race.retry.unref();
+    pendingRaces.add(race);
     return undefined;
   }
   if (known === null) {
@@ -327,6 +339,7 @@ function finalizeRace(hash) {
   if (!race) return Promise.resolve();
   openRaces.delete(prevhash);
   clearTimeout(race.timer);
+  race.watched = [...active.keys()];
   return settleRace(race);
 }
 
@@ -470,6 +483,11 @@ function abandonOpenRaces() {
     writeRace(race, { misses: false });
   }
   openRaces.clear();
+  for (const race of pendingRaces) {
+    clearTimeout(race.retry);
+    writeRace(race, { misses: false });
+  }
+  pendingRaces.clear();
 }
 
 // Everything the worker holds, released. Idempotent: with nothing open and
@@ -563,6 +581,7 @@ module.exports = {
   syncConnections,
   active,
   openRaces,
+  pendingRaces,
   main,
   blockKnown,
   // Tests only: stand in for Core's answer.
