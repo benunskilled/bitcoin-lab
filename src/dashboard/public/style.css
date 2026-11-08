@@ -526,6 +526,8 @@ th.col-actions { padding-left: 20px; }
 }
 .hero-sub b { color: var(--text); font-weight: 600; }
 .hero-sub.raw b { font-style: italic; }
+/* A miner's own text stays on one line and ends in … only where it is too long. */
+.hero-sub.raw { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .hero-n.waiting {
   font-size: 15px;

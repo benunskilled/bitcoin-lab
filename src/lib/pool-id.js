@@ -39,46 +39,6 @@ const TAG_LIST = Object.keys(TAGS).sort((a, b) => b.length - a.length);
 // same match, since a tag's bytes cannot come out of a non-printable one.
 const TAG_BYTES = TAG_LIST.map((tag) => [tag, Buffer.from(tag, 'utf8')]);
 
-// A display name is the pool's full name minus a trailing word that carries no
-// information - "Foundry USA" is Foundry, "MARA Pool" is MARA. Only a separate
-// trailing word is dropped, so Poolin and F2Pool keep every letter, and only
-// when the result is still unique across the whole list: two pools that would
-// collapse into the same short name keep their full ones.
-const DROPPABLE = new Set(['Pool', 'USA']);
-
-function trimName(name) {
-  const parts = name.split(' ');
-  if (parts.length < 2) return name;
-  const last = parts[parts.length - 1];
-  if (!DROPPABLE.has(last)) return name;
-  const shorter = parts.slice(0, -1).join(' ');
-  return shorter.length >= 3 ? shorter : name;
-}
-
-const SHORT = (() => {
-  const names = new Set();
-  for (const v of Object.values(TAGS)) names.add(v.name);
-  for (const v of Object.values(ADDRESSES)) names.add(v.name);
-
-  const wanted = new Map();
-  const count = new Map();
-  for (const name of names) {
-    const short = trimName(name);
-    wanted.set(name, short);
-    count.set(short, (count.get(short) || 0) + 1);
-  }
-  const out = new Map();
-  for (const [name, short] of wanted) {
-    out.set(name, count.get(short) === 1 ? short : name);
-  }
-  return out;
-})();
-
-/** The pool's short display name; the full name when shortening it would not be unique. */
-function shortName(name) {
-  return SHORT.get(name) || name;
-}
-
 /**
  * The printable text inside a coinbase input script. Non-printable bytes
  * become a NUL rather than disappearing, so two fragments of text either side
@@ -102,14 +62,14 @@ function coinbaseText(hex) {
 function identify({ coinbaseHex = '', addresses = [] } = {}) {
   for (const address of addresses) {
     const hit = ADDRESSES[address];
-    if (hit) return { name: hit.name, short: shortName(hit.name), source: 'address', tag: null };
+    if (hit) return { name: hit.name, source: 'address', tag: null };
   }
   if (typeof coinbaseHex !== 'string' || !/^[0-9a-fA-F]*$/.test(coinbaseHex) || coinbaseHex.length % 2 !== 0) return null;
   const script = Buffer.from(coinbaseHex, 'hex');
   for (const [tag, bytes] of TAG_BYTES) {
     if (script.includes(bytes)) {
       const hit = TAGS[tag];
-      return { name: hit.name, short: shortName(hit.name), source: 'tag', tag };
+      return { name: hit.name, source: 'tag', tag };
     }
   }
   return null;
@@ -121,7 +81,9 @@ function identify({ coinbaseHex = '', addresses = [] } = {}) {
 // the longest readable fragment in it. That is raw text and gets shown as
 // such, never as a pool name - it is neither verified nor unique.
 const LABEL_MIN = 4;
-const LABEL_MAX = 32;
+// Only a guard against a coinbase full of text: the page cuts the label to
+// the space it has, so a whole one is shown wherever it fits.
+const LABEL_MAX = 100;
 // Some miners write a fresh UUID per block and no name at all ("://<uuid>",
 // 118 blocks to one address since 873376). That is an id, not a label, and
 // whatever else reads as text in such a coinbase - "+VAR1", "+S2F" - is
@@ -144,7 +106,9 @@ function coinbaseLabel(hex) {
     if (!best || part.length > best.length) best = part;
   }
   if (!best) return null;
-  const trimmed = best.replace(/^[\s/]+/, '').replace(/[\s/]+$/, '').slice(0, LABEL_MAX).trim();
+  const whole = best.replace(/^[\s/]+/, '').replace(/[\s/]+$/, '');
+  // Cut, it says so.
+  const trimmed = whole.length > LABEL_MAX ? `${whole.slice(0, LABEL_MAX).trim()}…` : whole;
   return trimmed.length >= LABEL_MIN ? trimmed : null;
 }
 
@@ -153,4 +117,4 @@ function size() {
   return { addresses: Object.keys(ADDRESSES).length, tags: TAG_LIST.length };
 }
 
-module.exports = { identify, shortName, coinbaseText, coinbaseLabel, size };
+module.exports = { identify, coinbaseText, coinbaseLabel, size };

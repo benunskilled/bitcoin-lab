@@ -1,7 +1,6 @@
 'use strict';
 
 const db = require('../db');
-const poolId = require('../pool-id');
 const prevhash = require('../prevhash');
 
 // One block as the page reads it, from relay_race.
@@ -39,7 +38,8 @@ function latestBlock() {
   // Two different things, and the page has to be able to tell them apart:
   // `pool` is a pool we recognise, `poolTag` on its own is the text the miner
   // wrote about himself. A block with neither carries nothing at all.
-  const pool = race.poolName ? poolId.shortName(race.poolName) : null;
+  // The full name, as on mempool.space: "Foundry USA", not "Foundry".
+  const pool = race.poolName || null;
   return { ...race, pool, firstPeers };
 }
 
@@ -59,7 +59,7 @@ function blockDetail(raceId = null) {
     : (() => {
       const row = db.instance.prepare(`SELECT ${RACE_COLUMNS} FROM relay_race WHERE id = ?`).get(raceId);
       if (!row) return null;
-      return { ...row, pool: row.poolName ? poolId.shortName(row.poolName) : null, firstPeers: firstPeersOf(row.id) };
+      return { ...row, pool: row.poolName || null, firstPeers: firstPeersOf(row.id) };
     })();
   if (!race) return null;
 

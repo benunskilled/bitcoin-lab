@@ -545,7 +545,7 @@ test('GET /api/blocks/latest serves the neighbour', async () => {
   const { status, body } = await api('/api/blocks/latest');
   assert.equal(status, 200);
   assert.equal(body.height, 967724);
-  assert.equal(body.pool, 'Foundry');
+  assert.equal(body.pool, 'Foundry USA');
   assert.equal(body.poolName, 'Foundry USA');
   assert.equal(body.poolSource, 'address');
   assert.deepEqual(body.firstPeers, ['1.2.3.4:8333']);
