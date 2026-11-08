@@ -69,7 +69,17 @@ function classify(before, peers) {
   if (!before) return null;
   const d = deltas(before, peers);
   const asked = d.filter((x) => x.getblocktxn > 0);
-  const whole = d.some((x) => x.block > 0);
+  // Some peers push whole blocks nobody asked for (seen: ViaBTC's relay, an
+  // inbound /Satoshi:23.0.0/), and Core counts the bytes on receipt, before it
+  // drops the block it already has (net.cpp CNode::ReceiveMsgBytes). When a
+  // rebuild fails, Core fetches the whole block from the peer that sent the
+  // compact block (net_processing.cpp, READ_STATUS_FAILED -> GETDATA to pfrom).
+  // So once a compact block came in, only a whole block from a peer that also
+  // sent one counts; with no compact block at all, any whole block does.
+  // Core's own log showed the push on block 975049: rebuilt from the mempool
+  // with nothing requested, while the counters said "full".
+  const compact = d.some((x) => x.cmpctblock > 0);
+  const whole = d.some((x) => x.block > 0 && (!compact || x.cmpctblock > 0));
   // Both at once has two readings the counters cannot tell apart: Core asked,
   // the rebuild still failed and it fetched the whole block - or the answer
   // to the previous block's getblocktxn came in after that block's snapshot
@@ -83,9 +93,8 @@ function classify(before, peers) {
     const missing = Math.max(...asked.map((x) => Math.max(0, x.blocktxn - HEADER_BYTES)));
     return { kind: 'asked', missingBytes: missing, askedPeers: asked.map((x) => x.addr) };
   }
-  // A whole block is the stronger sign: near the tip Core only downloads one when the compact block did not
-  // work (no compact relay, or a rebuild that failed), and the slower of up to three high-bandwidth peers can
-  // send their cmpctblock after the snapshot, so a compact block alone may belong to the block before.
+  // Near the tip Core only downloads a whole block when the compact block did not work (no compact relay,
+  // or a rebuild that failed).
   if (whole) return { kind: 'full', missingBytes: null, askedPeers: [] };
   if (d.some((x) => x.cmpctblock > 0)) return { kind: 'mempool', missingBytes: 0, askedPeers: [] };
   return null;

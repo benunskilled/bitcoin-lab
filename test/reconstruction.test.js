@@ -57,10 +57,23 @@ test('a block downloaded whole, with no compact block, is told apart', () => {
   assert.equal(classify(before, [peer(1, { recv: { block: 1_500_000 } })]).kind, 'full');
 });
 
-test('a whole block counts as downloaded whole even with a late compact block beside it', () => {
+test('a rebuild that failed: the whole block comes from the peer that sent the compact block', () => {
+  const before = snapshot([peer(1), peer(2)], 2_000_000);
+  const after = [peer(1, { recv: { cmpctblock: 9000, block: 1_500_000 } }), peer(2, { recv: { cmpctblock: 9000 } })];
+  assert.equal(classify(before, after).kind, 'full');
+});
+
+// Block 975049: Core's log said rebuilt from the mempool, nothing requested;
+// a peer had pushed the whole block unasked, and the counters said "full".
+test('a whole block pushed unasked by a peer that sent no compact block does not count', () => {
   const before = snapshot([peer(1), peer(2)], 2_000_000);
   const after = [peer(1, { recv: { cmpctblock: 9000 } }), peer(2, { recv: { block: 1_500_000 } })];
-  assert.equal(classify(before, after).kind, 'full');
+  assert.deepEqual(classify(before, after), { kind: 'mempool', missingBytes: 0, askedPeers: [] });
+  const asked = [
+    peer(1, { sent: { getblocktxn: 60 }, recv: { cmpctblock: 9000, blocktxn: HEADER_BYTES + 800 } }),
+    peer(2, { recv: { block: 1_500_000 } }),
+  ];
+  assert.deepEqual(classify(before, asked), { kind: 'asked', missingBytes: 800, askedPeers: ['10.0.0.1:8333'] });
 });
 
 // Found by an outside review: a late blocktxn for the block before and a
