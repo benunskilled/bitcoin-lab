@@ -1,6 +1,7 @@
 'use strict';
 
 const net = require('net');
+const crypto = require('crypto');
 const config = require('./config');
 const peerSync = require('./peer-sync');
 const { isValidPort } = require('./validate');
@@ -9,10 +10,48 @@ const { resolveHostPort, formatAddress, hostFromAddress } = require('./address')
 const logger = require('./logger').make('manual-peer');
 const { logAction } = require('./peer-rotation/log');
 
+// The first four bytes of every P2P message, per chain. A node that is on
+// another chain answers with other bytes, which is as useless as no answer.
+const MAGIC = {
+  mainnet: 'f9beb4d9',
+  testnet: '0b110907',
+  testnet4: '1c163f28',
+  signet: '0a03cf40',
+  regtest: 'fabfb5da',
+};
+
+const sha256d = (buf) => crypto.createHash('sha256').update(crypto.createHash('sha256').update(buf).digest()).digest();
+
+// A bare version message: no services, empty user agent, height 0, no tx
+// relay. Enough for a node to answer with its own version, and nothing more.
+function versionMessage(magic) {
+  const payload = Buffer.alloc(86);
+  payload.writeInt32LE(70016, 0);
+  payload.writeBigInt64LE(BigInt(Math.floor(Date.now() / 1000)), 12);
+  // addr_recv and addr_from stay zero: services 0, address ::, port 0.
+  crypto.randomBytes(8).copy(payload, 72);
+  // user agent length 0 at 80, start height 0 at 81, relay 0 at 85.
+  const header = Buffer.alloc(24);
+  Buffer.from(magic, 'hex').copy(header, 0);
+  header.write('version', 4, 'ascii');
+  header.writeUInt32LE(payload.length, 16);
+  sha256d(payload).copy(header, 20, 0, 4);
+  return Buffer.concat([header, payload]);
+}
+
+/**
+ * True only if a Bitcoin node on this chain answers here. An open port is not
+ * enough: a web server or anything else listening on 8333 accepted the TCP
+ * connection and used to count as a node. So this sends a version message and
+ * waits for the first message header back: the chain's magic bytes and
+ * "version". The handshake is never finished, the connection closes there.
+ */
 function probePort(host, port, timeoutMs = 3000) {
+  const magic = MAGIC[config.bitcoin.network] || MAGIC.mainnet;
   return new Promise((resolve) => {
     const socket = net.connect({ host, port });
     let settled = false;
+    let got = Buffer.alloc(0);
     const done = (ok) => {
       if (settled) return;
       settled = true;
@@ -20,14 +59,20 @@ function probePort(host, port, timeoutMs = 3000) {
       resolve(ok);
     };
     socket.setTimeout(timeoutMs);
-    socket.once('connect', () => done(true));
+    socket.once('connect', () => socket.write(versionMessage(magic)));
+    socket.on('data', (chunk) => {
+      got = Buffer.concat([got, chunk]);
+      if (got.length < 16) return;
+      done(got.subarray(0, 4).toString('hex') === magic && got.subarray(4, 16).equals(Buffer.from('version\0\0\0\0\0', 'ascii')));
+    });
+    socket.once('end', () => done(false));
     socket.once('timeout', () => done(false));
     socket.once('error', () => done(false));
   });
 }
 
-// Bare-bones sanity check - real validation happens by attempting the
-// TCP connection itself; this just rejects obvious junk input. Brackets are
+// Bare-bones sanity check - real validation happens by probing the
+// address itself; this just rejects obvious junk input. Brackets are
 // allowed so bracketed IPv6 input ("[2001:db8::1]:8333") isn't rejected
 // outright - see resolveHostPort below for why that notation matters.
 function looksLikeHost(input) {
@@ -39,7 +84,7 @@ function looksLikeHost(input) {
  * "Add as Manual" on an existing peer row. The caller supplies a bare host
  * (no port); we probe the standard Bitcoin P2P port first, then the
  * configured fallback, and only persist + `addnode` whichever actually
- * answers a TCP handshake. This is deliberate even for peers we already see
+ * answers as a Bitcoin node (see probePort). This is deliberate even for peers we already see
  * connected: an inbound peer's getpeerinfo address is its ephemeral
  * *outbound source* port, not the port its node listens on for incoming P2P
  * connections, so that port is useless for `addnode` - we always re-derive
@@ -132,7 +177,7 @@ async function probePeer(rawInput) {
       return { ok: false, error: `${explicitPort} is not a valid port (1-65535)` };
     }
     const reachable = await probePort(addr, explicitPort);
-    if (!reachable) return { ok: false, error: `${formatAddress(addr, explicitPort)} not reachable` };
+    if (!reachable) return { ok: false, error: `no Bitcoin node answering at ${formatAddress(addr, explicitPort)}` };
     return { ok: true, address: formatAddress(addr, explicitPort), triedPorts: [explicitPort] };
   }
 
@@ -146,8 +191,8 @@ async function probePeer(rawInput) {
 }
 
 /**
- * Given a bare host, returns the first configured P2P port that answers a TCP
- * handshake - already in Core's own address format - or null if none does.
+ * Given a bare host, returns the first configured P2P port where a Bitcoin
+ * node answers - already in Core's own address format - or null if none does.
  *
  * Shared on purpose: the automatic rotation loop has to answer exactly this
  * question for an inbound candidate (whose observed port is its ephemeral
@@ -188,5 +233,7 @@ module.exports = {
   resolveHostPort,
   formatAddress,
   probePort,
+  versionMessage,
+  MAGIC,
   findListeningAddress,
 };

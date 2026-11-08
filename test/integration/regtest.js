@@ -236,6 +236,12 @@ async function main() {
     assert.ok(manual, `expected one manual peer, saw ${peers.map((p) => p.connection_type).join(', ')}`);
   });
 
+  await check('the add-peer probe gets a version message back from a real node', async () => {
+    const manualPeer = require('../../src/lib/manual-peer');
+    assert.equal(await manualPeer.probePort('127.0.0.1', NODES.miner.p2p), true, 'P2P port answers as a node');
+    assert.equal(await manualPeer.probePort('127.0.0.1', NODES.miner.rpc), false, 'the RPC port is open, but no node');
+  });
+
   await check('getaddednodeinfo lists what addnode was given', async () => {
     const added = await rpc.getAddedNodeInfo();
     assert.ok(Array.isArray(added), 'an array comes back');

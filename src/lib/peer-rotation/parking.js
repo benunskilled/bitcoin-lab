@@ -36,7 +36,7 @@ const {
   fmtPct,
 } = require('./rules');
 
-// The knock on a parked peer is a plain TCP connection from this container,
+// The knock on a parked peer is a direct connection from this container,
 // past Core. On a node that sends clearnet through a proxy (Tor) that would
 // show its own address to the peer, so there it is not made: parked peers wait
 // until the node runs without one. Unknown counts as proxied.

@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS trusted_peer (
 -- that delivered 40% of your blocks first for two months drops off the
 -- network for an evening, loses its slot, and is then indistinguishable from
 -- the thousands of addresses Core has ever seen. Parking it means the loop
--- can keep knocking on the door (a TCP handshake to the port that answered
+-- can keep knocking on the door (a version probe to the port that answered
 -- last time) and hand the slot straight back when it opens - which is the
 -- only reason retiring an offline peer relatively quickly is a safe thing to
 -- do at all.

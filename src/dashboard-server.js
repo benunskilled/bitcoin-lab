@@ -774,7 +774,7 @@ async function router(req, res, pathname, url) {
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
-  // Reachability only - the same TCP handshake the add path runs first, with
+  // Reachability only - the same version probe the add path runs first, with
   // nothing after it. "Is this peer even reachable?" is a question worth being
   // able to ask on its own: the answer decides whether adding it is worth a
   // manual slot at all, and asking it should not cost one.
@@ -787,9 +787,11 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/add-manual') {
     // Same probe-then-persist flow as /api/peers/manual-add, but starting
     // from an existing peer row's address (live or not) instead of raw user
-    // input - we always re-derive the bare host and re-probe 8333/9333
-    // ourselves rather than trust whatever port that peer happened to be
-    // observed on (see manual-peer.js for why that matters for inbound peers).
+    // input. An address this node dialled keeps its port: Core reached the
+    // peer there, and 8333/9333 may be closed or another node on the same IP.
+    // Any other address is cut to the bare host and 8333/9333 are probed,
+    // because an inbound peer is observed on its source port, not the one it
+    // listens on (see manual-peer.js).
     //
     // Unstarred, unlike the typed-in box above. This peer is in the ranking
     // because the app measured it, so promoting it by hand is the same call
@@ -797,8 +799,8 @@ async function router(req, res, pathname, url) {
     // are the pool the rotation promotes FROM.
     const { address, label } = await readBody(req);
     if (!readAddress(res, address)) return true;
-    const host = hostFromAddress(address);
-    const result = await manualAddPeer(host, typeof label === 'string' ? label.slice(0, 64) : undefined);
+    const host = queries.dialledBefore(address) ? address : hostFromAddress(address);
+    const result = await manualAddPeer(host,typeof label === 'string' ? label.slice(0, 64) : undefined);
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 

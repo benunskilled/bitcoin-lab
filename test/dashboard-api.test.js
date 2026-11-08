@@ -588,3 +588,41 @@ test('deleting a pool that does not exist says so', async () => {
   const { status } = await api('/api/pools/987654', { method: 'DELETE' });
   assert.equal(status, 404);
 });
+
+// Found by an outside review: the button cut every address to its host and
+// tried 8333/9333, so a peer this node had dialled on another port could not
+// be added, or 8333 found a different node on the same IP.
+test('Add as Manual keeps the port of a peer this node dialled, and only then', async () => {
+  const net = require('net');
+  const { mock } = require('node:test');
+  const peerSync = require('../src/lib/peer-sync');
+  const { versionMessage, MAGIC } = require('../src/lib/manual-peer');
+  const node = net.createServer((socket) => {
+    socket.once('data', () => socket.write(versionMessage(MAGIC.mainnet)));
+    socket.on('error', () => {});
+  });
+  await new Promise((resolve) => node.listen(0, '127.0.0.1', resolve));
+  const address = `127.0.0.1:${node.address().port}`;
+  const added = [];
+  const add = mock.method(peerSync, 'addTrustedPeer', async (addr) => { added.push(addr); return { ok: true }; });
+  try {
+    const peer = db.getOrCreatePeer(address);
+    db.instance
+      .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+      .run(peer.id, 'inbound', 'inbound', Date.now() - 60000, Date.now() - 30000);
+    // Seen only as inbound: the port is its source port, so 8333/9333 are tried.
+    let res = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+    assert.equal(res.status, 422);
+    assert.deepEqual(added, []);
+    db.instance
+      .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+      .run(peer.id, 'outbound', 'outbound-full-relay', Date.now() - 20000, Date.now() - 10000);
+    res = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+    assert.equal(res.status, 200);
+    assert.deepEqual(added, [address]);
+  } finally {
+    add.mock.restore();
+    node.close();
+    db.instance.prepare('DELETE FROM rotation_log').run();
+  }
+});

@@ -1841,7 +1841,7 @@ document.getElementById('live-peer-limit-toggle').addEventListener('click', () =
 });
 
 // Add and Test share the same input and the same result line, and both take
-// seconds (a TCP handshake against each candidate port, with a 3s timeout
+// seconds (a version probe against each candidate port, with a 3s timeout
 // each), so both disable the form while they run - otherwise a second click
 // starts a second probe against the same address and the two results
 // overwrite each other in whichever order they happen to finish.

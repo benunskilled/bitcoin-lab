@@ -157,7 +157,7 @@ module.exports = {
   offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
 
   // Retired manual peers are kept in parked_peer and re-probed a few at a time
-  // on each rotation tick (a TCP handshake each, so this stays a handful of
+  // on each rotation tick (a version probe each, so this stays a handful of
   // sockets per ten minutes, not a scan). Repeated failures back the interval
   // off so a permanently dead address costs almost nothing to keep around.
   parkedPeerProbesPerTick: Number(pick(process.env.PARKED_PEER_PROBES_PER_TICK, '3')),
