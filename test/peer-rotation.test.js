@@ -866,12 +866,18 @@ test('REGRESSION: a parked peer cannot evict a freshly added one, which is what 
   assert.equal(db.instance.prepare('SELECT probe_failures AS f FROM parked_peer WHERE address = ?').get(parked).f, 0);
 });
 
-test('the rotation log never holds more than it can show', async () => {
+test('the rotation log never holds more than it can show', async (t) => {
   // Nothing is kept that is not shown: the table is trimmed on every write to
   // exactly the number the dashboard offers behind "Show all", so there is no
   // retention window to reason about and no way for a misbehaving loop to
   // leave tens of thousands of rows behind before anyone notices.
-  const limit = require('../src/lib/config').rotationLogEntries;
+  // A small limit stands in for the real one: the trimming is the same at any
+  // size, and filling a thousand rows only makes the suite slow.
+  const cfg = require('../src/lib/config');
+  const saved = cfg.rotationLogEntries;
+  cfg.rotationLogEntries = 30;
+  t.after(() => { cfg.rotationLogEntries = saved; });
+  const limit = cfg.rotationLogEntries;
 
   for (let i = 0; i < limit + 15; i += 1) {
     peerRotation.logAction({ action: 'kick', address: `198.51.100.${i}:8333`, firstPct: 0, eligible: 144, note: `entry ${i}` });
@@ -927,12 +933,15 @@ test('the funnel ignores inbound peers', () => {
   assert.equal(f.delivered, 1);
 });
 
-test('promotions are remembered after the rotation log has been trimmed away', async () => {
+test('promotions are remembered after the rotation log has been trimmed away', async (t) => {
   const address = seedLivePeer({ eligible: 300, first: 100 });
   await peerRotation.promoteBestCandidate(ranking());
   assert.equal(queries.outboundFunnel().promoted, 1);
 
-  // Push the promotion out of the thirty rows the log keeps.
+  // Push the promotion out of the rows the log keeps (a small limit, as above).
+  const saved = config.rotationLogEntries;
+  config.rotationLogEntries = 30;
+  t.after(() => { config.rotationLogEntries = saved; });
   for (let i = 0; i < config.rotationLogEntries + 5; i += 1) {
     seedLivePeer({ eligible: 300, first: 0 });
     await peerRotation.kickDeadWeight(ranking());
@@ -1327,6 +1336,47 @@ test('two adds at the same moment cannot take the manual set past its limit', as
   // it again - otherwise Core holds an addnode this app does not know about.
   const loser = results[0].ok ? '198.51.100.202:8333' : '198.51.100.201:8333';
   assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
+});
+
+// Both found by an outside review. The peer being replaced was chosen before
+// the RPCs and removed after them, so in between another swap could free the
+// same slot (both then wrote their row) or the padlock could go on it.
+test('two swaps that chose the same peer to replace cannot both take its slot', async () => {
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const holder = ranking().find((p) => p.address === weak);
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  const results = await Promise.all([
+    peerSync.addTrustedPeer('198.51.100.221:8333', null, { replace: holder }),
+    peerSync.addTrustedPeer('198.51.100.222:8333', null, { replace: holder }),
+  ]);
+
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
+  assert.deepEqual(results.map((r) => r.ok).sort(), [false, true]);
+  const loser = results[0].ok ? '198.51.100.222:8333' : '198.51.100.221:8333';
+  assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
+});
+
+test('a swap does not remove a peer that got its padlock while the swap was waiting', async () => {
+  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
+  seedLivePeer({ eligible: 144, first: 100, trusted: true });
+  const holder = ranking().find((p) => p.address === weak);
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    // The padlock goes on while Core is being asked.
+    if (cmd === 'add') peerSync.setKept(weak, true);
+  });
+
+  const result = await peerSync.addTrustedPeer('198.51.100.223:8333', null, { replace: holder });
+
+  assert.equal(result.ok, false);
+  const kept = db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(weak);
+  assert.equal(kept && kept.kept, 1, 'the locked peer keeps its slot');
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
 });
 
 test('a swap whose addnode Core refuses leaves the weakest manual peer where it was', async () => {

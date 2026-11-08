@@ -1,7 +1,6 @@
 'use strict';
 
 const db = require('../db');
-const poolId = require('../pool-id');
 const prevhash = require('../prevhash');
 
 // One block as the page reads it, from relay_race.
@@ -39,7 +38,8 @@ function latestBlock() {
   // Two different things, and the page has to be able to tell them apart:
   // `pool` is a pool we recognise, `poolTag` on its own is the text the miner
   // wrote about himself. A block with neither carries nothing at all.
-  const pool = race.poolName ? poolId.shortName(race.poolName) : null;
+  // The full name, as on mempool.space: "Foundry USA", not "Foundry".
+  const pool = race.poolName || null;
   return { ...race, pool, firstPeers };
 }
 
@@ -59,7 +59,7 @@ function blockDetail(raceId = null) {
     : (() => {
       const row = db.instance.prepare(`SELECT ${RACE_COLUMNS} FROM relay_race WHERE id = ?`).get(raceId);
       if (!row) return null;
-      return { ...row, pool: row.poolName ? poolId.shortName(row.poolName) : null, firstPeers: firstPeersOf(row.id) };
+      return { ...row, pool: row.poolName || null, firstPeers: firstPeersOf(row.id) };
     })();
   if (!race) return null;
 
@@ -200,8 +200,12 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
     )
     .all(limit);
 
-  const core = [], peer = [], template = [], own = [], tx = [];
-  let ownLabel = null;
+  const core = [], peer = [], template = [], tx = [];
+  // Per own pool, not the fastest own pool of each block: with two of them
+  // that was a median of whichever won, shown under one pool's name - a
+  // number neither pool ever had. The route shows the own pool measured in
+  // the most of these blocks, and only its times.
+  const ownPools = new Map();
   for (const r of races) {
     const race = stratumForBlock(r.blockHash);
     if (!race || !race.createdAt) continue;
@@ -210,12 +214,18 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
     if (r.firstPingMs != null) peer.push(c - r.firstPingMs);
     if (r.templateMs != null) template.push(c + r.templateMs);
     if (r.templateTx != null) tx.push(r.templateTx);
-    const mine = race.entries.find((e) => e.own && e.latencyMs != null);
-    if (mine) {
-      own.push(mine.latencyMs);
-      ownLabel = ownLabel || mine.label;
+    for (const e of race.entries) {
+      if (!e.own || e.latencyMs == null) continue;
+      const k = `${e.host}:${e.port}`;
+      if (!ownPools.has(k)) ownPools.set(k, { label: e.label, ms: [] });
+      ownPools.get(k).ms.push(e.latencyMs);
     }
   }
+  // Ties go to the pool met first, which is the one in the newest block.
+  let ownPool = null;
+  for (const p of ownPools.values()) if (!ownPool || p.ms.length > ownPool.ms.length) ownPool = p;
+  const own = ownPool ? ownPool.ms : [];
+  const ownLabel = ownPool ? ownPool.label : null;
   const stop = (xs) => (xs.length ? { ms: median(xs), n: xs.length } : null);
   const value = core.length
     ? { blocks: core.length, core: stop(core), peer: stop(peer), template: stop(template), own: stop(own), tx: stop(tx), ownLabel }
@@ -360,7 +370,7 @@ function reconstructionOver(windowMs, now = Date.now()) {
               SUM(recon = 'asked') AS asked,
               SUM(recon = 'full') AS full,
               AVG(CASE WHEN recon = 'asked' THEN recon_missing_bytes END) AS askedAvgBytes
-         FROM relay_race WHERE recon IS NOT NULL AND detected_at >= ?`,
+         FROM relay_race WHERE recon IN ('mempool', 'asked', 'full') AND detected_at >= ?`,
     )
     .get(now - windowMs);
   const value = r.blocks
@@ -371,11 +381,41 @@ function reconstructionOver(windowMs, now = Date.now()) {
   return value;
 }
 
+// The same over the last hundred blocks, the window Peer Map's block card
+// calls "typical" for the route too (ROUTE_MEDIAN_BLOCKS). Of those hundred,
+// the ones that could be told; changes only with a new block.
+let reconLastCache = null;
+function reconstructionLast(n = ROUTE_MEDIAN_BLOCKS) {
+  const head = db.instance.prepare(`SELECT MAX(id) AS id, MAX(CASE WHEN recon IS NOT NULL THEN id END) AS told FROM relay_race`).get();
+  if (!head || head.told == null) return null;
+  const key = `${head.id}:${head.told}:${n}`;
+  if (reconLastCache && reconLastCache.key === key) return reconLastCache.value;
+  const r = db.instance
+    .prepare(
+      `SELECT COUNT(*) AS blocks,
+              SUM(recon = 'mempool') AS mempool,
+              SUM(recon = 'asked') AS asked,
+              SUM(recon = 'full') AS full,
+              AVG(CASE WHEN recon = 'asked' THEN recon_missing_bytes END) AS askedAvgBytes
+         FROM (SELECT recon, recon_missing_bytes FROM relay_race ORDER BY id DESC LIMIT ?)
+        -- An unclear block is left out like an unmeasured one: it is in
+        -- neither share, so the shares still add up to the blocks counted.
+        WHERE recon IN ('mempool', 'asked', 'full')`,
+    )
+    .get(n);
+  const value = r.blocks
+    ? { blocks: r.blocks, mempool: r.mempool, asked: r.asked, full: r.full,
+        askedAvgBytes: r.askedAvgBytes == null ? null : Math.round(r.askedAvgBytes) }
+    : null;
+  reconLastCache = { key, value };
+  return value;
+}
+
 const reconstructionDay = (now) => reconstructionOver(RECON_DAY_MS, now);
 const reconstructionWeek = (now) => reconstructionOver(RECON_WEEK_MS, now);
 
 module.exports = {
-  reconstructionDay, reconstructionWeek,
+  reconstructionDay, reconstructionWeek, reconstructionLast,
   latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, unclearFirsts, attributionHealth,
   ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
 };

@@ -63,6 +63,21 @@ test('a whole block counts as downloaded whole even with a late compact block be
   assert.equal(classify(before, after).kind, 'full');
 });
 
+// Found by an outside review: a late blocktxn for the block before and a
+// whole block from another peer read as "asked", with the previous block's
+// bytes on this one. The counters cannot tell that from a rebuild that failed
+// after asking, so it is neither.
+test('asked and a whole block at once is unclear, with no bytes put on the block', () => {
+  const before = snapshot([peer(1), peer(2)], 2_000_000);
+  const after = [
+    peer(1, { sent: { getblocktxn: 60 }, recv: { blocktxn: HEADER_BYTES + 10000 } }),
+    peer(2, { recv: { block: 1_500_000 } }),
+  ];
+  const r = classify(before, after);
+  assert.equal(r.kind, 'unclear');
+  assert.equal(r.missingBytes, null);
+});
+
 test('without a snapshot of the block before, or with nothing new, it cannot be told', () => {
   assert.equal(classify(null, [peer(1, { recv: { cmpctblock: 1 } })]), null);
   const before = snapshot([peer(1, { recv: { cmpctblock: 5 } })], 2_000_000);
@@ -143,4 +158,33 @@ test('the block size comes from the getblock the pool attribution reads anyway',
   } finally {
     Object.assign(rpc, saved);
   }
+});
+
+test('the last hundred blocks: of those, the ones that could be told', () => {
+  db.instance.prepare(`DELETE FROM relay_observation`).run();
+  db.instance.prepare(`DELETE FROM relay_race`).run();
+  const add = (i, recon, bytes) => db.instance
+    .prepare(`INSERT INTO relay_race (block_hash, detected_at, recon, recon_missing_bytes) VALUES (?, ?, ?, ?)`)
+    .run(`l${i}`, 1_000 + i, recon, bytes);
+  assert.equal(blocks.reconstructionLast(), null);
+  add(0, 'asked', 999999); // falls out of the window below
+  for (let i = 1; i <= 97; i++) add(i, 'mempool', 0);
+  add(98, 'asked', 20000);
+  add(99, null, null); // not told
+  add(100, 'asked', 40000);
+  assert.deepEqual(blocks.reconstructionLast(), { blocks: 99, mempool: 97, asked: 2, full: 0, askedAvgBytes: 30000 });
+  assert.equal(blocks.reconstructionLast(3).blocks, 2);
+});
+
+test('an unclear block is left out of the shares, like one that was not told', () => {
+  db.instance.prepare(`DELETE FROM relay_observation`).run();
+  db.instance.prepare(`DELETE FROM relay_race`).run();
+  const add = (i, recon, bytes) => db.instance
+    .prepare(`INSERT INTO relay_race (block_hash, detected_at, recon, recon_missing_bytes) VALUES (?, ?, ?, ?)`)
+    .run(`u${i}`, Date.now() - 1000 + i, recon, bytes);
+  add(1, 'mempool', 0);
+  add(2, 'asked', 20000);
+  add(3, 'unclear', null);
+  assert.deepEqual(blocks.reconstructionLast(), { blocks: 2, mempool: 1, asked: 1, full: 0, askedAvgBytes: 20000 });
+  assert.equal(blocks.reconstructionDay().blocks, 2);
 });

@@ -48,7 +48,7 @@ On Umbrel, the dashboard is available at `<your-umbrel>:8790`. The default `8788
 | `MIN_SWAP_MARGIN_PCT` | Required lead in ranking-score points for a challenger to take a slot | `0.2` |
 | `RECENT_SCORE_WINDOW_BLOCKS` | Recent block window used for scoring; lifetime performance fills any missing observations | `500` |
 | `PEER_POLL_INTERVAL_MS` | Peer-profiler session poll interval | `15000` |
-| `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" | `30` |
+| `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" (runs of kicks as one line) | `1000` |
 
 `MAX_MANUAL_PEERS` accepts values from 1 to 8, matching Core's maximum of eight simultaneous manual connections. Larger values are rejected at startup.
 

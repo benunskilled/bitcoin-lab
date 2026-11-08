@@ -264,6 +264,13 @@ tr.weak td { color: var(--muted); }
    on this Umbrel" note stayed on screen, without its text, after the pools
    were added. */
 .inline-form[hidden] { display: none; }
+/* A switch of a few choices, as on Peer Map's block card. */
+.rt-switch { display: inline-flex; gap: 2px; margin: 0 0 14px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; }
+.rt-switch button {
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px;
+  padding: 3px 12px; border-radius: 999px; cursor: pointer;
+}
+.rt-switch button.on { background: #2c3b4a; color: var(--text); }
 
 .inline-form input {
   background: #0f151b;
@@ -519,6 +526,8 @@ th.col-actions { padding-left: 20px; }
 }
 .hero-sub b { color: var(--text); font-weight: 600; }
 .hero-sub.raw b { font-style: italic; }
+/* A miner's own text stays on one line and ends in … only where it is too long. */
+.hero-sub.raw { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .hero-n.waiting {
   font-size: 15px;

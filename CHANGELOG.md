@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.5.0 – 2026-11-08
+
+Blocks name their pool in full, and a block with no known pool and no name of its own reads "Unknown". F2Pool's new fish tag is recognised. Stratum Race only counts a block your node knows, and its range is a switch: 10 blocks, 100 blocks or all time. Compact-block shares cover the last 100 blocks, and a block that can't be told apart reads as unclear. The rotation log keeps 1,000 entries and says more clearly why a peer was dropped.
+
 ## 2.4.0 – 2026-11-07
 
 Bitcoin Lab now records how your node put each block together: straight from its mempool, after asking a peer for missing transactions (and how much was missing), or downloaded whole, also as a share over the last day and week. Peer Map shows it on its block card. Changes to your node are only taken through Umbrel's own login, so another app on the same Umbrel can no longer change anything. The page no longer jumps while you read.

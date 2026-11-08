@@ -10,7 +10,6 @@ const hex = (s) => Buffer.from(s, 'ascii').toString('hex');
 test('a payout address identifies the pool', () => {
   const got = poolId.identify({ addresses: ['12KKDt4Mj7N5UAkQMN7LtPZMayenXHa8KL'] });
   assert.equal(got.name, 'Foundry USA');
-  assert.equal(got.short, 'Foundry');
   assert.equal(got.source, 'address');
 });
 
@@ -49,16 +48,14 @@ test('binary bytes do not bridge two fragments', () => {
   assert.match(text, /^Foundry\u0000\u0000USA$/);
 });
 
-test('short names drop a trailing filler word and nothing else', () => {
-  assert.equal(poolId.shortName('Foundry USA'), 'Foundry');
-  assert.equal(poolId.shortName('MARA Pool'), 'MARA');
-  assert.equal(poolId.shortName('Braiins Pool'), 'Braiins');
-  // One word, or a word that carries the name: untouched.
-  assert.equal(poolId.shortName('F2Pool'), 'F2Pool');
-  assert.equal(poolId.shortName('ViaBTC'), 'ViaBTC');
-  assert.equal(poolId.shortName('SBI Crypto'), 'SBI Crypto');
-  // A name nobody has heard of comes back as it went in.
-  assert.equal(poolId.shortName('Some New Pool Nobody Lists'), 'Some New Pool Nobody Lists');
+// Block 974982: F2Pool paid to an address the list does not know yet, and
+// its only tag is the fish - outside ASCII, so it is matched as bytes.
+test('a tag outside ASCII still identifies the pool', () => {
+  const script = '0386e00e' + Buffer.from('🐟\t/f2pool/m', 'utf8').toString('hex') + '0000';
+  const hit = poolId.identify({ coinbaseHex: script, addresses: ['1K6KoYC69NnafWJ7YgtrpwJxBLiijWqwa6'] });
+  assert.equal(hit.name, 'F2Pool');
+  assert.equal(hit.tag, '🐟');
+  assert.equal(poolId.identify({ coinbaseHex: Buffer.from('七彩神仙鱼', 'utf8').toString('hex') }).name, 'F2Pool');
 });
 
 test('the embedded list is the real one', () => {
@@ -92,8 +89,12 @@ test('an unknown miner still leaves a readable label', () => {
   assert.equal(poolId.coinbaseLabel('03a1b2c3ff00ff'), null);
   assert.equal(poolId.coinbaseLabel(''), null);
   // The longest readable fragment wins, and it is capped.
-  const long = 'x'.repeat(60);
-  assert.equal(poolId.coinbaseLabel(hexOf(long)).length, 32);
+  const long = 'x'.repeat(120);
+  assert.equal(poolId.coinbaseLabel(hexOf(long)), `${'x'.repeat(100)}…`);
+  // A UUID is an id, not a name, and the extranonce next to it can look like
+  // text by chance (block 971531 carries "+VAR1").
+  assert.equal(poolId.coinbaseLabel('036ae00e0417b0b2' + hexOf('j://85a2d481-1f50-45ce-be3d-a2c4d17cbeb8') + '003331b0'), null);
+  assert.equal(poolId.coinbaseLabel('030bed0e04' + hexOf('j://e965ff8f-b25d-4e53-9429-c6bfefefc3cb') + '00' + hexOf('+VAR1') + '01'), null);
 });
 
 // Pools that run ckpool write "ckpool" too; their own tag has to win.

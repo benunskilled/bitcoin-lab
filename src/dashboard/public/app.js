@@ -637,20 +637,23 @@ function setBlockHeight(height) {
 // Who mined the block that just landed. Three states, and the difference
 // matters: a pool we recognise gets its name, an unknown miner gets the
 // text he wrote into his own coinbase (in quotes, so it never reads as a name
-// we are vouching for), and a block that says neither shows nothing at all.
+// we are vouching for), and a block that says neither reads Unknown - as on
+// mempool.space - once its coinbase has been read.
 function setBlockPool(race) {
   const el = document.getElementById('block-pool');
   if (!el) return;
   const known = race && race.pool;
   const raw = race && !known && race.poolTag ? race.poolTag : null;
+  const unknown = race && !known && !raw && race.poolSource === 'none';
   el.classList.toggle('raw', Boolean(raw));
   el.textContent = '';
-  if (known || raw) {
+  if (known || raw || unknown) {
     const name = document.createElement('b');
-    name.textContent = known ? (race.poolName || race.pool) : `"${raw}"`;
+    name.textContent = known ? (race.poolName || race.pool) : raw ? `"${raw}"` : 'Unknown';
     el.append('mined by ', name);
     el.title = known ? `Mined by ${race.poolName || race.pool}, from the block's coinbase`
-      : 'No pool we know of. This is the text the miner wrote into the block.';
+      : raw ? 'No pool we know of. This is the text the miner wrote into the block.'
+        : 'No pool we know of, and no name in the block.';
   } else {
     el.removeAttribute('title');
     // A new block comes without its pool: the coinbase is read a few seconds
@@ -659,7 +662,7 @@ function setBlockPool(race) {
     // (iPhone, 04.11.2026).
     if (!el.hidden) el.textContent = '\u00a0';
   }
-  if (known || raw) el.hidden = false;
+  if (known || raw || unknown) el.hidden = false;
 }
 
 function triggerBlockWave() {
@@ -915,7 +918,7 @@ let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 // The rotation log is a diary, and a diary is mostly interesting at the end.
 // Fifty rows is half a screenful nobody asked for, so only the most recent few
 // are shown until someone wants the rest.
-const ROTATION_LOG_LIMIT = 5;
+const ROTATION_LOG_LIMIT = 4;
 let showAllRotationLog = false; // toggled by #rotation-log-limit-toggle
 // A reload keeps what was opened, like the scroll position: "Show all" stays.
 const OPENED_KEY = 'opened:' + location.pathname;
@@ -1416,6 +1419,24 @@ async function refreshRotation() {
 // thirty lines saying the same said nothing a single line could not.
 const EMPTY_KICK = /^0\/(\d+) recent blocks first$/;
 const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
+// Said plainly: "0/50 recent blocks first" read like a score to work out. A
+// run says only the smallest count - every one of them went at least that
+// long without a block first, and "50–53" was noise.
+const nothingFirst = (blocks) => `nothing first in ${blocks} blocks`;
+// A peer dropped by hand, said the same way. The stored note keeps its old
+// form ("by hand · inbound · 3/40 recent blocks first"), so older lines read
+// the new way too.
+const BY_HAND = /^by hand((?: · (?:inbound|outbound))?) · (\d+)\/(\d+) recent blocks first$/;
+function byHandNote(note) {
+  const m = BY_HAND.exec(note);
+  if (!m) return note;
+  const first = Number(m[2]);
+  const blocks = Number(m[3]);
+  const record = blocks === 0 ? 'no blocks yet' : first === 0 ? nothingFirst(blocks) : `${first} of ${blocks} blocks first`;
+  return `by hand${m[1]} · ${record}`;
+}
+const entryNote = (e) => (emptyKick(e) ? nothingFirst(Number(EMPTY_KICK.exec(e.note)[1]))
+  : e.action === 'disconnect' ? byHandNote(e.note || '') : e.note || '-');
 
 // Peers dropped by hand in a row are one line too, as the empty kicks are.
 const byHand = (e) => e.action === 'disconnect';
@@ -1445,7 +1466,7 @@ function rotationEntryRow(entry, cls = '') {
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
       ${truncatedCell(entry.address)}
       <td>${fmtPct(entry.firstPct)}</td>
-      <td class="hint">${escapeHtml(entry.note || '-')}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
+      <td class="hint">${escapeHtml(entryNote(entry))}${entry.replacedAddress ? ` <span title="${escapeHtml(entry.replacedAddress)}">(${fmtPct(entry.replacedFirstPct)} lifetime)</span>` : ''}</td>
     </tr>`;
 }
 
@@ -1453,27 +1474,29 @@ function kickGroupRows(kicks, kind = 'kick') {
   const now = Date.now();
   const newest = kicks[0];
   const oldest = kicks[kicks.length - 1];
-  const open = openKickGroups.has(oldest.at);
+  // Only peers dropped by hand open up: who they were is worth a look. A run
+  // of empty kicks stays one line - the log keeps a thousand entries, and the
+  // peers in it are interchangeable, which is the whole point of the kick.
+  const opens = kind === 'disconnect';
+  const open = opens && openKickGroups.has(oldest.at);
   const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
-  const mark = `<span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>`;
+  const mark = opens ? ` <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>` : '';
   let who, pct, note;
   if (kind === 'disconnect') {
     // Their records differ, so the line names only what they share.
     who = `${kicks.length} peers`;
     pct = '';
-    note = `<td class="hint">by hand ${mark}</td>`;
+    note = `<td class="hint">by hand${mark}</td>`;
   } else {
-    const blocks = kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1]));
-    const lo = Math.min(...blocks);
-    const hi = Math.max(...blocks);
-    who = `${kicks.length} outbound peers`;
+    const lo = Math.min(...kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1])));
+    who = `${kicks.length} peers`;
     pct = fmtPct(0);
-    note = `<td class="hint" title="None of them delivered a block first">0/${lo === hi ? lo : `${lo}–${hi}`} recent blocks first, each ${mark}</td>`;
+    note = `<td class="hint" title="None of them delivered a block first">${nothingFirst(lo)}${mark}</td>`;
   }
   const head = `
-    <tr class="kick-group" data-group="${oldest.at}" tabindex="0" aria-expanded="${open}">
+    <tr class="${opens ? 'kick-group' : 'kick-sum'}"${opens ? ` data-group="${oldest.at}" tabindex="0" aria-expanded="${open}"` : ''}>
       <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
-      <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))} ×${kicks.length}</span></td>
+      <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))}</span></td>
       <td>${who}</td>
       <td>${pct}</td>
       ${note}
@@ -1533,7 +1556,7 @@ function applyStratumEnabled(enabled) {
 async function refreshPools() {
   // Nothing to ask for while it is off, and nowhere to put the answer.
   if (document.getElementById('stratum-body')?.hidden) return;
-  const range = document.getElementById('stratum-range').value;
+  const range = document.querySelector('#stratum-range button.on')?.dataset.range || '10';
   // First, and on its own: the quick-fill buttons need the templates even if
   // the pool list below fails to load.
   refreshLocalPools();
@@ -2153,7 +2176,16 @@ document.body.addEventListener('change', async (e) => {
     return;
   }
 
-  if (e.target.id === 'stratum-range') refreshPools();
+});
+
+document.getElementById('stratum-range').addEventListener('click', (e) => {
+  const pick = e.target.closest('button[data-range]');
+  if (!pick || pick.classList.contains('on')) return;
+  for (const b of pick.parentElement.children) {
+    b.classList.toggle('on', b === pick);
+    b.setAttribute('aria-pressed', String(b === pick));
+  }
+  refreshPools();
 });
 
 // Background services (peer-profiler, relay-profiler, stratum-race) have no

@@ -68,7 +68,7 @@ test('the three roles are separate, and each can be missing on its own', () => {
   seedBlock();
   const d = blocks.blockDetail();
   assert.equal(d.blockHeight, 967724);
-  assert.equal(d.pool, 'Foundry');                       // mined it
+  assert.equal(d.pool, 'Foundry USA');                       // mined it
   assert.deepEqual(d.firstPeers.map((p) => p.address), ['1.2.3.4:8333']); // delivered it
   assert.equal(d.eligible, 2);
   assert.equal(d.stratum, null);                         // nobody raced for it

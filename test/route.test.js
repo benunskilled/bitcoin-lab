@@ -141,6 +141,31 @@ test('an older block without template timing still counts for its other stops', 
   assert.equal(m.peer.n, 1);
 });
 
+// Found by an outside review: with two own pools the route took the fastest
+// of them per block, and showed the median of those under one pool's name.
+test('with two own pools the route shows one pool and only its own times', () => {
+  db.instance.prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES ('Own A', 'a', 1, 1, 0, 0)`).run();
+  db.instance.prepare(`INSERT INTO stratum_pool (label, host, port, enabled, is_default, created_at) VALUES ('Own B', 'b', 1, 1, 0, 0)`).run();
+  const ids = Object.fromEntries(db.instance.prepare('SELECT label, id FROM stratum_pool').all().map((r) => [r.label, r.id]));
+  const times = [{ 'Own A': 100, 'Own B': 200 }, { 'Own A': 1000, 'Own B': 900 }, { 'Own A': 1100 }];
+  for (const t of times) {
+    n += 1;
+    const hash = n.toString(16).padStart(64, '0');
+    const created = 1_700_000_000_000 + n * 600_000;
+    db.instance.prepare(`INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)`).run(hash, created + 50);
+    const race = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)').run(hash, created);
+    Object.entries(t).sort((x, y) => x[1] - y[1]).forEach(([label, ms], i) => {
+      db.instance
+        .prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)')
+        .run(race.lastInsertRowid, ids[label], ms, i + 1);
+    });
+  }
+
+  const m = blocks.routeMedian();
+  assert.equal(m.ownLabel, 'Own A'); // measured in all three blocks
+  assert.deepEqual(m.own, { ms: 1000, n: 3 }); // 100, 1000, 1100 - none of Own B's
+});
+
 test('no race recorded at all, no typical route', () => {
   db.instance.prepare(`INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)`).run('cd'.repeat(32), 1);
   assert.equal(blocks.routeMedian(), null);

@@ -242,13 +242,11 @@
       <p class="hint" id="pool-no-miner" hidden>No miner needed: install a pool app on this Umbrel and race your own node against the solo pools.<br>
         Every pool app works right away, except DATUM: it needs a Bitcoin address first.</p>
       <div id="stratum-body">
-      <div class="inline-form">
-        <label class="hint" for="stratum-range">Range:</label>
-        <select id="stratum-range">
-          <option value="10">Last 10 blocks</option>
-          <option value="100">Last 100 blocks</option>
-          <option value="all">All time</option>
-        </select>
+      <!-- The range as a switch, like the one on Peer Map's block card. -->
+      <div class="rt-switch" id="stratum-range" role="group" aria-label="Range">
+        <button type="button" data-range="10" class="on" aria-pressed="true">10 blocks</button>
+        <button type="button" data-range="100" aria-pressed="false">100 blocks</button>
+        <button type="button" data-range="all" aria-pressed="false">All time</button>
       </div>
       <div class="inline-form" id="pool-found" hidden>
         <span class="hint" id="pool-found-text"></span>

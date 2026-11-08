@@ -411,12 +411,26 @@ async function addTrustedPeer(address, label, options = {}) {
   // rotation in the other process - can have taken the last slot in the
   // meantime, and both used to write their row. IMMEDIATE takes the write
   // lock first, so no other writer can slip between this count and the
-  // insert. A slot being freed by our own eviction below still counts as
-  // taken here, which is why the limit is one higher when there is one.
-  const limit = config.maxManualPeers + (toEvict ? 1 : 0);
+  // insert.
+  //
+  // The peer being replaced is claimed in the same transaction: its row goes
+  // here, not after the RPCs below. It was chosen before two RPCs too, and
+  // in that time another replacement can have chosen and freed the same slot
+  // (both then wrote their row: one manual peer too many), or the padlock can
+  // have gone on it. So it only frees a slot if it is still there and still
+  // unlocked now; otherwise this add has to fit on its own.
+  let claimed = false;
   const written = db.instance.transaction(() => {
     const exists = db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address);
-    if (!exists && countTrusted() >= limit) return false;
+    if (!exists) {
+      const holder = toEvict && db.instance.prepare(`SELECT kept FROM trusted_peer WHERE address = ?`).get(toEvict.address);
+      const freeable = Boolean(holder && !holder.kept);
+      if (countTrusted() - (freeable ? 1 : 0) >= config.maxManualPeers) return false;
+      if (freeable) {
+        db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(toEvict.address);
+        claimed = true;
+      }
+    }
     db.instance
       .prepare(
         `INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, ?, ?, ?)
@@ -467,7 +481,8 @@ async function addTrustedPeer(address, label, options = {}) {
 
   let evicted = null;
   let evictedParked = false;
-  if (toEvict) {
+  if (claimed) {
+    // The row is already gone (above); this tells Core and drops the session.
     await removeTrustedPeer(toEvict.address);
     // parkPeer declines a peer with no record; then it is simply gone, and
     // the caller must not tell anyone it will be re-tested.

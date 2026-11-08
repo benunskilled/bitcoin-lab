@@ -302,7 +302,9 @@ module.exports = {
   // How many rotation-log entries exist at all. Not a retention window: the
   // table is trimmed to this on every write, so what is stored is exactly what
   // the dashboard can show. Nothing is kept that is not shown.
-  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '30')),
+  // A thousand: two months or so at 15-20 kicks a day, and the runs of empty
+  // kicks show as one line each, so even all of it reads as a short history.
+  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '1000')),
 
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };

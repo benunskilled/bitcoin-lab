@@ -2,10 +2,11 @@
 
 /**
  * Stratum Race - measures which pool delivers a new job (mining.notify with
- * a new prevhash) fastest. Completely independent of Bitcoin Core/ZMQ:
+ * a new prevhash) fastest. The timing is independent of Bitcoin Core/ZMQ:
  * every pool is timed purely from its own TCP `data` events. The first
  * pool to report a given prevhash defines 0ms; everyone else is measured
- * relative to that instant. No pool is treated specially.
+ * relative to that instant. No pool is treated specially. Core is asked only
+ * afterwards, whether the block was real (see blockKnown).
  */
 
 const config = require('./lib/config');
@@ -16,7 +17,8 @@ const { isValidHost, isValidPort } = require('./lib/validate');
 const logger = require('./lib/logger').make('stratum-race');
 const { StratumPoolConnection } = require('./lib/stratum-client');
 const toggle = require('./lib/stratum-race-toggle');
-const { canonical } = require('./lib/prevhash');
+const { canonical, encodings } = require('./lib/prevhash');
+const rpc = require('./lib/rpc');
 
 // Pools only ever change through the dashboard, and a few minutes' delay in
 // noticing that is imperceptible - this used to run every 30 seconds, which
@@ -37,7 +39,7 @@ const TOGGLE_CHECK_INTERVAL_MS = 30 * 1000;
 const active = new Map();
 
 /**
- * Open races, keyed by prevhash: { id, startHr, timer, reported:Set<poolId> }.
+ * Open races, keyed by prevhash: { createdAt, startHr, timer, reported, results }.
  *
  * This used to be a single `currentRace` slot, which had a subtle but costly
  * failure mode. A pool that is a block behind still broadcasts jobs for the
@@ -69,15 +71,9 @@ const recentPrevhashes = new Set();
 /**
  * The three statements this worker runs, compiled once.
  *
- * They used to be built with db.instance.prepare(...) at the point of use -
- * and two of those points sit on the timing-critical path: the open and the
- * insert both happen inside the socket's own `data` handler, microseconds
- * after the timestamp that the whole measurement is taken from. prepare() is
- * a fresh compile every time - nothing behind it is keyed on the SQL text -
- * so every notify paid for parsing and planning the same statement again
- * before the race's own bookkeeping could finish. That work is not part of
- * what is being measured, and it is very much part of what delays the next
- * pool's chunk being read off the event loop.
+ * They are prepared once rather than at each point of use: prepare() is a
+ * fresh compile every time, and nothing behind it is keyed on the SQL text.
+ * None of them runs while a race is open any more - see writeRace.
  *
  * Lazily, not at module load: db.open() happens in main(), and the tests
  * require this module before opening the database.
@@ -202,46 +198,153 @@ function syncConnections() {
   }
 }
 
-function finalizeRace(hash) {
-  const prevhash = canonical(hash);
-  const race = openRaces.get(prevhash);
-  if (!race) return;
-  openRaces.delete(prevhash);
-  clearTimeout(race.timer);
+/**
+ * Writes a finished race: its row, every pool that reported, and - when
+ * `misses` - a miss for every watched pool that did not.
+ *
+ * All of it at the end, none of it while the race is open. better-sqlite3
+ * writes synchronously, and a write that meets another process's lock waits
+ * up to the busy_timeout with the whole event loop standing still. Every
+ * pool's `data` event that arrives in that wait is stamped when the loop
+ * comes back, not when the job came in: an outside review held a lock for
+ * one second and turned 21 ms between two pools into 1,033 ms. With nothing
+ * written inside the window, a lock can only delay the bookkeeping, never a
+ * timestamp. (Two blocks inside one window would still overlap one race's
+ * write with the other's timing - a coincidence too rare to build for.)
+ */
+function writeRace(race, { misses }) {
+  let s;
+  let id;
+  try {
+    s = statements();
+    const info = s.openRace.run(race.prevhash, race.createdAt);
+    if (info.changes === 0) {
+      // Already in the database from an earlier run - the original start
+      // instant is lost, so these offsets would mean nothing.
+      logger.debug('duplicate prevhash race, not recorded', { prevhash: race.prevhash });
+      return;
+    }
+    id = info.lastInsertRowid;
+  } catch (err) {
+    logger.warn('failed to record race', { prevhash: race.prevhash, error: err.message });
+    return;
+  }
+  race.id = id;
 
-  // Anyone still enabled who never reported for this race gets a miss.
-  //
-  // Deliberately one statement per pool rather than all of them in a single
-  // transaction. `active` is only reconciled with stratum_pool every
+  // One statement per row rather than all of them in one transaction.
+  // `active` is only reconciled with stratum_pool every
   // POOL_REFRESH_INTERVAL_MS, so for a few minutes after the user deletes a
   // pool it still holds that pool's id - and an insert referencing a deleted
   // pool violates the foreign key. ON CONFLICT resolution does NOT cover
-  // foreign-key violations (SQLite applies OR IGNORE to uniqueness, NOT NULL
-  // and CHECK only), so that insert throws, and inside one transaction it took
-  // every other pool's miss down with it on rollback: the race ended up with
-  // rows only for the pools that reported, which is precisely the Win%/Miss
-  // bias the stratum_history_reset_v1_12_0 migration had to erase once
-  // already. Per-row failure now costs exactly that row.
-  const insertMiss = statements().recordMiss;
-  for (const poolId of active.keys()) {
+  // foreign-key violations, so inside one transaction that row took every
+  // other pool's row down with it on rollback: the race ended up with rows
+  // only for some pools, which is precisely the Win%/Miss bias the
+  // stratum_history_reset_v1_12_0 migration had to erase once already.
+  // Per-row failure costs exactly that row, and never crashes this process.
+  for (const r of race.results) {
+    try {
+      s.recordReport.run(id, r.poolId, r.elapsedMs, r.rank);
+    } catch (err) {
+      logger.warn('failed to record pool report', { label: r.label, error: err.message });
+    }
+  }
+  if (!misses) return;
+  // Anyone enabled when the race closed who never reported for it gets a miss.
+  // The list is taken at close, not now: a race Core is asked about again is
+  // written minutes later, and a pool added in between was never in it.
+  for (const poolId of race.watched || active.keys()) {
     if (race.reported.has(poolId) || race.excused.has(poolId)) continue;
     try {
-      insertMiss.run(race.id, poolId);
+      s.recordMiss.run(id, poolId);
     } catch (err) {
-      // A DB error here must never crash this process - losing the whole event
-      // loop over one race's bookkeeping would silently drop every pool
-      // connection, not just this row.
-      logger.warn('failed to record a miss for finalized race', {
-        raceId: race.id,
-        poolId,
-        error: err.message,
-      });
+      logger.warn('failed to record a miss for finalized race', { raceId: id, poolId, error: err.message });
     }
   }
 }
 
+/**
+ * Does Core know the block this race was about?
+ *
+ * The client only lets a well-formed hash through, and a pool can still send
+ * one that is shaped right and made up: it opened a race, came first in it,
+ * and every other pool was charged a miss for a block that never existed. An
+ * outside review did exactly that. The pools are ones the owner chose, so this
+ * is a guard against a broken or dishonest pool, not a likely event - and one
+ * getblockheader per block is all it costs.
+ *
+ * Asked only once the race is over, on the side: the timing itself still never
+ * waits for Core. true when Core has the header, false when it says it has no
+ * such block in any of the spellings, null when Core could not be asked.
+ */
+async function blockKnown(prevhash) {
+  let unreachable = false;
+  for (const hash of encodings(prevhash)) {
+    try {
+      await rpc.getBlockHeader(hash);
+      return true;
+    } catch (err) {
+      if (!/\(code -5\)/.test(err.message || '')) unreachable = true;
+    }
+  }
+  return unreachable ? null : false;
+}
+
+// Core usually has the block well before the race's eight seconds are up (it
+// is what the pools build on). When it does not yet, it is asked again; after
+// the last try a block it still does not know is dropped, while a Core that
+// could not be asked at all is given the benefit of the doubt - the pools are
+// the owner's own, and losing every race while Core restarts would be worse.
+const VERIFY_RETRY_MS = [60_000, 10 * 60_000];
+
+let verify = blockKnown;
+
+// Races waiting for Core to be asked again. A restart or the switch going off
+// writes them without misses, like a race still open (abandonOpenRaces).
+const pendingRaces = new Set();
+
+async function settleRace(race, attempt = 0) {
+  let known;
+  try {
+    known = await verify(race.prevhash);
+  } catch (err) {
+    known = null;
+  }
+  if (known === true) return writeRace(race, { misses: true });
+  if (attempt < VERIFY_RETRY_MS.length) {
+    race.retry = setTimeout(() => {
+      pendingRaces.delete(race);
+      settleRace(race, attempt + 1).catch((err) =>
+        logger.warn('failed to settle race', { prevhash: race.prevhash, error: err.message }));
+    }, VERIFY_RETRY_MS[attempt]);
+    if (race.retry.unref) race.retry.unref();
+    pendingRaces.add(race);
+    return undefined;
+  }
+  if (known === null) {
+    logger.warn('Core could not be asked about a race\'s block - recorded unchecked', { prevhash: race.prevhash });
+    return writeRace(race, { misses: true });
+  }
+  logger.warn('a pool sent a job for a block Core does not know - race not recorded', {
+    prevhash: race.prevhash,
+    first: race.results.length ? race.results[0].label : null,
+  });
+  return undefined;
+}
+
+// Returns once the race is written (or set aside to be checked again), so the
+// tests can wait for it.
+function finalizeRace(hash) {
+  const prevhash = canonical(hash);
+  const race = openRaces.get(prevhash);
+  if (!race) return Promise.resolve();
+  openRaces.delete(prevhash);
+  clearTimeout(race.timer);
+  race.watched = [...active.keys()];
+  return settleRace(race);
+}
+
 function finalizeAllRaces() {
-  for (const prevhash of [...openRaces.keys()]) finalizeRace(prevhash);
+  return Promise.all([...openRaces.keys()].map((prevhash) => finalizeRace(prevhash)));
 }
 
 /**
@@ -327,36 +430,19 @@ function handleNotify(pool, hash, receivedAtHr, receivedAtMs = Date.now(), first
       return;
     }
 
-    let info;
-    try {
-      // When the first job ARRIVED, not when it had been parsed and got this
-      // far. The race's own offsets were always measured from the arrival
-      // (startHr below); created_at used to be taken here, a step later, which
-      // put the race's zero slightly late - and Peer Map lays this zero next
-      // to the moment Core announced the block, so a late zero made "Core to
-      // your pool" look longer than it was.
-      info = statements().openRace.run(prevhash, receivedAtMs);
-    } catch (err) {
-      logger.warn('failed to open race', { prevhash, label: pool.label, error: err.message });
-      return;
-    }
-
-    if (info.changes === 0) {
-      // Already in the database from an earlier run or an earlier race - we
-      // have lost the original start instant, so any latency we computed now
-      // would be meaningless. Remember it so the next lagging notify is
-      // answered from memory.
-      rememberPrevhash(prevhash);
-      logger.debug('duplicate prevhash race, ignoring', { prevhash, label: pool.label });
-      return;
-    }
-
+    // Nothing is written yet - see writeRace. The row is only built here,
+    // stamped with when the first job ARRIVED, not when it had been parsed
+    // and got this far: Peer Map lays this zero next to the moment Core
+    // announced the block, so a late zero made "Core to your pool" look
+    // longer than it was.
     rememberPrevhash(prevhash);
     race = {
-      id: info.lastInsertRowid,
       prevhash,
+      createdAt: receivedAtMs,
       startHr: receivedAtHr,
       reported: new Set(),
+      // What each pool scored, in the order they came in. Written at the end.
+      results: [],
       // Pools that turned up mid-race with a job they could not be timed on -
       // see handleNotify's doc comment. No result, and no miss either.
       excused: new Set(),
@@ -371,31 +457,8 @@ function handleNotify(pool, hash, receivedAtHr, receivedAtMs = Date.now(), first
   const elapsedMs = Number(receivedAtHr - race.startHr) / 1e6;
   const rank = race.reported.size;
 
-  try {
-    // Upsert rather than a plain INSERT OR IGNORE: if finalizeRace() already
-    // recorded a miss for this (race, pool) - e.g. this notify's write was
-    // delayed by DB lock contention past the race timeout - a late-but-real
-    // report corrects it rather than being silently dropped by the earlier
-    // miss row. Never overwrites an already-recorded real result (the WHERE
-    // guards on latency_ms IS NULL).
-    //
-    // Honest scope note: the case this was written for - a notify arriving
-    // after its own race was finalised - can no longer reach here, because
-    // handleNotify marks the prevhash as seen before building the race and
-    // takes the stale-prevhash early return on the way back in. What the
-    // upsert still protects is the same collision arising any other way (a
-    // retry, a second connection to the same pool, a finalize racing this
-    // write inside the busy_timeout window), which is cheap insurance for one
-    // clause. It is kept deliberately, not by accident - and the test named
-    // for it asserts what actually happens now, which is that the miss
-    // stands.
-    statements().recordReport.run(race.id, pool.id, elapsedMs, rank);
-    logger.info('pool reported job', { label: pool.label, rank, elapsedMs: Number(elapsedMs.toFixed(1)) });
-  } catch (err) {
-    // Same reasoning as finalizeRace(): never let a DB hiccup crash this
-    // process and take every pool connection down with it.
-    logger.warn('failed to record pool report', { label: pool.label, error: err.message });
-  }
+  race.results.push({ poolId: pool.id, label: pool.label, elapsedMs, rank });
+  logger.info('pool reported job', { label: pool.label, rank, elapsedMs: Number(elapsedMs.toFixed(1)) });
 }
 
 function stopAllConnections() {
@@ -411,10 +474,20 @@ function stopAllConnections() {
  * user, and charging every pool a miss for it would bias Win % and Miss in
  * exactly the way the comments above spend so long guarding against. The race
  * row stays with whatever really did report; nobody is charged for the rest.
+ * It is written without asking Core about its block (the process may be on
+ * its way out): with no misses written, a made-up hash costs no other pool.
  */
 function abandonOpenRaces() {
-  for (const race of openRaces.values()) clearTimeout(race.timer);
+  for (const race of openRaces.values()) {
+    clearTimeout(race.timer);
+    writeRace(race, { misses: false });
+  }
   openRaces.clear();
+  for (const race of pendingRaces) {
+    clearTimeout(race.retry);
+    writeRace(race, { misses: false });
+  }
+  pendingRaces.clear();
 }
 
 // Everything the worker holds, released. Idempotent: with nothing open and
@@ -508,5 +581,10 @@ module.exports = {
   syncConnections,
   active,
   openRaces,
+  pendingRaces,
   main,
+  blockKnown,
+  // Tests only: stand in for Core's answer.
+  setVerifier: (fn) => { verify = fn || blockKnown; },
+  VERIFY_RETRY_MS,
 };
