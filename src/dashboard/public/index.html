@@ -80,18 +80,18 @@
     <section class="card panel">
       <h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2>
       <!--
-        The single setting that most affects whether any of this measures what
-        it claims to. Over Tor the numbers are circuit latency, not peer
-        latency, and a .onion peer can never become manual at all - the port
-        probe has no address to dial. Said here rather than in the README
-        because this is the table where it shows.
+        Clearnet only used to be the advice here: a Tor or I2P peer could never
+        become manual. Now the rotation keeps one of each among the manual
+        peers, and Core can only reach them with those networks switched on.
+        Said here rather than in the README because this is the table where it
+        shows.
       -->
       <div class="panel-note" id="outbound-note">
-        <p><strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong></p>
+        <p><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
         <details class="how">
           <summary>Why</summary>
-          <p>A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
-          app can dial back. As inbound connections they are fine.</p>
+          <p>The rotation keeps one Tor and one I2P peer among the manual peers, and Core needs those networks
+          switched on to reach them. Tor and I2P peers are seldom first; their paths are slower, and that is expected.</p>
         </details>
       </div>
       <div class="table-wrap">

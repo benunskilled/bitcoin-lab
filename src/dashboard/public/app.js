@@ -906,7 +906,7 @@ function firstPctCell(p) {
   return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span>&nbsp;<span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
 
-// The clearnet note under Outbound Peers used to get a live count of Tor/I2P
+// The network note under Outbound Peers used to get a live count of Tor/I2P
 // peers appended to it. Removed: the note is advice about a setting, and the
 // peers it talks about are already named as Tor or I2P in their own address
 // cell, with the reason in that cell's tooltip. A sentence repeating that
