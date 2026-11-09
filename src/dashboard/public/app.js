@@ -915,20 +915,19 @@ function firstPctCell(p) {
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 
-// The rotation log is a diary, and a diary is mostly interesting at the end.
-// Fifty rows is half a screenful nobody asked for, so only the most recent few
-// are shown until someone wants the rest.
+// The rotation log is a diary, and a diary is mostly interesting at the end:
+// the four most recent rows answer "what did it do lately". There used to be a
+// "Show all" behind them, which on a real node opened one more row.
 const ROTATION_LOG_LIMIT = 4;
-let showAllRotationLog = false; // toggled by #rotation-log-limit-toggle
 // A reload keeps what was opened, like the scroll position: "Show all" stays.
 const OPENED_KEY = 'opened:' + location.pathname;
 try {
   const nav = performance.getEntriesByType('navigation')[0];
   if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
     const o = JSON.parse(sessionStorage.getItem(OPENED_KEY) || 'null');
-    if (o) { showAllLivePeers = !!o.live; showAllRotationLog = !!o.log; }
+    if (o) showAllLivePeers = !!o.live;
   }
-  const keep = () => { try { sessionStorage.setItem(OPENED_KEY, JSON.stringify({ live: showAllLivePeers, log: showAllRotationLog })); } catch { /* private window */ } };
+  const keep = () => { try { sessionStorage.setItem(OPENED_KEY, JSON.stringify({ live: showAllLivePeers })); } catch { /* private window */ } };
   window.addEventListener('pagehide', keep);
   document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
 } catch { /* no storage: nothing to keep */ }
@@ -958,7 +957,7 @@ function markArrivals(ranking) {
   for (const [a, t] of arrivedAt) if (now - t > 3000 || !seen.has(a)) arrivedAt.delete(a);
   knownAddresses = seen;
 }
-let lastRotationLog = null; // kept so the toggle can re-render without refetching
+let lastRotationLog = null; // kept so a kick group can open without refetching
 
 // The most recent ranking payload, kept so purely visual changes (the "show
 // all" toggle) can re-render from it instead of re-fetching the single most
@@ -1508,23 +1507,7 @@ function renderRotationLog(log) {
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (!tbody) return;
 
-  const rows = rotationLogRows(log);
-  const visible = showAllRotationLog ? rows : rows.slice(0, ROTATION_LOG_LIMIT);
-
-  const countLabel = document.getElementById('rotation-log-count');
-  if (countLabel) {
-    countLabel.textContent = rows.length <= ROTATION_LOG_LIMIT
-      ? (log.length > rows.length ? `${log.length} entries` : '')
-      : `showing ${visible.length} of ${rows.length}`;
-  }
-
-  const toggle = document.getElementById('rotation-log-limit-toggle');
-  if (toggle) {
-    toggle.hidden = rows.length <= ROTATION_LOG_LIMIT;
-    toggle.textContent = showAllRotationLog
-      ? `Show latest ${ROTATION_LOG_LIMIT} only`
-      : `Show all ${rows.length}`;
-  }
+  const visible = rotationLogRows(log).slice(0, ROTATION_LOG_LIMIT);
 
   tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks, r.kind) : rotationEntryRow(r.entry))).join('')
     || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
@@ -1754,13 +1737,6 @@ document.getElementById('rotation-log-table').addEventListener('keydown', (e) =>
   if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleKickGroup(row); }
 });
 
-document.getElementById('rotation-log-limit-toggle').addEventListener('click', () => {
-  showAllRotationLog = !showAllRotationLog;
-  // Purely a client-side slice of data already in hand. No scroll correction
-  // here: the log sits at the bottom of its panel and the button moves with
-  // it, so collapsing cannot strand the reader the way the peer table can.
-  if (lastRotationLog) renderRotationLog(lastRotationLog);
-});
 
 // Every card folds to its title on a tap and stays so on this device: open
 // unless the reader closed it (28.10.2026). Storage keeps its own <details>.
