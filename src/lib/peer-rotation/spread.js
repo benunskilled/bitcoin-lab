@@ -121,9 +121,13 @@ function rankForGap(candidates, trusted, coreRegions) {
  *   { free: true }          a slot is free and its operator is not there yet
  *   { replace: holder }     the set is full and the peer fills a gap: its
  *                           region is below the target and a holder is
- *                           surplus, or it brings a new country to a region
- *                           that holds two from one country
+ *                           surplus
  *   null                    neither
+ *
+ * A new country is no reason for a swap on its own: within a region that is
+ * over its target, as Europe often is, it only trades one surplus peer for
+ * another and costs a connection Core may have picked as a high-bandwidth
+ * peer. It decides between candidates for a gap instead (rankForGap).
  *
  * `evictable` are the holders that may lose their slot at all (no padlock, out
  * of their grace, not one of Core's high-bandwidth peers).
@@ -146,15 +150,7 @@ function admit(peer, trusted, evictable, maxSlots) {
     const holder = weakest(pool.filter(crowded)) || weakest(pool);
     return holder ? { replace: holder } : null;
   }
-  // Its region is at the target. It still improves the spread if it brings a
-  // country the region does not have, in place of one of two from the same
-  // country there.
-  if (!place.country) return null;
-  const inRegion = trusted.filter((p) => placeOf(p).region === place.region);
-  if (inRegion.some((p) => placeOf(p).country === place.country)) return null;
-  const twice = (p) => inRegion.filter((q) => placeOf(q).country === placeOf(p).country).length > 1;
-  const holder = weakest(evictable.filter((p) => placeOf(p).region === place.region && placeOf(p).country && twice(p)));
-  return holder ? { replace: holder } : null;
+  return null;
 }
 
 // For the log: "Asia (JP, Sakura Internet)".
@@ -164,11 +160,19 @@ function describe(peer) {
   return `${REGION_NAMES[region] || 'unknown region'}${where ? ` (${where})` : ''}`;
 }
 
+// For the log, and why: "Asia (JP, Sakura Internet) in for Europe (DE,
+// Hetzner Online GmbH): Asia had none". `trusted` is the set before the swap.
+function swapNote(peer, holder, trusted) {
+  const { region } = placeOf(peer);
+  const n = regionCounts(trusted)[region] || 0;
+  return `${describe(peer)} in for ${describe(holder)}: ${REGION_NAMES[region]} had ${n ? `only ${n}` : 'none'}`;
+}
+
 // How many of Core's own outbound peers (not the manual ones) sit in each region.
 function coreRegionsOf(ranking) {
   return regionCounts(ranking.filter((p) => p.live && !p.trusted && p.direction === 'outbound'));
 }
 
 module.exports = {
-  TARGET_PER_REGION, REGION_NAMES, PRIVATE_REGIONS, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf, operatorKey,
+  TARGET_PER_REGION, REGION_NAMES, PRIVATE_REGIONS, placeOf, regionCounts, rankForGap, admit, describe, swapNote, coreRegionsOf, operatorKey,
 };

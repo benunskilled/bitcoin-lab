@@ -131,7 +131,7 @@ async function promoteBestCandidate(ranking) {
       eligible: candidate.eligible,
       replacedAddress: holder.address,
       replacedFirstPct: holder.firstPct,
-      note: `spread: ${where} in for ${spread.describe(holder)}`,
+      note: spread.swapNote(candidate, holder, trusted),
     });
     logger.info('rotation: swapped a peer in to spread the manual set', {
       address: resolved, where, replacedAddress: holder.address,

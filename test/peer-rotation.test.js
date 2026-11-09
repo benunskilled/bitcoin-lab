@@ -218,7 +218,7 @@ test('a full set in one region makes room for a candidate from another', async (
   assert.ok(has(strong));
   const logRow = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'swap'").get();
   assert.equal(logRow.replaced_address, weak);
-  assert.match(logRow.note, /^spread: Asia \(JP, Sakura\) in for Europe/);
+  assert.match(logRow.note, /^Asia \(JP, Sakura\) in for Europe \(DE, op-[^)]+\): Asia had none$/);
 });
 
 test('a candidate from a region already at its target takes nobody\'s slot', async () => {
@@ -251,17 +251,13 @@ test('a free slot goes first to a region with fewer manual peers, then to one Co
   assert.equal(row.address, oc);
 });
 
-test('within a region, a new country takes the place of a second one from the same country', async () => {
-  const strong = at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU', 'A', 'DE');
-  const weak = at(seedLivePeer({ eligible: 144, first: 10, trusted: true }), 'EU', 'B', 'DE');
-  at(seedLivePeer({ eligible: 144, first: 0 }), 'EU', 'C', 'DE'); // a third German: no gain
-  const fi = at(seedLivePeer({ eligible: 144, first: 0 }), 'EU', 'D', 'FI');
+test('a new country alone is no reason for a swap: Europe for Europe changes nothing', async () => {
+  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU', 'A', 'CH');
+  at(seedLivePeer({ eligible: 144, first: 1, trusted: true }), 'EU', 'B', 'CH');
+  at(seedLivePeer({ eligible: 144, first: 0 }), 'EU', 'C', 'RS');
 
-  assert.equal(await peerRotation.promoteBestCandidate(ranking()), 1);
-  const has = (x) => Boolean(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(x));
-  assert.ok(has(fi), 'Finland is new to the region');
-  assert.ok(!has(weak), 'the weaker German made room');
-  assert.ok(has(strong));
+  assert.equal(await peerRotation.promoteBestCandidate(ranking()), 0);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n, 0);
 });
 
 // --- Candidates from Core's address book, and the daily trial -------------
@@ -666,7 +662,7 @@ test('a returning peer that beats the weakest manual peer swaps in, and the lose
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
   const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('revive');
   assert.equal(logRow.replaced_address, weak);
-  assert.match(logRow.note, /^back · spread: Asia/);
+  assert.match(logRow.note, /^back · Asia .* in for Europe .*: Asia had none$/);
 });
 
 test('at most one peer joins the manual set per tick, revival or promotion', async () => {

@@ -169,8 +169,9 @@ async function fillFromAddressBook(ranking, now = Date.now()) {
     } else {
       probedAt.set(c.address, now);
     }
+    const note = decision.replace ? spread.swapNote(c, decision.replace, trusted) : spread.describe(c);
     // eslint-disable-next-line no-await-in-loop
-    if (await place(c, decision, `from the address book · ${spread.describe(c)}`)) return 1;
+    if (await place(c, decision, `from the address book · ${note}`)) return 1;
   }
   return 0;
 }
@@ -188,7 +189,7 @@ async function place(c, decision, note) {
     address: c.address,
     replacedAddress: holder ? holder.address : null,
     replacedFirstPct: holder ? holder.firstPct : null,
-    note: holder ? `${note} in for ${spread.describe(holder)}` : note,
+    note,
   });
   logger.info('rotation: placed an address-book peer', { address: c.address, replaced: holder ? holder.address : null });
   return true;

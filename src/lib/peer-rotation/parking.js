@@ -276,6 +276,7 @@ async function reviveParkedPeers(ranking) {
     // A slot that turned out free (the count was a moment old) displaced
     // nobody: the log says only what happened.
     if (!result.evicted) replaced = null;
+    const why = replaced ? spread.swapNote(parked, replaced, trusted) : null;
     if (replaced) trusted.splice(trusted.indexOf(replaced), 1);
     trusted.push({
       address: parked.address,
@@ -292,7 +293,7 @@ async function reviveParkedPeers(ranking) {
       replacedAddress: replaced ? replaced.address : null,
       replacedFirstPct: replaced ? replaced.firstPct : null,
       note: replaced
-        ? `back · spread: ${spread.describe(parked)} in for ${spread.describe(replaced)}`
+        ? `back · ${why}`
         : `back, took a free manual slot · ${spread.describe(parked)}`,
     });
     logger.info('rotation: a parked peer answered again and got its manual slot back', {
