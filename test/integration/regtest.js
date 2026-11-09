@@ -387,7 +387,7 @@ async function main() {
   // tests mock rpc and the mock agreed with a wrong idea of Core:
   //  - a displaced manual peer left connected keeps one of Core's eight
   //    addnode grants, so the swapped-in peer could not be dialled at all;
-  //  - block-relay-only connections are Core's anchors and must never be kicked.
+  //  - block-relay-only connections are Core's anchors and must never be touched.
   const peerRotation = require('../../src/lib/peer-rotation');
   const helpers = [];
   for (let i = 0; i < 10; i += 1) {
@@ -427,7 +427,7 @@ async function main() {
     assert.equal(await connected(helpers[0]), undefined, 'the displaced peer is gone');
   });
 
-  await check('the kick takes a quiet full-relay peer and leaves a block-relay-only anchor alone', async () => {
+  await check('a rotation pass leaves Core\'s own outbound peers connected, quiet or not', async () => {
     // addconnection is regtest's way to make Core open exactly these types.
     const anchor = helpers[8];
     const fullRelay = helpers[9];
@@ -453,10 +453,19 @@ async function main() {
     assert.ok(rowOf(fullRelay).recentEligible >= minEligible && rowOf(fullRelay).recentFirst === 0,
       `the full-relay helper qualifies: ${JSON.stringify(rowOf(fullRelay) && { e: rowOf(fullRelay).recentEligible, f: rowOf(fullRelay).recentFirst })}`);
     assert.ok(rowOf(anchor).recentEligible >= minEligible && rowOf(anchor).recentFirst === 0, 'so would the anchor, by the numbers');
-    await peerRotation.kickDeadWeight(ranking);
-    await waitFor('the full-relay helper to be gone', async () => !(await connected(fullRelay)), { timeoutMs: 15000 });
-    const stillThere = await connected(anchor);
-    assert.equal(stillThere && stillThere.connection_type, 'block-relay-only', 'the anchor is still connected');
+    // There used to be a kick pass that dropped the full-relay one. Core picks
+    // and spreads its own outbound peers; the rotation works on the manual
+    // slots only.
+    peerRotation.setEnabled(true);
+    try {
+      await peerRotation.tick();
+    } finally {
+      peerRotation.setEnabled(false);
+    }
+    const f = await connected(fullRelay);
+    const a = await connected(anchor);
+    assert.equal(f && f.connection_type, 'outbound-full-relay', 'the quiet full-relay peer is still connected');
+    assert.equal(a && a.connection_type, 'block-relay-only', 'and so is the anchor');
   });
 
   sub.stop();
