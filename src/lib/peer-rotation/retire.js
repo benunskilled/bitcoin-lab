@@ -9,10 +9,14 @@
  * retiring is simply removing.
  */
 
+const config = require('../config');
 const peerSync = require('../peer-sync');
+const { addressKey } = require('../address');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
 const { offlineForMs, offlineGraceMs, fmtHours } = require('./rules');
+
+const keyOf = (address) => addressKey(address, config.bitcoin.network);
 
 /**
  * Reclaim the slot of a manual peer that has been offline longer than its
@@ -27,8 +31,12 @@ const { offlineForMs, offlineGraceMs, fmtHours } = require('./rules');
  * every peer look offline at once.
  *
  * `onTrial` is the slot fill's candidate, which its trial judges, not this.
+ * `peers` is getpeerinfo from this pass: the ranking is the database's
+ * picture, a few seconds old, and Core may have reconnected the peer since -
+ * removing it then would cut a connection that works again.
  */
-async function retireOfflineManualPeers(ranking, onTrial = null) {
+async function retireOfflineManualPeers(ranking, onTrial = null, peers = []) {
+  const connectedNow = new Set(peers.filter((p) => p.connection_type === 'manual').map((p) => keyOf(p.addr)));
   const now = Date.now();
   let retired = 0;
   // The padlock also covers being offline. Holding the slot costs nothing that
@@ -41,6 +49,7 @@ async function retireOfflineManualPeers(ranking, onTrial = null) {
   // you are keeping, it is an address that does not work. Without this, one
   // such address would sit on one of eight slots forever, protected.
   for (const peer of ranking.filter((p) => p.trusted && !p.live && !(p.kept && p.everManual) && p.address !== onTrial)) {
+    if (connectedNow.has(keyOf(peer.address))) continue;
     const offlineMs = offlineForMs(peer, now);
     if (offlineMs == null) continue;
     const grace = offlineGraceMs(peer.firstPct);

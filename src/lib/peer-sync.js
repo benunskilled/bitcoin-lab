@@ -304,14 +304,13 @@ async function addTrustedPeer(address, label, options = {}) {
   // the slot fill added. Typing an address in is already the decision - the
   // slot fill's own additions are not, and must stay swappable or it would
   // freeze itself out of every slot it ever filled.
-  // `replace` is the slot fill's own swap: it has already chosen whom the new
-  // peer displaces, by its stricter rule, and only needs the order done right
-  // - the new peer in first, the old one out only once that has worked.
   // `neverDisconnect` is the slot fill's: it only ever adds addresses Core is
   // not connected to, and if one turns out to be connected after all it is
   // left alone rather than dropped and redialled - Core's own connections are
-  // not the slot fill's to touch.
-  const { evictToFit = false, kept = false, replace = null, neverDisconnect = false } = options;
+  // not the slot fill's to touch. Nor is an addnode entry somebody else made:
+  // "already added" is a refusal there, not a success, or a failed trial would
+  // later remove that entry.
+  const { evictToFit = false, kept = false, neverDisconnect = false } = options;
   // The same node under another spelling is already in the set: adding it
   // again would take a second slot for one connection.
   const sameNode = db.instance
@@ -332,9 +331,7 @@ async function addTrustedPeer(address, label, options = {}) {
   let toEvict = null;
   if (!alreadyTrusted) {
     const count = countTrusted();
-    if (count >= config.maxManualPeers && replace && replace.address !== address) {
-      toEvict = replace;
-    } else if (count >= config.maxManualPeers) {
+    if (count >= config.maxManualPeers) {
       if (!evictToFit) {
         return { ok: false, count, max: config.maxManualPeers, error: `all ${config.maxManualPeers} manual slots are taken` };
       }
@@ -392,7 +389,7 @@ async function addTrustedPeer(address, label, options = {}) {
     // -addnode=, a bitcoin-cli call, or our own previous sync), so this is a
     // success, not a failure. Anything else is a genuine refusal, and at this
     // point nothing of ours has moved.
-    if (!/already added/i.test(err.message || '')) {
+    if (!/already added/i.test(err.message || '') || neverDisconnect) {
       logger.warn('addnode refused, nothing changed', { address, error: err.message });
       return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: err.message };
     }
@@ -407,12 +404,13 @@ async function addTrustedPeer(address, label, options = {}) {
   // lock first, so no other writer can slip between this count and the
   // insert.
   //
-  // The peer being replaced is claimed in the same transaction: its row goes
-  // here, not after the RPCs below. It was chosen before two RPCs too, and
-  // in that time another replacement can have chosen and freed the same slot
-  // (both then wrote their row: one manual peer too many), or the padlock can
-  // have gone on it. So it only frees a slot if it is still there and still
-  // unlocked now; otherwise this add has to fit on its own.
+  // The peer being displaced (a person adding to a full set) is claimed in
+  // the same transaction: its row goes here, not after the RPCs below. It was
+  // chosen before two RPCs too, and in that time another add can have chosen
+  // and freed the same slot (both then wrote their row: one manual peer too
+  // many), or the padlock can have gone on it. So it only frees a slot if it
+  // is still there and still unlocked now; otherwise this add has to fit on
+  // its own.
   let claimed = false;
   const written = db.instance.transaction(() => {
     const exists = db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address);

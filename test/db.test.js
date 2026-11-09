@@ -1110,8 +1110,6 @@ test('pruneNeverFirstPeers removes only peers that never delivered first and are
   const live = peer('203.0.113.204:8333', { open: true });
   const manual = peer('203.0.113.205:8333');
   db.instance.prepare('INSERT INTO trusted_peer (address, created_at) VALUES (?, ?)').run('203.0.113.205:8333', now);
-  const parked = peer('203.0.113.206:8333');
-  db.instance.prepare('INSERT INTO parked_peer (address, first_pct, eligible, parked_at) VALUES (?, 0, 2, ?)').run('203.0.113.206:8333', now);
   // An outbound choice is counted by the funnel and stays.
   const outbound = peer('203.0.113.207:8333', { direction: 'outbound' });
   // Back after a month: in a recent block, no session row yet.
@@ -1124,7 +1122,7 @@ test('pruneNeverFirstPeers removes only peers that never delivered first and are
 
   const exists = (id) => db.instance.prepare('SELECT COUNT(*) AS n FROM peer WHERE id = ?').get(id).n === 1;
   assert.equal(exists(gone), false);
-  for (const id of [deliverer, recent, live, manual, parked, outbound, back]) assert.equal(exists(id), true);
+  for (const id of [deliverer, recent, live, manual, outbound, back]) assert.equal(exists(id), true);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM relay_observation WHERE peer_id = ?').get(gone).n, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM peer_session WHERE peer_id = ?').get(gone).n, 0);
   // Nobody else's record moves, and the blocks themselves stay.

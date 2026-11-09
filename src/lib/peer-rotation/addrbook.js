@@ -57,7 +57,7 @@ async function bookEntries(now = Date.now()) {
   }
   const entries = Object.values(raw.tried)
     .filter((e) => servesBlocks(e.services) && NETWORKS.includes(e.network))
-    .map((e) => ({ address: formatAddress(e.address, e.port), network: e.network, fromBook: true }));
+    .map((e) => ({ address: formatAddress(e.address, e.port), network: e.network }));
   // An empty answer is most likely Core not being up yet: ask again next
   // tick rather than living on nothing for six hours.
   book = entries.length ? { at: now, entries } : null;

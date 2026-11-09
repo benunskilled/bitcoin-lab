@@ -543,44 +543,6 @@ test('two adds at the same moment cannot take the manual set past its limit', as
 // Both found by an outside review. The peer being replaced was chosen before
 // the RPCs and removed after them, so in between another swap could free the
 // same slot (both then wrote their row) or the padlock could go on it.
-test('two swaps that chose the same peer to replace cannot both take its slot', async () => {
-  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
-  seedLivePeer({ eligible: 144, first: 100, trusted: true });
-  const holder = ranking().find((p) => p.address === weak);
-  const calls = [];
-  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
-    calls.push(`${cmd} ${addr}`);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-
-  const results = await Promise.all([
-    peerSync.addTrustedPeer('198.51.100.221:8333', null, { replace: holder }),
-    peerSync.addTrustedPeer('198.51.100.222:8333', null, { replace: holder }),
-  ]);
-
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
-  assert.deepEqual(results.map((r) => r.ok).sort(), [false, true]);
-  const loser = results[0].ok ? '198.51.100.222:8333' : '198.51.100.221:8333';
-  assert.ok(calls.includes(`remove ${loser}`), calls.join(', '));
-});
-
-test('a swap does not remove a peer that got its padlock while the swap was waiting', async () => {
-  const weak = seedLivePeer({ eligible: 144, first: 10, trusted: true });
-  seedLivePeer({ eligible: 144, first: 100, trusted: true });
-  const holder = ranking().find((p) => p.address === weak);
-  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
-    // The padlock goes on while Core is being asked.
-    if (cmd === 'add') peerSync.setKept(weak, true);
-  });
-
-  const result = await peerSync.addTrustedPeer('198.51.100.223:8333', null, { replace: holder });
-
-  assert.equal(result.ok, false);
-  const kept = db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(weak);
-  assert.equal(kept && kept.kept, 1, 'the locked peer keeps its slot');
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2);
-});
-
 test('typing in a peer when the slots are full never displaces a protected one', async () => {
   // MAX_MANUAL_PEERS is 2. Both slots hold protected peers: nothing may go.
   const a = seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 1 });
@@ -1064,4 +1026,37 @@ test('a peer whose last connection never finished its handshake is not "offers n
   // announces no services really does offer nothing.
   row = seed([[at0, null, null, '', 50]]);
   assert.equal(row.offersNothing, true);
+});
+
+test('slot fill: an address already in Core\'s addnode list is somebody else\'s, and skipped', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    if (cmd === 'add' && addr === asia) throw new Error('Error: Node already added');
+  });
+  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
+  assert.ok(!isManual(asia), 'no row, so no failed trial can later remove that entry');
+});
+
+test('a manual peer Core has just reconnected is not retired on an old picture', async () => {
+  peerRotation.setEnabled(true);
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 1 });
+  setPeers([{ id: 4, addr: address, network: 'ipv4', connection_type: 'manual' }]);
+  const result = await peerRotation.tick();
+  assert.equal(result.retired, 0);
+  assert.ok(isManual(address));
+});
+
+test('switched off while Core did not answer, the trial is settled on a later pass', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  await step(setPeers([coreOut()]), Date.now() - 5 * MIN);
+  peerRotation.setEnabled(false);
+  rpc.getPeerInfo.mock.mockImplementation(async () => { throw new Error('timeout'); });
+  await peerRotation.settleOnSwitchOff();
+  assert.ok(fill.currentTrial(), 'still open');
+  setPeers([coreOut()]);
+  await peerRotation.tick();
+  assert.equal(fill.currentTrial(), null);
+  assert.ok(!isManual(asia));
 });

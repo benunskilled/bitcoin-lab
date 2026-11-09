@@ -78,7 +78,12 @@ async function settleOnSwitchOff() {
  */
 async function tick() {
   const idle = { enabled: false, retired: 0, started: 0, confirmed: 0, reverted: 0 };
-  if (!isEnabled()) return idle;
+  if (!isEnabled()) {
+    // Switched off with a trial still open - Core did not answer at that
+    // moment: it is settled here, the next time Core does.
+    if (fill.currentTrial()) await settleOnSwitchOff();
+    return idle;
+  }
   let peers;
   let chain;
   try {
@@ -90,7 +95,7 @@ async function tick() {
   const settled = await fill.settle(peers, chain);
   const onTrial = fill.currentTrial();
   const ranking = queries.peerRanking();
-  const retired = await retireOfflineManualPeers(ranking, onTrial && onTrial.address);
+  const retired = await retireOfflineManualPeers(ranking, onTrial && onTrial.address, peers);
   // One move per pass: nothing new while a candidate is on trial, nor in the
   // pass that just took one out.
   let started = onTrial || settled === 'reverted'
