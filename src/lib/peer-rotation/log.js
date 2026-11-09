@@ -49,11 +49,8 @@ function logAction(entry) {
   // and the answer is the point of the whole loop - so a promotion is also
   // written somewhere permanent.
   //
-  // Here rather than at the two call sites in promoteBestCandidate: they
-  // already share spread.admit and evictableTrusted because writing the same
-  // rule out twice is how the two swap paths drifted apart in the first place.
-  // Every promotion passes through logAction, so this cannot be forgotten by a
-  // future third path.
+  // Here rather than at the call site in fill.js: every promotion passes
+  // through logAction, so this cannot be forgotten by a future second path.
   //
   // Keyed by IP, and INSERT OR IGNORE: the same host promoted again - after
   // being parked and revived, say - is not a second peer discovered.

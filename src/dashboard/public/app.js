@@ -104,6 +104,7 @@ function fmtBytes(bytes) {
 function statusPillClass(status) {
   if (status === UMBREL_APP) return 'umbrel';
   if (status === 'OFFLINE' || status === 'MANUAL OFFLINE') return 'offline';
+  if (status === 'TESTING') return 'manual';
   if (status.includes('MANUAL')) return 'manual';
   if (status.includes('INBOUND')) return 'inbound';
   return 'outbound';
@@ -1178,6 +1179,8 @@ function hbMark(p) {
 
 // Core's names for the two automatic outbound kinds, said as Peer Map and the
 // tiles say them.
+// TESTING: the slot fill's candidate, in its slot until Core has connected
+// to it (peer-rotation/fill.js).
 const STATUS_LABEL = { 'OUTBOUND-FULL-RELAY': 'FULL RELAY', 'BLOCK-RELAY-ONLY': 'BLOCK RELAY' };
 const statusLabel = (status) => STATUS_LABEL[status] || status;
 
@@ -1389,7 +1392,7 @@ let rotationToggleEpoch = 0;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual', 'disconnect']);
+const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual', 'disconnect', 'revert']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -1403,6 +1406,8 @@ function rotationActionLabel(action) {
   if (action === 'revive') return 'Back';
   if (action === 'manual') return 'Added';
   if (action === 'disconnect') return 'Disconnected';
+  // A candidate Core could not connect to; the peer it stood in for is back.
+  if (action === 'revert') return 'Not taken';
   return action;
 }
 
@@ -1426,8 +1431,8 @@ function renderParkedPeers(parked) {
   // testing details are on hover - as small cards on a phone, six lines per
   // parked peer made the panel far longer than what it has to say.
   tbody.innerHTML = parked.map((p) => {
-    const tested = p.lastProbeAt == null ? 'not tested yet' : `last tested ${fmtDuration(now - p.lastProbeAt)} ago`;
-    const details = `${tested} · ${p.probeFailures} failed ${p.probeFailures === 1 ? 'test' : 'tests'} · `
+    const tested = p.lastProbeAt == null ? 'not tried again yet' : `last tried ${fmtDuration(now - p.lastProbeAt)} ago`;
+    const details = `${tested} · Core could not connect ${p.probeFailures} ${p.probeFailures === 1 ? 'time' : 'times'} · `
       + `kept for ${fmtDuration(Math.max(0, p.forgottenAt - now))} more (a good record is remembered for months, a weak one for days)`;
     return `
     <tr title="${escapeHtml(details)}">
@@ -1478,7 +1483,9 @@ const entryNote = (e) => (emptyKick(e) ? nothingFirst(Number(EMPTY_KICK.exec(e.n
 
 // Peers dropped by hand in a row are one line too, as the empty kicks are.
 const byHand = (e) => e.action === 'disconnect';
-const logGroupOf = (e) => (emptyKick(e) ? 'kick' : byHand(e) ? 'disconnect' : null);
+// Candidates Core could not connect to, in a row, are one line as well: the
+// slot fill tries until one works, and each try alone says little.
+const logGroupOf = (e) => (emptyKick(e) ? 'kick' : byHand(e) ? 'disconnect' : e.action === 'revert' ? 'revert' : null);
 
 // Entries in order, with every run of two or more empty kicks in a row as
 // one group, and of peers dropped by hand. Promotions, swaps, parks and the
@@ -1515,7 +1522,7 @@ function kickGroupRows(kicks, kind = 'kick') {
   // Only peers dropped by hand open up: who they were is worth a look. A run
   // of empty kicks stays one line - the log keeps a thousand entries, and the
   // peers in it are interchangeable, which is the whole point of the kick.
-  const opens = kind === 'disconnect';
+  const opens = kind === 'disconnect' || kind === 'revert';
   const open = opens && openKickGroups.has(oldest.at);
   const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
   const mark = opens ? ` <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>` : '';
@@ -1525,6 +1532,10 @@ function kickGroupRows(kicks, kind = 'kick') {
     who = `${kicks.length} peers`;
     pct = '';
     note = `<td class="hint">by hand${mark}</td>`;
+  } else if (kind === 'revert') {
+    who = `${kicks.length} candidates`;
+    pct = '';
+    note = `<td class="hint">Core could not use them${mark}</td>`;
   } else {
     const lo = Math.min(...kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1])));
     who = `${kicks.length} peers`;
@@ -1549,7 +1560,7 @@ function renderRotationLog(log) {
   const visible = rotationLogRows(log).slice(0, ROTATION_LOG_LIMIT);
 
   tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks, r.kind) : rotationEntryRow(r.entry))).join('')
-    || `<tr><td colspan="5" class="hint">No rotation activity yet.</td></tr>`;
+    || `<tr><td colspan="5" class="hint">Nothing yet.</td></tr>`;
 }
 
 /**
@@ -2181,7 +2192,7 @@ document.body.addEventListener('change', async (e) => {
       const result = await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
       rotationToggleEpoch += 1;
       if (e.target.isConnected) e.target.checked = Boolean(result.enabled);
-      showToast(result.enabled ? 'Peer rotation turned on.' : 'Peer rotation turned off.', 'success');
+      showToast(result.enabled ? 'Slot fill turned on.' : 'Slot fill turned off.', 'success');
       refreshRotation();
     } catch (err) {
       rotationToggleEpoch += 1;
@@ -2472,7 +2483,7 @@ startEventStream();
   document.body.appendChild(bar);
   const byHeading = (text) => [...document.querySelectorAll('main .card h2')]
     .find((h) => h.textContent.trim().startsWith(text))?.closest('.card');
-  const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Rotation', 'Peer Rotation'],
+  const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Slot Fill', 'Manual Slot Fill'],
     ['Stratum', 'Stratum Race'], ['Traffic', 'Traffic']];
   // Traffic rather than Storage (28.10.2026): Storage is rarely needed and
   // sits right under Traffic, at the end of the page.

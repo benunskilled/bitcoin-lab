@@ -329,7 +329,11 @@ async function addTrustedPeer(address, label, options = {}) {
   // - the new peer in first, the old one out only once that has worked.
   // `parkEvicted` is false for a displaced peer that is still connected,
   // which promote.js does not park.
-  const { evictToFit = false, kept = false, replace = null, parkEvicted = true } = options;
+  // `neverDisconnect` is the slot fill's: it only ever adds addresses Core is
+  // not connected to, and if one turns out to be connected after all it is
+  // left alone rather than dropped and redialled - Core's own connections are
+  // not the slot fill's to touch.
+  const { evictToFit = false, kept = false, replace = null, parkEvicted = true, neverDisconnect = false } = options;
   // The same node under another spelling is already in the set: adding it
   // again would take a second slot for one connection.
   const sameNode = db.instance
@@ -386,7 +390,19 @@ async function addTrustedPeer(address, label, options = {}) {
   // it is accepted because the old order did not work for this case at all.
   // The exposure is small - this runs only when there IS such a session, and
   // the handshake that found the listening address ran moments earlier.
-  await disconnectIfLiveNonManual(address);
+  if (neverDisconnect) {
+    let peers = [];
+    try {
+      peers = await rpc.getPeerInfo();
+    } catch (err) {
+      return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: `could not ask Core: ${err.message}` };
+    }
+    if (liveNonManualSessionsForHost(peers, address).length) {
+      return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: `${address} is already connected to Core` };
+    }
+  } else {
+    await disconnectIfLiveNonManual(address);
+  }
 
   // The one step that can be refused.
   let alreadyInCore = false;
@@ -512,22 +528,22 @@ function countTrusted() {
 }
 
 /**
- * Remembers a peer that just lost its manual slot, so the rotation loop can
- * keep re-testing it and hand the slot back if it returns (see peer-rotation's
- * reviveParkedPeers). Losing a slot is meant to be reversible - that is the
- * entire reason this app can afford to reclaim an offline peer's slot in hours
+ * Remembers a peer that just lost its manual slot, so the slot fill can offer
+ * it to Core again when its region wants a peer (see peer-rotation's
+ * fill.js). Losing a slot is meant to be reversible - that is the entire
+ * reason this app can afford to reclaim an offline peer's slot in hours
  * rather than never.
  *
  * Never parks a peer that has no record worth keeping: an address that was
  * never once connected when a block landed is not a peer this app has an
- * opinion about, and re-probing it forever would be busywork.
+ * opinion about, and offering it again and again would be busywork.
  */
 function parkPeer(peer) {
   if (!peer || !peer.address) return false;
   if (!peer.eligible) return false;
-  // Never a Tor, I2P or CJDNS address: a parked peer is knocked on from this
-  // container, and dialling - or resolving - such a name from here is exactly
-  // what must not happen. Core reaches them through its own proxy.
+  // Never a Tor, I2P or CJDNS address. Core's address book holds hundreds of
+  // those for every one that goes dark, and the slot fill takes the next from
+  // there; a parked row would only be one more to try first.
   if (unreachableNetwork(peer.address)) return false;
   db.instance
     .prepare(

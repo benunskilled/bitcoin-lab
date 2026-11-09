@@ -61,7 +61,6 @@ The peer-profiler interval controls connection bookkeeping. Block observations a
 | `OFFLINE_GRACE_MIN_HOURS` | Minimum offline grace before automatic parking | `1` |
 | `OFFLINE_GRACE_MAX_HOURS` | Maximum offline grace before automatic parking | `24` |
 | `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of offline grace per percentage point of lifetime First | `1` |
-| `PARKED_PEER_PROBES_PER_TICK` | Maximum parked candidates considered for probing per rotation pass | `3` |
 | `PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES` | Shortest gap between two tests of the same parked peer | `30` |
 | `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Backoff ceiling for peers at or above the full-speed First threshold | `12` |
 | `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Backoff ceiling at 0% lifetime First | `48` |

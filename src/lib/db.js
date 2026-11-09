@@ -116,6 +116,16 @@ CREATE TABLE IF NOT EXISTS parked_peer (
 );
 CREATE INDEX IF NOT EXISTS idx_parked_peer_probe ON parked_peer(last_probe_at ASC);
 
+-- Address-book candidates the slot fill has put to Core, and whether Core
+-- connected to them. One that did not is left alone for a week; the rows are
+-- dropped after a month. The candidate on trial right now is in meta
+-- (slot_fill_trial), as one JSON value.
+CREATE TABLE IF NOT EXISTS slot_fill_tried (
+  address TEXT PRIMARY KEY,
+  tried_at INTEGER NOT NULL,
+  ok INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS relay_race (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   block_hash TEXT NOT NULL UNIQUE,

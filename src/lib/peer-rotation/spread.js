@@ -11,14 +11,13 @@
  * any study measure one on mainnet. What the slots can do is reach parts of
  * the network Core's own connections do not: Core spreads its automatic
  * outbound peers over network groups, but addnode connections are exempt
- * from that, and every swap closes a connection Core may have picked as one
- * of its three high-bandwidth compact-block peers - a reconnect starts it over.
+ * from that.
  *
- * So the slots are now spread: one per operator, and no more than
- * TARGET_PER_REGION in a region while another region has a candidate. Score
- * only decides between candidates for the same gap. A slot never stays empty
- * for the sake of the spread; a later candidate from a missing region takes it
- * over.
+ * So the slots are spread: one per operator, and TARGET_PER_REGION per region
+ * (the six continents, Tor and I2P). A peer leaves only for a region that has
+ * fewer than that, and only from a region that has more. Score only decides
+ * between candidates for the same gap and which surplus peer goes. A free slot
+ * goes to anyone the spread lets in, once no gap can be filled.
  *
  * Pure: plain rows in, an answer out. Region and operator come from
  * network.lookup; Tor and I2P are regions of their own with no operator, and
@@ -66,21 +65,6 @@ function regionCounts(peers) {
   return counts;
 }
 
-// A manual peer the spread would rather give up: one in a region above the
-// target, or one sharing its operator with another manual peer.
-function surplus(trusted) {
-  const counts = regionCounts(trusted);
-  const keys = {};
-  for (const p of trusted) {
-    const k = placeOf(p).key;
-    if (k) keys[k] = (keys[k] || 0) + 1;
-  }
-  return (p) => {
-    const { region, key } = placeOf(p);
-    return (region && counts[region] > TARGET_PER_REGION) || (key && keys[key] > 1);
-  };
-}
-
 // The countries the manual peers already hold, per region.
 function countriesByRegion(peers) {
   const out = {};
@@ -94,18 +78,16 @@ function countriesByRegion(peers) {
 /**
  * How good a newcomer would be for the spread, lower is better: a region with
  * fewer manual peers first, then a country that region does not have yet,
- * then a region Core's own outbound peers do not reach, then the score.
- * Candidates come in sorted by score already, so a stable sort on the first
- * three keeps that order within a gap.
+ * then a region Core's own outbound peers do not reach. Within that, the
+ * order they came in (fill.js: parked peers first, then the address book
+ * shuffled) - the sort is stable.
  */
 function rankForGap(candidates, trusted, coreRegions) {
   const counts = regionCounts(trusted);
   const held = countriesByRegion(trusted);
   const keyOf = (c) => {
     const { region, country } = placeOf(c);
-    // A live candidate is one of Core's outbound peers itself, so its region
-    // is reached by Core only if another of them is there too.
-    const others = region ? (coreRegions[region] || 0) - (c.trusted || c.fromBook ? 0 : 1) : 0;
+    const others = region ? coreRegions[region] || 0 : 0;
     const knownCountry = region && country && held[region] && held[region].has(country) ? 1 : 0;
     return [region ? counts[region] || 0 : TARGET_PER_REGION, knownCountry, others > 0 ? 1 : 0];
   };
@@ -120,8 +102,8 @@ function rankForGap(candidates, trusted, coreRegions) {
  *
  *   { free: true }          a slot is free and its operator is not there yet
  *   { replace: holder }     the set is full and the peer fills a gap: its
- *                           region is below the target and a holder is
- *                           surplus
+ *                           region is below the target, the holder's is
+ *                           above it
  *   null                    neither
  *
  * A new country is no reason for a swap on its own: within a region that is
@@ -130,7 +112,8 @@ function rankForGap(candidates, trusted, coreRegions) {
  * peer. It decides between candidates for a gap instead (rankForGap).
  *
  * `evictable` are the holders that may lose their slot at all (no padlock, out
- * of their grace, not one of Core's high-bandwidth peers).
+ * of their grace, not one of Core's high-bandwidth peers - fill.js asks Core
+ * about that last one at the moment of the swap).
  */
 function admit(peer, trusted, evictable, maxSlots) {
   const place = placeOf(peer);
@@ -141,13 +124,12 @@ function admit(peer, trusted, evictable, maxSlots) {
   const counts = regionCounts(trusted);
   const weakest = (list) => list.sort((a, b) => (a.score ?? -1) - (b.score ?? -1))[0] || null;
   if ((counts[place.region] || 0) < TARGET_PER_REGION) {
-    // The weakest of the surplus, by the same score the ranking sorts on -
-    // first among those whose region still holds its target without them,
-    // so a swap never empties one region to fill another.
-    const isSurplus = surplus(trusted);
+    // The weakest of those whose region holds more than its target, by the
+    // same score the ranking sorts on - so a swap never empties one region to
+    // fill another. A peer that shares its operator with another but is
+    // alone in its region stays: trading one gap for another is no spread.
     const crowded = (p) => counts[placeOf(p).region] > TARGET_PER_REGION;
-    const pool = evictable.filter(isSurplus);
-    const holder = weakest(pool.filter(crowded)) || weakest(pool);
+    const holder = weakest(evictable.filter(crowded));
     return holder ? { replace: holder } : null;
   }
   return null;

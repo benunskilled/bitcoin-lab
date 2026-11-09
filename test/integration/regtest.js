@@ -417,7 +417,7 @@ async function main() {
   });
 
   await check('the swap path frees the slot: the swapped-in peer connects', async () => {
-    // What promote.js now does on a swap: removeTrustedPeer with its default,
+    // What the slot fill does on a swap: removeTrustedPeer with its default,
     // which disconnects. (The previous check left helper0 connected.)
     await rpc.addNode(hostOf(helpers[0]), 'add').catch(() => {});
     await peerSync.addTrustedPeer(hostOf(helpers[0]), null).catch(() => {});
@@ -427,7 +427,21 @@ async function main() {
     assert.equal(await connected(helpers[0]), undefined, 'the displaced peer is gone');
   });
 
-  await check('a rotation pass leaves Core\'s own outbound peers connected, quiet or not', async () => {
+  await check('a fresh manual connection passes the slot fill\'s test once Core has the peer\'s headers', async () => {
+    // The trial (peer-rotation/fill.js) keeps a candidate only when Core's own
+    // session to it serves blocks and reports our tip in synced_headers. That
+    // rests on Core asking every new peer for headers from just below its tip;
+    // checked here on a real Core rather than taken on trust.
+    const fill = require('../../src/lib/peer-rotation/fill');
+    const chain = await rpc.getBlockchainInfo();
+    const session = await waitFor('the new manual peer to report our tip', async () => {
+      const s = await connected(helpers[7]);
+      return s && fill.works(s, chain) ? s : null;
+    }, { timeoutMs: 60000 });
+    assert.equal(session.connection_type, 'manual');
+  });
+
+  await check('a slot fill pass leaves Core\'s own outbound peers connected, quiet or not', async () => {
     // addconnection is regtest's way to make Core open exactly these types.
     const anchor = helpers[8];
     const fullRelay = helpers[9];
@@ -454,7 +468,7 @@ async function main() {
       `the full-relay helper qualifies: ${JSON.stringify(rowOf(fullRelay) && { e: rowOf(fullRelay).recentEligible, f: rowOf(fullRelay).recentFirst })}`);
     assert.ok(rowOf(anchor).recentEligible >= minEligible && rowOf(anchor).recentFirst === 0, 'so would the anchor, by the numbers');
     // There used to be a kick pass that dropped the full-relay one. Core picks
-    // and spreads its own outbound peers; the rotation works on the manual
+    // and spreads its own outbound peers; the slot fill works on the manual
     // slots only.
     peerRotation.setEnabled(true);
     try {

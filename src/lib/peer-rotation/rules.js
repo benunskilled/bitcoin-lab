@@ -1,24 +1,15 @@
 'use strict';
 
 /**
- * The rules the rotation decides by - and nothing else.
+ * The rules the slot fill decides by - and nothing else.
  *
  * No database, no RPC, no sockets: everything here takes numbers or plain
- * ranking rows and returns an answer. That is the point of the file. The four
- * passes next door are about *doing* things, and keeping the two apart is what
- * makes the arithmetic that decides who keeps a scarce slot readable on its
- * own, without a socket or a table in sight.
+ * ranking rows and returns an answer. The passes next door are about *doing*
+ * things, and keeping the two apart is what makes the arithmetic that decides
+ * who keeps a scarce slot readable on its own.
  */
 
 const config = require('../config');
-
-// A peer's lifetime First/Eligible ranking only means something once it has
-// been through roughly a full day of blocks - judging a peer after two or
-// three blocks would kick or promote on pure noise. Applied identically by the
-// kick and the promote pass, so nothing is acted on before it has had a fair,
-// day-scale sample to earn (or fail to earn) its ranking. Lives in config.js
-// because the widget has to agree with it (see minEligibleForJudgement).
-const MIN_ELIGIBLE_FOR_JUDGEMENT = config.minEligibleForJudgement;
 
 /**
  * The manual peers that may be evicted right now to make room for a better
@@ -98,7 +89,7 @@ function offlineForMs(peer, now) {
  *
  * But it is bought cheaply, because parking makes the decision reversible.
  * Waiting days for a peer that might return only makes sense if losing the
- * slot were final; it is not (see reviveParkedPeers). What the wait actually
+ * slot were final; it is not (see parking.js). What the wait actually
  * has to cover is the outages that fix themselves within the hour - a node
  * restarting, a network blip - not "might be back next week". So the ceiling
  * is a day rather than a week, and the floor an hour rather than six.
@@ -114,19 +105,13 @@ function offlineGraceMs(firstPct) {
 }
 
 /**
- * The longest gap between two knocks on a parked peer's door.
+ * The longest gap between two offers of a parked peer to Core (fill.js).
  *
- * Not one number for everyone. The peers worth waiting for get knocked on at
- * full speed indefinitely; the ones that were barely better than random get
- * knocked on progressively more rarely, because even a successful answer from
- * them is worth very little. Full speed from parkedPeerFullSpeedPct upwards,
- * sliding linearly down to the slow ceiling at a record of zero.
- *
- * Deliberately the opposite direction from probing everyone equally often and
- * simply keeping the list shorter: knocking harder on a peer that delivered
- * 40% of your blocks costs three sockets a tick and can save you days of a
- * worse peer set, while knocking on a 1% peer twice a day for a month is pure
- * noise for a reward you would not notice.
+ * Not one number for everyone. The peers worth waiting for are offered again
+ * at full speed indefinitely; the ones that were barely better than random
+ * progressively more rarely, because even a successful connection to them is
+ * worth very little. Full speed from parkedPeerFullSpeedPct upwards, sliding
+ * linearly down to the slow ceiling at a record of zero.
  */
 function probeIntervalCapMs(firstPct) {
   const fast = config.parkedPeerMaxProbeIntervalHours * 60 * 60 * 1000;
@@ -165,7 +150,6 @@ function fmtPct(pct) {
 }
 
 module.exports = {
-  MIN_ELIGIBLE_FOR_JUDGEMENT,
   evictableTrusted,
   offlineForMs,
   offlineGraceMs,

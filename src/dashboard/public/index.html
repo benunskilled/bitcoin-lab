@@ -81,7 +81,7 @@
       <h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2>
       <!--
         Clearnet only used to be the advice here: a Tor or I2P peer could never
-        become manual. Now the rotation keeps one of each among the manual
+        become manual. Now the slot fill keeps one of each among the manual
         peers, and Core can only reach them with those networks switched on.
         Said here rather than in the README because this is the table where it
         shows.
@@ -90,7 +90,7 @@
         <p><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
         <details class="how">
           <summary>Why</summary>
-          <p>The rotation keeps one Tor and one I2P peer among the manual peers, and Core needs those networks
+          <p>The slot fill keeps one Tor and one I2P peer among the manual peers, and Core needs those networks
           switched on to reach them. Tor and I2P peers are seldom first; their paths are slower, and that is expected.</p>
         </details>
       </div>
@@ -131,8 +131,8 @@
         finding anyone new.
       -->
       <p class="panel-note">
-        <strong>Add &amp; Keep</strong> makes a peer manual and protects it from the rotation; the lock
-        below undoes that. <strong>Caution:</strong> with all eight locked, the rotation can't promote anyone.
+        <strong>Add &amp; Keep</strong> makes a peer manual and protects it from the slot fill; the lock
+        below undoes that. <strong>Caution:</strong> with all eight locked, the slot fill can't add anyone.
       </p>
       <form id="manual-add-form" class="inline-form">
         <input
@@ -172,11 +172,11 @@
     </section>
 
     <section class="card panel">
-      <h2>Peer Rotation <span class="hint fold-sum" id="rotation-sum"></span></h2>
+      <h2>Manual Slot Fill <span class="hint fold-sum" id="rotation-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
-          Rotate manual peers automatically (recommended)
+          Fill manual slots automatically (recommended)
         </label>
       </div>
       <!--
@@ -186,16 +186,16 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Spreads the manual peers: one per region, one per provider, and one Tor and one I2P peer.</p>
+        <p>Fills free manual slots and spreads them: one per region, one per provider, one Tor and one I2P peer.</p>
         <details class="how">
           <summary>How it works</summary>
           <ul>
-            <li>Checks every ~10 minutes and makes at most one change: a free slot, or a second one in a region, goes to a peer from a region that is missing.</li>
-            <li>Candidates are Core's own outbound peers, or addresses Core has connected to before. A clearnet address is tested first.</li>
-            <li>Once a day, a manual peer that delivered none of the recent blocks first may give way to a faster peer from its own region.</li>
+            <li>Checks every ~10 minutes. A free slot, or a second peer in a region, goes to a peer from a region that is missing.</li>
+            <li>Candidates come from Core's address book: addresses Core has connected to before. Core's own connections are never touched.</li>
+            <li>Core tests each candidate itself. If it can't connect within 15 minutes, the candidate goes and the peer it replaced comes back.</li>
             <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
           </ul>
-          <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never swapped. Peers that lose their slot while offline are parked below and come back when they answer.</p>
+          <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never replaced. Peers that lose their slot while offline are parked below and get one again when their region needs a peer.</p>
         </details>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
@@ -213,7 +213,7 @@
           </table>
         </div>
       </div>
-      <h3>Rotation log</h3>
+      <h3>Log</h3>
       <div class="table-wrap">
         <table id="rotation-log-table" class="rotation-log-table">
           <thead>
@@ -322,7 +322,7 @@
 
       <div class="reset-group">
         <h3>Peer measurement data <span id="reset-peers-size" class="hint"></span></h3>
-        <p class="hint">Block races, peer sessions, First %, the rotation log and the parked
+        <p class="hint">Block races, peer sessions, First %, the slot fill log and the parked
           peers. Your manual peers are kept — only their record starts again.</p>
         <button type="button" id="reset-peers" class="secondary">Reset peer data…</button>
         <div id="reset-peers-confirm" class="reset-confirm" hidden>

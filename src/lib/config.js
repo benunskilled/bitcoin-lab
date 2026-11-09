@@ -150,11 +150,10 @@ module.exports = {
   offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '24')),
   offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
 
-  // Retired manual peers are kept in parked_peer and re-probed a few at a time
-  // on each rotation tick (a version probe each, so this stays a handful of
-  // sockets per ten minutes, not a scan). Repeated failures back the interval
-  // off so a permanently dead address costs almost nothing to keep around.
-  parkedPeerProbesPerTick: Number(pick(process.env.PARKED_PEER_PROBES_PER_TICK, '3')),
+  // Retired manual peers are kept in parked_peer and offered to Core again
+  // when their region wants a peer (peer-rotation/fill.js). Repeated failures
+  // back the interval off so a permanently dead address costs almost nothing
+  // to keep around.
   parkedPeerMinProbeIntervalMinutes: Number(pick(process.env.PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES, '30')),
 
   // The ceiling the backoff climbs to, and it is not the same for everyone:

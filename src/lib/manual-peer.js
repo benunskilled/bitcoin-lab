@@ -45,17 +45,13 @@ function versionMessage(magic) {
  * connection and used to count as a node. So this sends a version message and
  * waits for the first message header back: the chain's magic bytes and
  * "version". The handshake is never finished, the connection closes there.
+ *
+ * Only ever for an address a person typed in or picked: it goes out from this
+ * container, not through Core's proxy. The slot fill never probes; it lets
+ * Core connect (peer-rotation/fill.js).
  */
 function probePort(host, port, timeoutMs = 3000) {
-  return probeTime(host, port, timeoutMs).then((ms) => ms != null);
-}
-
-// The same probe, answering how long the node took: milliseconds from
-// starting to connect to its version header arriving (two round trips), or
-// null when no Bitcoin node answered.
-function probeTime(host, port, timeoutMs = 3000) {
   const magic = MAGIC[config.bitcoin.network] || MAGIC.mainnet;
-  const started = Date.now();
   return new Promise((resolve) => {
     const socket = net.connect({ host, port });
     let settled = false;
@@ -64,7 +60,7 @@ function probeTime(host, port, timeoutMs = 3000) {
       if (settled) return;
       settled = true;
       socket.destroy();
-      resolve(ok ? Date.now() - started : null);
+      resolve(ok);
     };
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => socket.write(versionMessage(magic)));
@@ -241,7 +237,6 @@ module.exports = {
   resolveHostPort,
   formatAddress,
   probePort,
-  probeTime,
   versionMessage,
   MAGIC,
   findListeningAddress,

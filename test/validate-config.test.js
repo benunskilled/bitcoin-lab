@@ -17,7 +17,6 @@ function good(overrides = {}) {
     offlineGraceMinHours: 1,
     offlineGraceMaxHours: 24,
     offlineGraceHoursPerPct: 1,
-    parkedPeerProbesPerTick: 3,
     parkedPeerMinProbeIntervalMinutes: 30,
     parkedPeerMaxProbeIntervalHours: 12,
     parkedPeerSlowProbeIntervalHours: 48,

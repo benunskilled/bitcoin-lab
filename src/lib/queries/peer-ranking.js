@@ -101,6 +101,15 @@ function newManualGraceStartedAt() {
   return row ? row.at : 0;
 }
 
+function slotFillTrialAddress() {
+  try {
+    const row = db.instance.prepare(`SELECT value FROM meta WHERE key = 'slot_fill_trial'`).get();
+    return row ? JSON.parse(row.value).address || null : null;
+  } catch {
+    return null;
+  }
+}
+
 function peerRanking() {
   const now = Date.now();
   if (!peerRankingStmt) {
@@ -116,6 +125,18 @@ function peerRanking() {
   const graceFrom = newManualGraceStartedAt();
   const liveTip = liveTipStmt.get()?.tip || 0;
   const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent, graceFrom, liveTip));
+
+  // The manual peer the slot fill has on trial (peer-rotation/fill.js): in its
+  // slot, but only for good once Core has connected to it.
+  const onTrial = slotFillTrialAddress();
+  if (onTrial) {
+    for (const r of rows) {
+      if (r.trusted && r.address === onTrial) {
+        r.onTrial = true;
+        r.status = 'TESTING';
+      }
+    }
+  }
 
   // Ordered here rather than in SQL: the score combines two windows and one of
   // them is not in that statement. The set is the live peers plus the manual
