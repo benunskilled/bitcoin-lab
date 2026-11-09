@@ -718,6 +718,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    (app.js, withClientLine), and the two buttons one above the other - the
    red one below, where it is in every row. */
 .addr-client { display: none; }
+.addr-place { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addr-place .flag { margin-right: 6px; }
+.manual-spread { margin: -4px 0 10px; }
 .table-wrap[data-drops="4"] .addr-client { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap[data-drops="4"]:not(.cards) td.row-actions { white-space: normal; }
 .table-wrap[data-drops="4"]:not(.cards) td.row-actions > * { display: flex; width: 112px; margin-left: auto; }
@@ -1024,3 +1027,7 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
   .cards.cards #pool-table tr { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.4fr); }
   .cards.cards #pool-table td[data-label="Avg"] { display: none; }
 }
+
+/* The licence line for the DB-IP data under the manual peers. */
+.foot { margin: 8px auto 28px; text-align: center; font-size: 12px; color: var(--muted); }
+.foot a { color: inherit; }

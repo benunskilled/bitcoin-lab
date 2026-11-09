@@ -6,6 +6,17 @@
 // node set bit 27 and stayed at the tip, while 3,945 of 3,947 sessions with
 // the bit shared no header past about 961,000. tip is the highest
 // synced_headers of any live peer; a peer not live keeps the bit alone.
+const REGION_NAMES = {
+  AF: 'Africa', AS: 'Asia', EU: 'Europe', NA: 'North America', OC: 'Oceania', SA: 'South America',
+};
+
+function whereOf(address) {
+  const hidden = unreachableNetwork(address);
+  if (hidden) return { region: hidden.toUpperCase(), regionName: hidden, country: '', operator: '' };
+  const { region, country, operator } = network.lookup(address);
+  return region ? { region, regionName: REGION_NAMES[region], country, operator } : null;
+}
+
 const FORK_TIP_SLACK = 6;
 function otherChainOf(services, syncedHeaders = null, tip = 0) {
   const list = typeof services === 'string' ? services.split(',') : [];
@@ -28,6 +39,7 @@ function otherChainOf(services, syncedHeaders = null, tip = 0) {
  */
 
 const config = require('../config');
+const network = require('../network');
 const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('../address');
 const { peerScore } = require('../score');
 
@@ -131,6 +143,11 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
       localUmbrelPeer,
       privateNetwork,
       proxiedPrivatePeer,
+      // Where a manual peer is, for the dashboard: what the rotation spreads
+      // the slots by (peer-rotation/spread.js). Only for manual peers - the
+      // only ones the page shows it for - and never for an address that is
+      // not the peer's own.
+      where: trusted && !sourceObscured && !localUmbrelPeer && !proxiedPrivatePeer ? whereOf(r.address) : null,
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       trusted,
       trustedLabel: r.trustedLabel,

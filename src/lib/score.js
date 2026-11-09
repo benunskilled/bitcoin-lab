@@ -83,7 +83,7 @@ function wilsonLowerBound(successes, trials) {
  *
  * Returns null for a peer with no lifetime record at all, which is not the
  * same as a measured zero: everything downstream already treats a missing
- * record as sorting below any measured one (see beatsHolder), and a peer that
+ * record as sorting below any measured one (see spread.admit), and a peer that
  * has simply never been present for a block should not be confused with one
  * that has been present for five hundred and delivered none of them.
  *

@@ -45,7 +45,7 @@ On Umbrel, the dashboard is available at `<your-umbrel>:8790`. The default `8788
 | `MAX_MANUAL_PEERS` | Maximum size of the saved manual selection; allowed range: 1–8 | `8` |
 | `MIN_ELIGIBLE_FOR_JUDGEMENT` | Minimum Eligible count: within the last 500 blocks before an outbound peer can be dropped, over its lifetime before it can be promoted | `50` |
 | `NEW_MANUAL_PEER_GRACE_BLOCKS` | Grace against replacement by a stronger candidate, counted from entry into the manual selection | `50` |
-| `MIN_SWAP_MARGIN_PCT` | Required lead in ranking-score points for a challenger to take a slot | `0.2` |
+| `MANUAL_PER_REGION` | Manual peers one region (continent) holds while another region has a candidate | `1` |
 | `RECENT_SCORE_WINDOW_BLOCKS` | Recent block window used for scoring; lifetime performance fills any missing observations | `500` |
 | `PEER_POLL_INTERVAL_MS` | Peer-profiler session poll interval | `15000` |
 | `ROTATION_LOG_ENTRIES` | Rotation-log entries kept, and shown behind "Show all" (runs of kicks as one line) | `1000` |

@@ -991,6 +991,39 @@ function withClientLine(cell, p) {
   return cell.replace(/<\/td>$/, () => `<small class="addr-client">${kindTagHtml(p)}${escapeHtml(p.client)}</small></td>`);
 }
 
+// Flags as Peer Map draws them: regional-indicator letters from the country
+// code, no image files; Tor an onion, I2P a globe.
+const HIDDEN_FLAG = { TOR: '\u{1F9C5}', I2P: '\u{1F310}' };
+const flagOf = (cc) => (/^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)) : '');
+let countryNames = null;
+function countryName(cc) {
+  try {
+    countryNames = countryNames || new Intl.DisplayNames(['en'], { type: 'region' });
+    return countryNames.of(cc) || cc;
+  } catch {
+    return cc;
+  }
+}
+
+// Where a manual peer is, as one more line under its address: flag and
+// provider, or Tor / I2P. The rotation spreads the slots by exactly this, so
+// it is shown where the slots are. Country and region are in the tooltip.
+function withPlaceLine(cell, p) {
+  const w = p.where;
+  if (!w) return cell;
+  const flag = HIDDEN_FLAG[w.region] || flagOf(w.country);
+  const text = w.country ? (w.operator || countryName(w.country)) : w.regionName;
+  const tip = w.country ? `${countryName(w.country)}, ${w.regionName}` : w.regionName;
+  return cell.replace(/<\/td>$/, () => `<small class="addr-place" title="${escapeHtml(tip)}"><span class="flag">${flag}</span>${escapeHtml(text)}</small></td>`);
+}
+
+// "Europe 3 · North America 1 · Tor 1", most first.
+function spreadSummary(peers) {
+  const counts = new Map();
+  for (const p of peers) if (p.where) counts.set(p.where.regionName, (counts.get(p.where.regionName) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} ${n}`).join(' · ');
+}
+
 function addressCell(p) {
   if (p.sourceObscured) {
     return `<td class="cell-truncate hint" title="Inbound IPv6 passes through Docker, which puts its own address in place of the peer's.">IPv6 peer (address hidden by Docker)</td>`;
@@ -1191,13 +1224,13 @@ document.addEventListener('keydown', (e) => {
 // out on the network - so it gets a pill of its own instead of "INBOUND".
 const UMBREL_APP = 'UMBREL APP';
 
-function peerRow(p, { status = p.status, actions }) {
+function peerRow(p, { status = p.status, actions, place = false }) {
   if (p.localUmbrelPeer) status = UMBREL_APP;
   const weak = neverFirstReason(p) ? ' weak' : '';
   const canAct = actions.includes('data-action="add-manual"') || actions.includes('data-action="disconnect"') || actions.includes('data-action="untrust"');
   return `
     <tr data-key="${escapeHtml(p.address)}"${canAct ? ' tabindex="0"' : ''} class="${canAct ? 'can-act ' : ''}${rowClassFor(p.address)}${arrivedAt.has(p.address) ? ' arrived' : ''}${p.first > 0 && p.offlineSinceMs == null ? ' row-delivered' : ''}${weak}">
-      ${withClientLine(addressCell(p), p)}
+      ${withClientLine(place ? withPlaceLine(addressCell(p), p) : addressCell(p), p)}
       ${clientCell(p)}
       <td class="col-status" data-full="${escapeHtml(statusLabel(status))}">${statusPill(p, status)}</td>
       ${firstPctCell(p)}
@@ -1309,7 +1342,7 @@ function renderPeerTables(peers, options = {}) {
   `).join('');
 
   const manualRows = manualPeers
-    .map((p) => peerRow(p, { actions: actionsCell(p, { lock: keepStar(p) }) }))
+    .map((p) => peerRow(p, { actions: actionsCell(p, { lock: keepStar(p) }), place: true }))
     .join('');
   const noManualPeersHint = manualPeers.length === 0
     ? `<tr><td colspan="8" class="hint">No manual peers yet - use "Add as Manual" on a peer above, or the Add a Peer box to enter an address yourself.</td></tr>`
@@ -1332,6 +1365,12 @@ function renderPeerTables(peers, options = {}) {
       ? ` · ${keptCount === manualPeers.length ? 'all kept' : `${keptCount} kept`}`
       : '';
     slotsEl.textContent = `${freeManualSlots} of ${MAX_MANUAL_PEERS} slots free · ${liveManualSlots} connected · ${manualPeers.length} total${keptNote}`;
+  }
+  const spreadEl = document.getElementById('manual-spread');
+  if (spreadEl) {
+    const summary = spreadSummary(manualPeers);
+    spreadEl.textContent = summary;
+    spreadEl.hidden = !summary;
   }
 }
 

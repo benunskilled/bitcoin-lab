@@ -17,7 +17,6 @@
 
 const db = require('../db');
 const config = require('../config');
-const queries = require('../queries');
 const peerSync = require('../peer-sync');
 const manualPeer = require('../manual-peer');
 const rpc = require('../rpc');
@@ -25,9 +24,10 @@ const { wilsonLowerBound, peerScore } = require('../score');
 const { recentRelayStats } = require('../queries/peer-ranking');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
+const spread = require('./spread');
+const { unreachableNetwork } = require('../address');
 const {
   evictableTrusted,
-  beatsHolder,
   offlineForMs,
   offlineGraceMs,
   probeIntervalCapMs,
@@ -97,7 +97,10 @@ async function retireOfflineManualPeers(ranking) {
     if (offlineMs < grace) continue;
 
     await peerSync.removeTrustedPeer(peer.address);
-    const parked = peerSync.parkPeer(peer);
+    // A Tor or I2P peer is not parked: knocking on its door would be this
+    // container dialling - or resolving - a .onion name itself, which it must
+    // never do. The address book has more where it came from.
+    const parked = unreachableNetwork(peer.address) ? false : peerSync.parkPeer(peer);
     retired += 1;
     logAction({
       action: 'park',
@@ -220,26 +223,29 @@ async function reviveParkedPeers(ranking) {
       continue;
     }
 
+    // Back in only where it fits the spread, by the same rule promote.js
+    // lets a newcomer in by (spread.js): a free slot if its operator is not
+    // there yet and its region is still below the target - a peer from a
+    // region that is already full waits, and a live candidate from a missing
+    // region gets the slot first - or, with every slot taken, a surplus
+    // holder's slot when its region is a gap. Its record no longer buys a
+    // slot from a holder on its own.
     let replaced = null;
-    if (trusted.length >= config.maxManualPeers) {
-      const weakest = queries.weakestTrustedPeer(evictableTrusted(trusted));
-      // The same score on both sides - the one promote.js swaps on.
-      //
-      // This compared lifetime against lifetime, on the argument that a
-      // parked peer has no recent window. It usually does: a peer is parked
-      // the moment it stops being a manual one, and its observations up to
-      // then are still in relay_observation. Reading only its lifetime let an
-      // old record win the slot back from a holder delivering 15% right now
-      // with a peer delivering 1% - see parkedScore below.
-      if (!weakest || !beatsHolder(parkedScore(parked), weakest.score)) {
-        // Reachable but not worth a slot right now - leave it parked for a
-        // better moment. Also lands here when every slot is still inside its
-        // new-peer grace.
-        stillParked(parked.address, now);
-        continue;
-      }
-      replaced = weakest;
+    const decision = spread.admit({ ...parked, score: parkedScore(parked) }, trusted,
+      evictableTrusted(trusted).filter((p) => !p.hb), config.maxManualPeers);
+    const region = spread.placeOf(parked).region;
+    // A peer the table has no region for cannot crowd one, so a free slot is
+    // its to take.
+    const fills = decision && (decision.replace
+      || !region || (spread.regionCounts(trusted)[region] || 0) < spread.TARGET_PER_REGION);
+    if (!fills) {
+      // Reachable but not where a slot is wanted right now - leave it parked
+      // for a better moment. Also lands here when every slot is still inside
+      // its new-peer grace.
+      stillParked(parked.address, now);
+      continue;
     }
+    if (decision.replace) replaced = decision.replace;
 
     // As in promote.js: the new peer goes in first and the weakest leaves only
     // once that has worked, so a refused add does not leave the slot empty.
@@ -282,8 +288,8 @@ async function reviveParkedPeers(ranking) {
       replacedAddress: replaced ? replaced.address : null,
       replacedFirstPct: replaced ? replaced.firstPct : null,
       note: replaced
-        ? `back, beat the weakest manual peer: ${replaced.recentFirst}/${replaced.recentEligible} recent blocks first`
-        : 'back, took a free manual slot',
+        ? `back · spread: ${spread.describe(parked)} in for ${spread.describe(replaced)}`
+        : `back, took a free manual slot · ${spread.describe(parked)}`,
     });
     logger.info('rotation: a parked peer answered again and got its manual slot back', {
       address: parked.address,

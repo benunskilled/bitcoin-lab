@@ -151,6 +151,7 @@
 
     <section class="card panel">
       <h2>Manual Peers <span id="manual-slots" class="hint"></span></h2>
+      <p id="manual-spread" class="hint manual-spread" hidden></p>
       <div class="table-wrap">
         <table id="manual-peer-table" class="peer-table">
           <thead>
@@ -175,7 +176,7 @@
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
-          Automatically rotate outbound peers (recommended)
+          Rotate manual peers automatically (recommended)
         </label>
       </div>
       <!--
@@ -185,15 +186,16 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Promotes the best deliverers to manual and drops outbound peers that deliver nothing first in 50 blocks.</p>
+        <p>Spreads the manual peers: one per region, one per provider, and one Tor and one I2P peer.</p>
         <details class="how">
           <summary>How it works</summary>
           <ul>
-            <li>Checks every ~10 minutes, at most one promotion per pass: into a free slot or in place of a weaker manual peer.</li>
-            <li>Drops an outbound peer that was connected for 50 of the last 500 blocks without delivering one first; Core picks a new one.</li>
+            <li>Checks every ~10 minutes and makes at most one change: a free slot, or a second one in a region, goes to a peer from a region that is missing.</li>
+            <li>Candidates are Core's own outbound peers, or addresses Core has connected to before. A clearnet address is tested first.</li>
+            <li>Once a day, a manual peer that delivered none of the recent blocks first may give way to a faster peer from its own region.</li>
             <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
           </ul>
-          <p>New slot holders are safe for 50 blocks. Peers that lose their slot while offline are parked below and come back when they answer.</p>
+          <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never swapped. Peers that lose their slot while offline are parked below and come back when they answer.</p>
         </details>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>
@@ -343,6 +345,12 @@
       </div>
     </details>
   </main>
+
+  <!-- CC BY 4.0 asks for this: the country and provider of each manual peer
+       come from DB-IP's Lite databases (src/data/NETWORK.md). -->
+  <footer class="foot">
+    <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP to ASN and country by DB-IP</a>
+  </footer>
 
   <script src="/app.js"></script>
 </body>

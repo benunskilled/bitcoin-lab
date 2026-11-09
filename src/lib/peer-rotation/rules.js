@@ -55,20 +55,6 @@ function evictableTrusted(trusted) {
 }
 
 /**
- * Is the challenger enough better than the peer holding the slot to be worth
- * the swap? A missing record scores below zero, so a peer with any measured
- * percentage still beats one with none.
- *
- * Strictly-better was the old rule and it churned slots for nothing: taking a
- * slot costs a real disconnect and a real addnode, and 0.6% against 0.4% is a
- * difference of one block in five hundred.
- */
-function beatsHolder(challengerPct, holderPct) {
-  const score = (pct) => (pct == null ? -1 : pct);
-  return score(challengerPct) - score(holderPct) > config.minSwapMarginPct;
-}
-
-/**
  * How long this manual peer has been unreachable *as a manual peer*.
  *
  * Two clocks, and the answer is whichever started later. The obvious one is
@@ -181,7 +167,6 @@ function fmtPct(pct) {
 module.exports = {
   MIN_ELIGIBLE_FOR_JUDGEMENT,
   evictableTrusted,
-  beatsHolder,
   offlineForMs,
   offlineGraceMs,
   probeIntervalCapMs,

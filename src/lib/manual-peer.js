@@ -47,7 +47,15 @@ function versionMessage(magic) {
  * "version". The handshake is never finished, the connection closes there.
  */
 function probePort(host, port, timeoutMs = 3000) {
+  return probeTime(host, port, timeoutMs).then((ms) => ms != null);
+}
+
+// The same probe, answering how long the node took: milliseconds from
+// starting to connect to its version header arriving (two round trips), or
+// null when no Bitcoin node answered.
+function probeTime(host, port, timeoutMs = 3000) {
   const magic = MAGIC[config.bitcoin.network] || MAGIC.mainnet;
+  const started = Date.now();
   return new Promise((resolve) => {
     const socket = net.connect({ host, port });
     let settled = false;
@@ -56,7 +64,7 @@ function probePort(host, port, timeoutMs = 3000) {
       if (settled) return;
       settled = true;
       socket.destroy();
-      resolve(ok);
+      resolve(ok ? Date.now() - started : null);
     };
     socket.setTimeout(timeoutMs);
     socket.once('connect', () => socket.write(versionMessage(magic)));
@@ -233,6 +241,7 @@ module.exports = {
   resolveHostPort,
   formatAddress,
   probePort,
+  probeTime,
   versionMessage,
   MAGIC,
   findListeningAddress,

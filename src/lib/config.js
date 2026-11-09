@@ -105,17 +105,11 @@ module.exports = {
   // still frees that one on the offline grace below.
   newManualGraceBlocks: Number(pick(process.env.NEW_MANUAL_PEER_GRACE_BLOCKS, '50')),
 
-  // How much better a challenger must be, in points of the peer score (see
-  // score.js - a Wilson lower bound in percent, not the raw First %), before
-  // taking a manual slot away from someone is worth the churn.
-  // "Strictly better" was too weak: 0.6% displacing 0.4% costs a disconnect and
-  // an addnode for a difference of one block in five hundred.
-  //
-  // Deliberately small. The interesting differences at the bottom of a curated
-  // set are fractions of a point - 1.1 / 1.0 / 0.6 / 0.4 on a real node - and a
-  // large threshold would freeze the rotation exactly where it still has work
-  // to do.
-  minSwapMarginPct: Number(pick(process.env.MIN_SWAP_MARGIN_PCT, '0.2')),
+  // How many manual peers one region (a continent) should hold while another
+  // region has a candidate - see peer-rotation/spread.js. One: six regions
+  // for the slots, and a region with no candidate lends its slot until one
+  // turns up.
+  manualPerRegion: Number(pick(process.env.MANUAL_PER_REGION, '1')),
 
   // How many of the most recent blocks count as "lately" for the peer score
   // (see score.js). Once a peer has been eligible for this many, its score is

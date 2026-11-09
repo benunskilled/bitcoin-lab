@@ -50,7 +50,7 @@ function logAction(entry) {
   // written somewhere permanent.
   //
   // Here rather than at the two call sites in promoteBestCandidate: they
-  // already share beatsHolder and evictableTrusted because writing the same
+  // already share spread.admit and evictableTrusted because writing the same
   // rule out twice is how the two swap paths drifted apart in the first place.
   // Every promotion passes through logAction, so this cannot be forgotten by a
   // future third path.

@@ -12,7 +12,7 @@ function good(overrides = {}) {
     maxManualPeers: 8,
     minEligibleForJudgement: 50,
     newManualGraceBlocks: 50,
-    minSwapMarginPct: 0.2,
+    manualPerRegion: 1,
     recentScoreWindowBlocks: 500,
     offlineGraceMinHours: 1,
     offlineGraceMaxHours: 24,
@@ -75,7 +75,6 @@ test('more manual peers than Core will hold is refused', () => {
 
 test('counts must be whole numbers, rates need not be', () => {
   assert.ok(checkConfig(good({ recentScoreWindowBlocks: 500.5 })).some((p) => /whole number/.test(p)));
-  assert.deepEqual(checkConfig(good({ minSwapMarginPct: 0.25 })), [], 'a fractional margin is the point of it');
 });
 
 test('values that are each fine but wrong together are caught', () => {
