@@ -1246,3 +1246,13 @@ test('a peer-data reset forgets which candidates failed', () => {
   db.resetPeerData();
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0);
 });
+
+test('only a peer that was ever first is parked', async () => {
+  peerRotation.setEnabled(true);
+  const never = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 0 });
+  const once = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 1 });
+  await peerRotation.tick();
+  const parked = peerRotation.parkedPeers().map((p) => p.address);
+  assert.ok(!isManual(never) && !isManual(once), 'both lose their slot');
+  assert.deepEqual(parked, [once], 'the address book has plenty like the other one');
+});

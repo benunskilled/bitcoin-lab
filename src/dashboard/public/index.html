@@ -195,7 +195,7 @@
             <li>Core tests each candidate itself. If it can't connect within about 20 minutes, the candidate goes and the peer it replaced comes back.</li>
             <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
           </ul>
-          <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never replaced. Peers that lose their slot while offline are parked below and get one again when their region needs a peer.</p>
+          <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never replaced. Peers that were ever first and lose their slot are parked below and get one again when their region needs a peer.</p>
         </details>
       </div>
       <div id="parked-peers" class="parked-peers" hidden>

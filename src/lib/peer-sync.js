@@ -538,13 +538,15 @@ function countTrusted() {
  * reason this app can afford to reclaim an offline peer's slot in hours
  * rather than never.
  *
- * Never parks a peer that has no record worth keeping: an address that was
- * never once connected when a block landed is not a peer this app has an
- * opinion about, and offering it again and again would be busywork.
+ * Only a peer that delivered at least one block first. The address book holds
+ * thousands of candidates for every region; what it cannot say is which of
+ * them has ever been the quickest path to this node. A peer that has is
+ * worth remembering - one that never was is no better than the next address
+ * Core already knows, and keeping it would only grow the list.
  */
 function parkPeer(peer) {
   if (!peer || !peer.address) return false;
-  if (!peer.eligible) return false;
+  if (!peer.eligible || !(peer.firstPct > 0)) return false;
   // Never a Tor, I2P or CJDNS address. Core's address book holds hundreds of
   // those for every one that goes dark, and the slot fill takes the next from
   // there; a parked row would only be one more to try first.
