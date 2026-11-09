@@ -263,12 +263,11 @@ test('a malformed body is the callers mistake, not a 500', async () => {
   assert.equal(res.status, 400, 'answering 500 sends whoever is debugging this to the wrong place');
 });
 
-test('GET /api/rotation carries the toggle, the log and the parked peers', async () => {
+test('GET /api/rotation carries the toggle and the log', async () => {
   const { status, body } = await api('/api/rotation');
   assert.equal(status, 200);
   assert.equal(typeof body.enabled, 'boolean');
   assert.ok(Array.isArray(body.log));
-  assert.ok(Array.isArray(body.parked), 'the Parked table has no other source');
 });
 
 test('POST /api/rotation/toggle round-trips, and GET agrees afterwards', async () => {

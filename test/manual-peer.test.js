@@ -341,10 +341,8 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
     // The weakest one, by record - not the oldest, not an arbitrary one.
     assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get('198.51.100.1:8333').n, 0);
     assert.match(result.warning, /198\.51\.100\.1:8333/, 'the user has to be told which peer paid for this');
-    // Still connected, so not parked: it keeps being measured as an ordinary
-    // peer, as after a swap by the rotation, and the user is told so.
-    assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get('198.51.100.1:8333').n, 0);
-    assert.match(result.warning, /win a slot again as an ordinary peer/);
+    // Still connected: it keeps its record, and the user is told so.
+    assert.match(result.warning, /It keeps its record\./);
     // And it is in the rotation log, so it does not vanish without a trace.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
     assert.equal(logged.replaced_address, '198.51.100.1:8333');

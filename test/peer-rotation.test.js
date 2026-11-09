@@ -985,3 +985,22 @@ test('a peer-data reset forgets which candidates failed', () => {
   db.resetPeerData();
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0);
 });
+
+test('REGRESSION: two sessions started in the same second - the live one is what the row shows', () => {
+  // Core opened two connections to a manual peer in one second: one that
+  // never finished its handshake (no client, no services) and the one that
+  // did. The tie picked the failed one, and a working peer read "offers no
+  // services" for hours.
+  const address = nextAddress();
+  const peer = db.getOrCreatePeer(address);
+  const at0 = Date.now() - HOUR;
+  const insert = db.instance.prepare(
+    'INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at, subver, services) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  // In the order Core reported them: the failed one first.
+  insert.run(peer.id, 'outbound', 'manual', at0, at0 + 1000, null, '');
+  insert.run(peer.id, 'outbound', 'manual', at0, null, '/Satoshi:0.18.0/', 'NETWORK,WITNESS');
+  db.instance.prepare('INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, NULL, 0, ?)').run(address, at0);
+  const row = ranking().find((p) => p.address === address);
+  assert.equal(row.client, '/Satoshi:0.18.0/');
+  assert.equal(row.offersNothing, false);
+});
