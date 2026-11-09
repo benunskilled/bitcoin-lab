@@ -120,6 +120,7 @@ test('F2Pool in lower case, and NiceHash by its payout addresses', () => {
     assert.equal(got.source, 'tag');
   }
   assert.equal(poolId.identify({ addresses: ['bc1q85z0lxe86pkcg2fmppfnykat2375s0pnxjx9sc'] }).name, 'NiceHash');
+  assert.equal(poolId.identify({ addresses: ['bc1qevfvr7n7hqu56eu5cqunk22nuwds0dkjgqqxe6'] }).name, 'NiceHash');
   // EasyMining pays the finder first and keeps 3 % on its own address.
   const easy = poolId.identify({ addresses: ['bc1qx0wsjmspd3tmfsxyl7jftxyhapcrzmzn7t7g58', 'bc1q28d6w54p3xc03a2j5ppmkua09akep9vtke20ny'] });
   assert.deepEqual([easy.name, easy.source], ['NiceHash EasyMining', 'address']);

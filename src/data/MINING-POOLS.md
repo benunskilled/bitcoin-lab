@@ -65,6 +65,11 @@ Where each tag comes from:
 - NiceHash, bc1q85z0lxe86pkcg2fmppfnykat2375s0pnxjx9sc: block 932129 pays its
   whole reward there and says "/NiceHashMining/" in its coinbase; 971652 and
   971719 pay the same address with no text.
+- NiceHash, bc1qevfvr7n7hqu56eu5cqunk22nuwds0dkjgqqxe6: eleven blocks from
+  972547 (22 October 2026) on, no text in the coinbase. Transaction
+  2dd5141f43db83117ac7149f25206c96e6328ccad174917d9668f3ff9731ec41 (block
+  975056) spends six of their rewards together with two from the NiceHash
+  address above, so one wallet holds both.
 - NiceHash EasyMining, bc1q28d6w54p3xc03a2j5ppmkua09akep9vtke20ny: takes
   exactly 3 % of the reward in blocks 972373, 974087 and 974683, the finder
   the rest. NiceHash announced 972373 and 974087 as EasyMining blocks
