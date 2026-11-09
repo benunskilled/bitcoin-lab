@@ -35,13 +35,6 @@ const RULES = {
   offlineGraceMinHours: { min: 0, max: 8760, integer: false },
   offlineGraceMaxHours: { min: 0, max: 8760, integer: false },
   offlineGraceHoursPerPct: { min: 0, max: 8760, integer: false },
-  parkedPeerMinProbeIntervalMinutes: { min: 0, max: 525600, integer: false },
-  parkedPeerMaxProbeIntervalHours: { min: 0, max: 8760, integer: false },
-  parkedPeerSlowProbeIntervalHours: { min: 0, max: 8760, integer: false },
-  parkedPeerFullSpeedPct: { min: 0, max: 100, integer: false },
-  parkedPeerRetentionDaysPerPct: { min: 0, max: 36500, integer: false },
-  parkedPeerMinRetentionDays: { min: 0, max: 36500, integer: false },
-  parkedPeerMaxRetentionDays: { min: 0, max: 36500, integer: false },
   stratumRaceTimeoutMs: { min: 100, max: 600000 },
   stratumIdleTimeoutMs: { min: 1000, max: 7 * 24 * 60 * 60 * 1000 },
   stratumHistoryRetentionDays: { min: 1, max: 36500 },
@@ -65,13 +58,6 @@ const ENV_NAMES = {
   offlineGraceMinHours: 'OFFLINE_GRACE_MIN_HOURS',
   offlineGraceMaxHours: 'OFFLINE_GRACE_MAX_HOURS',
   offlineGraceHoursPerPct: 'OFFLINE_GRACE_HOURS_PER_PCT',
-  parkedPeerMinProbeIntervalMinutes: 'PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES',
-  parkedPeerMaxProbeIntervalHours: 'PARKED_PEER_MAX_PROBE_INTERVAL_HOURS',
-  parkedPeerSlowProbeIntervalHours: 'PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS',
-  parkedPeerFullSpeedPct: 'PARKED_PEER_FULL_SPEED_PCT',
-  parkedPeerRetentionDaysPerPct: 'PARKED_PEER_RETENTION_DAYS_PER_PCT',
-  parkedPeerMinRetentionDays: 'PARKED_PEER_MIN_RETENTION_DAYS',
-  parkedPeerMaxRetentionDays: 'PARKED_PEER_MAX_RETENTION_DAYS',
   stratumRaceTimeoutMs: 'STRATUM_RACE_TIMEOUT_MS',
   stratumIdleTimeoutMs: 'STRATUM_IDLE_TIMEOUT_MS',
   stratumHistoryRetentionDays: 'STRATUM_HISTORY_RETENTION_DAYS',
@@ -113,17 +99,6 @@ function checkConfig(config) {
   if (Number.isFinite(config.offlineGraceMinHours) && Number.isFinite(config.offlineGraceMaxHours)
       && config.offlineGraceMinHours > config.offlineGraceMaxHours) {
     problems.push('OFFLINE_GRACE_MIN_HOURS must not exceed OFFLINE_GRACE_MAX_HOURS');
-  }
-  if (Number.isFinite(config.parkedPeerMinRetentionDays) && Number.isFinite(config.parkedPeerMaxRetentionDays)
-      && config.parkedPeerMinRetentionDays > config.parkedPeerMaxRetentionDays) {
-    problems.push('PARKED_PEER_MIN_RETENTION_DAYS must not exceed PARKED_PEER_MAX_RETENTION_DAYS');
-  }
-  if (Number.isFinite(config.parkedPeerMaxProbeIntervalHours) && Number.isFinite(config.parkedPeerSlowProbeIntervalHours)
-      && config.parkedPeerMaxProbeIntervalHours > config.parkedPeerSlowProbeIntervalHours) {
-    problems.push(
-      'PARKED_PEER_MAX_PROBE_INTERVAL_HOURS is the ceiling for a good peer and must not exceed '
-      + 'PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS, the ceiling for a poor one',
-    );
   }
   if (Number.isFinite(config.recentScoreWindowBlocks) && Number.isFinite(config.minEligibleForJudgement)
       && config.recentScoreWindowBlocks < config.minEligibleForJudgement) {

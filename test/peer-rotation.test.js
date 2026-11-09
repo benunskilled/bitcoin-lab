@@ -243,10 +243,7 @@ test('a weak manual peer loses its slot once it is offline past its short grace'
 
   assert.equal(retired, 1);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 0);
-  const parked = db.instance.prepare('SELECT * FROM parked_peer WHERE address = ?').get(address);
-  assert.ok(parked, 'a retired peer is parked, not forgotten');
-  assert.equal(parked.probe_failures, 0);
-  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('park');
+  const logRow = db.instance.prepare('SELECT * FROM rotation_log WHERE action = ?').get('retire');
   assert.equal(logRow.address, address);
 });
 
@@ -288,44 +285,6 @@ test('a manual peer that has never connected at all is timed from when it was ad
   // Nothing to park: it has no eligible blocks, so there is no record to
   // come back to. Re-probing it forever would be busywork.
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer').get().n, 0);
-});
-
-// --- Parked peers -----------------------------------------------------------
-
-function seedParked({ address = nextAddress(), firstPct = 20, eligible = 200, lastProbeAt = null, probeFailures = 0 } = {}) {
-  db.instance
-    .prepare(
-      `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
-       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
-    )
-    .run(address, firstPct, eligible, Date.now() - 3 * HOUR, lastProbeAt, probeFailures);
-  return address;
-}
-
-// --- How hard a parked peer is chased, and for how long ---------------------
-//
-// Both scale with the peer's own record, in opposite directions to the naive
-// design: a peer that delivered 30% of your blocks is worth offering to Core
-// twice a day for months, one at 1% is not worth offering twice a day for a
-// month. Even a successful connection to the weak one is barely worth having.
-
-test('a strong parked peer is chased at full speed, a weak one progressively less often', () => {
-  const hours = (pct) => peerRotation.probeIntervalCapMs(pct) / HOUR;
-
-  assert.equal(hours(40), 12, 'a 40% peer keeps the fastest ceiling');
-  assert.equal(hours(20), 12, 'and so does anything at or above full-speed pct');
-  assert.ok(hours(10) > 12 && hours(10) < 48, 'the middle slides between the two');
-  assert.ok(hours(1) > hours(10), 'weaker means rarer');
-  assert.equal(hours(0), 48, 'no record at all gets the slowest ceiling');
-});
-
-test('a strong parked peer is remembered for months, a weak one for days', () => {
-  const days = (pct) => peerRotation.parkedRetentionMs(pct) / (24 * HOUR);
-
-  assert.equal(days(40), 180, 'the best peers are kept for half a year');
-  assert.equal(days(0.8), 4, 'the weakest are dropped in days, not a month');
-  assert.ok(days(5) > days(0.8) && days(5) < days(40));
-  assert.equal(days(0), 2, 'the floor');
 });
 
 // --- REGRESSIONS: the rotation loop eating itself (v1.15.5) ------------------
@@ -639,27 +598,23 @@ test('typing in a peer displaces the weakest unprotected one, even when a protec
   const result = await peerSync.addTrustedPeer('198.51.100.211:8333', 'typed', { evictToFit: true, kept: true });
   assert.equal(result.ok, true);
   assert.equal(result.evicted.address, free);
-  // Still connected: not parked, as after a swap by the rotation.
-  assert.equal(result.evicted.parked, false);
   const rows = db.instance.prepare('SELECT address FROM trusted_peer').all().map((r) => r.address);
   assert.ok(rows.includes(keptWeak) && !rows.includes(free));
 });
 
-test('a peer displaced without any record is reported as not kept for re-testing', async () => {
+test('a peer without any record can be displaced by hand', async () => {
   seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 1 });
   seedLivePeer({ connectionType: 'manual', trusted: true });   // unprotected, no record
   const result = await peerSync.addTrustedPeer('198.51.100.212:8333', 'typed', { evictToFit: true, kept: true });
   assert.equal(result.ok, true);
-  assert.equal(result.evicted.parked, false);
 });
 
-test('a manual peer displaced by hand while offline is parked', async () => {
+test('a manual peer displaced by hand while offline is the one that goes', async () => {
   const offline = seedOfflineTrustedPeer({ eligible: 144, first: 2 });
   seedLivePeer({ connectionType: 'manual', trusted: true, kept: true, eligible: 144, first: 40 });
   const result = await peerSync.addTrustedPeer('198.51.100.213:8333', 'typed', { evictToFit: true, kept: true });
   assert.equal(result.ok, true);
   assert.equal(result.evicted.address, offline);
-  assert.equal(result.evicted.parked, true);
 });
 
 test('a Tor manual peer that stays offline is let go, not parked', async () => {
@@ -800,90 +755,6 @@ test('slot fill: a connection that serves no blocks, or is not on our tip, does 
   assert.match(logRows()[0].note, /connected, but serves no blocks/);
 });
 
-test('slot fill: a swap lets a surplus peer go, and brings it back on its old slot if the candidate fails', async () => {
-  const strong = at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  const since = db.instance.prepare('SELECT created_at AS t FROM trusted_peer WHERE address = ?').get(weak).t;
-  const asia = inBook('198.18.0.10', 'AS');
-  const t0 = Date.now();
-
-  await step(setPeers([coreOut()]), t0);
-  assert.equal(fill.currentTrial().holder.address, weak, 'the weaker of the two in the crowded region');
-  assert.ok(!isManual(weak) && isManual(asia) && isManual(strong));
-
-  await step(setPeers([coreOut()]), t0 + 16 * MIN);
-  assert.ok(isManual(weak), 'back');
-  assert.equal(db.instance.prepare('SELECT created_at AS t FROM trusted_peer WHERE address = ?').get(weak).t, since,
-    'on the slot it had held since when it had - no fresh grace for being let go for nothing');
-  assert.ok(!isManual(asia));
-  assert.match(logRows()[0].note, /Europe \(DE, .*\) back$/);
-});
-
-test('slot fill: after a failed swap the next one waits an hour', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  inBook('198.18.0.10', 'AS');
-  inBook('198.18.0.11', 'AS', { operator: 'Second' });
-  const t0 = Date.now();
-  await step(setPeers([coreOut()]), t0);
-  await step(setPeers([coreOut()]), t0 + 16 * MIN);
-
-  assert.equal((await step(setPeers([coreOut()]), t0 + 30 * MIN)).started, 0, 'every failed swap cost a peer its connection');
-  assert.equal((await step(setPeers([coreOut()]), t0 + 80 * MIN)).started, 1);
-});
-
-test('slot fill: a confirmed swap is logged with the region it filled', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  const asia = inBook('198.18.0.10', 'AS');
-  const t0 = Date.now();
-  await step(setPeers([coreOut()]), t0);
-  await step(setPeers([coreOut(), manualSession(asia)]), t0 + 10 * MIN);
-
-  const [row] = logRows();
-  assert.equal(row.action, 'swap');
-  assert.equal(row.replaced_address, weak);
-  assert.match(row.note, /^from the address book · Asia \(JP, .*\) in for Europe \(DE, .*\): Asia had none$/);
-});
-
-test('slot fill: a peer Core uses for compact blocks right now is never let go, in either direction', async () => {
-  const a = at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const b = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  inBook('198.18.0.10', 'AS');
-  // The ranking snapshot has neither as high-bandwidth; Core says so now.
-  const peers = setPeers([coreOut(), manualSession(a, { bip152_hb_to: true }), manualSession(b, { bip152_hb_from: true })]);
-
-  assert.equal((await step(peers, Date.now())).started, 0);
-  assert.ok(isManual(a) && isManual(b));
-});
-
-test('slot fill: padlocked peers count for their region and are never the one let go', async () => {
-  const friend = at(seedLivePeer({ eligible: 144, first: 0, trusted: true, kept: true }), 'EU', 'Friend ISP');
-  const own = at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  inBook('198.18.0.10', 'OC');
-
-  await step(setPeers([coreOut()]), Date.now());
-
-  assert.ok(isManual(friend));
-  assert.ok(!isManual(own), 'the slot fill\'s own peer in the same region makes room');
-});
-
-test('slot fill: a peer that only just took its slot is safe for its grace', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true, justPromoted: true }), 'EU');
-  at(seedLivePeer({ eligible: 144, first: 5, trusted: true, justPromoted: true }), 'EU');
-  inBook('198.18.0.10', 'AS');
-  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
-});
-
-test('slot fill: a swap never empties a region to fill another', async () => {
-  // Two manual peers at one operator in two regions: each is alone in its
-  // region, so neither is surplus for a third region's sake.
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU', 'Same Hosting');
-  at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'NA', 'Same Hosting');
-  inBook('198.18.0.10', 'AS');
-  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
-});
-
 test('slot fill: one operator, one slot', async () => {
   at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU', 'Hetzner Online GmbH');
   inBook('198.18.0.10', 'AS', { operator: 'Hetzner Online GmbH' });
@@ -944,58 +815,8 @@ test('slot fill: a node still catching up starts nothing', async () => {
   assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
 });
 
-test('slot fill: a parked peer is offered first, and parked again one failure further if Core cannot reach it', async () => {
-  const parked = at(seedParked({ firstPct: 30 }), 'AS');
-  inBook('198.18.0.10', 'AS');
-  const parkedAt = db.instance.prepare('SELECT parked_at AS t FROM parked_peer WHERE address = ?').get(parked).t;
-  const t0 = Date.now();
-  await step(setPeers([coreOut()]), t0);
-  assert.equal(fill.currentTrial().address, parked);
-
-  await step(setPeers([coreOut()]), t0 + 16 * MIN);
-
-  const row = db.instance.prepare('SELECT * FROM parked_peer WHERE address = ?').get(parked);
-  assert.equal(row.probe_failures, 1);
-  assert.equal(row.parked_at, parkedAt, 'remembered from when it lost its slot, not from the last try');
-});
-
-test('slot fill: a parked peer Core connects to is logged as back', async () => {
-  const parked = at(seedParked({ firstPct: 30 }), 'AS');
-  const t0 = Date.now();
-  await step(setPeers([coreOut()]), t0);
-  await step(setPeers([coreOut(), manualSession(parked)]), t0 + 10 * MIN);
-  const [row] = logRows();
-  assert.equal(row.action, 'revive');
-  assert.match(row.note, /^back · Asia/);
-});
-
-test('slot fill: parked peers not due yet are left alone, and the weak ones wait longer', async () => {
-  const probedAt = Date.now() - 20 * HOUR;
-  const strong = at(seedParked({ firstPct: 30, lastProbeAt: probedAt, probeFailures: 6 }), 'AS'); // ceiling 12h: due
-  at(seedParked({ firstPct: 1, lastProbeAt: probedAt, probeFailures: 6 }), 'OC'); // ceiling ~46h: not due
-  for (let i = 0; i < 3; i++) at(seedParked({ firstPct: 0, probeFailures: 10, lastProbeAt: Date.now() - 20 * HOUR }), 'SA');
-  const due = require('../src/lib/peer-rotation/parking').dueParkedPeers(Date.now()).map((r) => r.address);
-  assert.deepEqual(due, [strong]);
-});
-
-test('slot fill: a weak parked peer is forgotten once its own retention is up, while a strong one is kept', () => {
-  const weak = nextAddress();
-  const strong = nextAddress();
-  const tenDaysAgo = Date.now() - 10 * 24 * HOUR;
-  const insert = db.instance.prepare(
-    `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
-     VALUES (?, NULL, ?, 200, ?, NULL, 0)`,
-  );
-  insert.run(weak, 0.8, tenDaysAgo); // 0.8% -> kept 4 days: long gone
-  insert.run(strong, 30, tenDaysAgo); // 30% -> kept 150 days: still waiting
-  require('../src/lib/peer-rotation/parking').dueParkedPeers(Date.now());
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(weak).n, 0);
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(strong).n, 1);
-});
-
-test('slot fill: taken out or padlocked by hand during the trial, the person\'s choice stands', async () => {
+test('slot fill: padlocked by hand during the trial, the person\'s choice stands', async () => {
   at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
   const asia = inBook('198.18.0.10', 'AS');
   const t0 = Date.now();
   await step(setPeers([coreOut()]), t0);
@@ -1005,32 +826,7 @@ test('slot fill: taken out or padlocked by hand during the trial, the person\'s 
 
   assert.equal(fill.currentTrial(), null);
   assert.ok(isManual(asia), 'padlocked: it stays');
-  assert.ok(!isManual(weak), 'and nothing is undone behind the person\'s back');
-  assert.ok(peerRotation.parkedPeers().some((p) => p.address === weak), 'the peer it replaced keeps its record parked');
   assert.equal(logRows().length, 0);
-});
-
-test('slot fill: a candidate whose addnode Core refuses leaves the peer it would have replaced in place', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  const asia = inBook('198.18.0.10', 'AS');
-  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
-    if (cmd === 'add' && addr === asia) throw new Error('Error: Invalid IP/Subnet');
-  });
-  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
-  assert.ok(isManual(weak));
-  assert.ok(!isManual(asia));
-  assert.equal(fill.currentTrial(), null);
-});
-
-test('slot fill: in a swap the candidate is added before the peer it replaces is removed', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  const asia = inBook('198.18.0.10', 'AS');
-  const calls = [];
-  rpc.addNode.mock.mockImplementation(async (addr, cmd) => { calls.push(`${cmd} ${addr}`); });
-  await step(setPeers([coreOut()]), Date.now());
-  assert.deepEqual(calls, [`add ${asia}`, `remove ${weak}`]);
 });
 
 test('slot fill: a free slot no gap can fill still goes to someone', async () => {
@@ -1081,7 +877,7 @@ test('tick is a complete no-op when the toggle is off', async () => {
   inBook('198.18.0.10', 'AS');
   setPeers([coreOut()]);
   const result = await peerRotation.tick();
-  assert.deepEqual(result, { enabled: false, retired: 0, started: 0, confirmed: 0, reverted: 0, deduped: 0 });
+  assert.deepEqual(result, { enabled: false, retired: 0, started: 0, confirmed: 0, reverted: 0 });
   assert.equal(fill.currentTrial(), null);
 });
 
@@ -1103,15 +899,14 @@ test('tick does nothing at all while Core does not answer', async () => {
   assert.equal(result.retired, 0, 'Core being down is no evidence about any peer');
 });
 
-test('a kept peer that has really been connected is not parked when it goes offline', async () => {
+test('a kept peer that has really been connected keeps its slot when it goes offline', async () => {
   peerRotation.setEnabled(true);
   const address = seedOfflineTrustedPeer({ address: '198.51.100.96:8333', offlineHours: 500, eligible: 500, first: 5, kept: true });
   await peerRotation.tick();
   assert.ok(ranking().find((p) => p.address === address)?.trusted, 'still manual');
-  assert.equal(peerRotation.parkedPeers().length, 0, 'and not parked');
 });
 
-test('a kept peer Core never managed to connect is parked like any other', async () => {
+test('a kept peer Core never managed to connect loses its slot like any other', async () => {
   // An address that never stood up as an outbound connection is not a peer
   // anyone is keeping; protecting it would let one bad address hold one of
   // eight slots forever.
@@ -1121,24 +916,6 @@ test('a kept peer Core never managed to connect is parked like any other', async
   });
   await peerRotation.tick();
   assert.ok(!ranking().find((p) => p.address === address)?.trusted, 'the slot is freed');
-  assert.equal(peerRotation.parkedPeers().length, 1, 'and its record is parked, not thrown away');
-});
-
-test('the pass drops an inbound session to a host it already holds as manual', async () => {
-  peerRotation.setEnabled(true);
-  const disconnects = [];
-  mock.method(rpc, 'disconnectNode', async (target) => { disconnects.push(target); });
-  setPeers([
-    { id: 10, addr: '198.51.100.60:8333', connection_type: 'manual', network: 'ipv4' },
-    { id: 11, addr: '198.51.100.60:49812', connection_type: 'inbound', network: 'ipv4' },
-    { id: 12, addr: '198.51.100.61:41000', connection_type: 'inbound', network: 'ipv4' },
-    { id: 13, addr: '10.21.22.10:52690', connection_type: 'inbound', network: 'onion' },
-    // Core's own outbound choice to the same IP: often a second node behind it.
-    { id: 14, addr: '198.51.100.60:8334', connection_type: 'outbound-full-relay', network: 'ipv4' },
-  ]);
-  const result = await peerRotation.tick();
-  assert.equal(result.deduped, 1);
-  assert.deepEqual(disconnects, [11], 'only the inbound twin of a manual peer - not other inbound peers, not Tor, not outbound');
 });
 
 test('after a reset, a protected manual peer that is offline keeps its slot', async () => {
@@ -1159,17 +936,15 @@ test('after a reset, an offline manual peer gets a fresh offline grace instead o
 
 test('slot fill: switched off during a trial, nothing is left half done', async () => {
   at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
   const asia = inBook('198.18.0.10', 'AS');
   await step(setPeers([coreOut()]), Date.now());
-  assert.ok(!isManual(weak));
 
   peerRotation.setEnabled(false);
   await peerRotation.settleOnSwitchOff();
 
   assert.equal(fill.currentTrial(), null);
-  assert.ok(isManual(weak) && !isManual(asia), 'Core had not connected: undone, the replaced peer back');
-  assert.match(logRows()[0].note, /slot fill switched off during the trial · Europe .* back$/);
+  assert.ok(!isManual(asia), 'Core had not connected: taken out again');
+  assert.match(logRows()[0].note, /slot fill switched off during the trial$/);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0, 'and the candidate is not held against');
 });
 
@@ -1179,7 +954,6 @@ test('slot fill: a trial that outlived a long pause is undone, not retired', asy
   // peer it had replaced for good.
   peerRotation.setEnabled(true);
   at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
   const asia = inBook('198.18.0.10', 'AS');
   setPeers([coreOut()]);
   await peerRotation.tick();
@@ -1193,42 +967,7 @@ test('slot fill: a trial that outlived a long pause is undone, not retired', asy
 
   assert.equal(result.reverted, 1);
   assert.equal(result.retired, 0);
-  assert.ok(isManual(weak), 'the replaced peer is back');
-});
-
-test('slot fill: a replaced peer Core will not take back is parked, not lost', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  inBook('198.18.0.10', 'AS');
-  const t0 = Date.now();
-  await step(setPeers([coreOut()]), t0);
-  // Meanwhile it dialled in.
-  await step(setPeers([coreOut(), { id: 3, addr: weak.replace(':8333', ':50000'), network: 'ipv4', connection_type: 'inbound' }]), t0 + 16 * MIN);
-
-  assert.ok(!isManual(weak));
-  assert.ok(peerRotation.parkedPeers().some((p) => p.address === weak));
-  assert.match(logRows()[0].note, /not back \(.*already connected to Core\), parked$/);
-});
-
-test('slot fill: each failed swap in a row makes the next one wait twice as long', async () => {
-  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
-  at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
-  for (let i = 0; i < 4; i++) inBook(`198.18.0.${10 + i}`, 'AS', { operator: `AS-${i}` });
-  let t = Date.now();
-  await step(setPeers([coreOut()]), t);
-  await step(setPeers([coreOut()]), t += 16 * MIN); // first failure: an hour
-  assert.equal((await step(setPeers([coreOut()]), t + 61 * MIN)).started, 1);
-  t += 61 * MIN;
-  await step(setPeers([coreOut()]), t += 16 * MIN); // second: two hours
-  assert.equal((await step(setPeers([coreOut()]), t + 61 * MIN)).started, 0);
-  assert.equal((await step(setPeers([coreOut()]), t + 121 * MIN)).started, 1);
-});
-
-test('slot fill: a parked peer waiting out its backoff does not slip in through the address book', async () => {
-  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
-  const parked = at(seedParked({ firstPct: 1, lastProbeAt: Date.now() - 10 * MIN, probeFailures: 5 }), 'AS');
-  inBook(parked.split(':')[0], 'AS');
-  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
+  assert.ok(!isManual(asia));
 });
 
 test('slot fill: never this node\'s own address', async () => {
@@ -1245,14 +984,4 @@ test('a peer-data reset forgets which candidates failed', () => {
   db.instance.prepare('INSERT INTO slot_fill_tried (address, tried_at, ok) VALUES (?, ?, 0)').run('198.18.0.99:8333', Date.now());
   db.resetPeerData();
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0);
-});
-
-test('only a peer that was ever first is parked', async () => {
-  peerRotation.setEnabled(true);
-  const never = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 0 });
-  const once = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 1 });
-  await peerRotation.tick();
-  const parked = peerRotation.parkedPeers().map((p) => p.address);
-  assert.ok(!isManual(never) && !isManual(once), 'both lose their slot');
-  assert.deepEqual(parked, [once], 'the address book has plenty like the other one');
 });

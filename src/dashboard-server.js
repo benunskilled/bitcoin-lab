@@ -821,10 +821,6 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, {
       enabled: peerRotation.isEnabled(),
       log: peerRotation.recentLog(),
-      // Manual peers that lost their slot to a long absence and are being
-      // re-tested. Shown so "where did my peer go?" has a visible answer on
-      // the same screen that took it away.
-      parked: peerRotation.parkedPeers(),
     });
   }
 

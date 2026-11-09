@@ -73,7 +73,11 @@ async function bookEntries(now = Date.now()) {
  */
 function usableNetworks(networkInfo, peers) {
   const allowed = new Set(((networkInfo && networkInfo.networks) || []).filter((n) => n.reachable).map((n) => n.name));
-  const working = new Set(peers.filter((p) => p.connection_type !== 'inbound').map((p) => p.network));
+  // Established outbound connections only: a feeler or an address fetch is a
+  // few seconds' try, not proof the network works from here.
+  const working = new Set(peers
+    .filter((p) => ['outbound-full-relay', 'block-relay-only', 'manual'].includes(p.connection_type))
+    .map((p) => p.network));
   return new Set(NETWORKS.filter((n) => allowed.has(n) && working.has(n)));
 }
 

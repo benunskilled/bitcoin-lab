@@ -150,34 +150,6 @@ module.exports = {
   offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '24')),
   offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
 
-  // Retired manual peers are kept in parked_peer and offered to Core again
-  // when their region wants a peer (peer-rotation/fill.js). Repeated failures
-  // back the interval off so a permanently dead address costs almost nothing
-  // to keep around.
-  parkedPeerMinProbeIntervalMinutes: Number(pick(process.env.PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES, '30')),
-
-  // The ceiling the backoff climbs to, and it is not the same for everyone:
-  // how good a peer was decides how long we keep bothering, and for how many
-  // days at all. A peer that delivered 30% of your blocks first is worth
-  // knocking on twice a day for months; one at 0.8% is not worth a knock
-  // every twelve hours for a month, because even if it does come back it is
-  // barely better than whatever Core would have handed you anyway.
-  //
-  // Interval ceiling: full speed (parkedPeerMaxProbeIntervalHours) from
-  // parkedPeerFullSpeedPct upwards, sliding linearly to the slow ceiling as
-  // the record approaches zero. 40% -> every 12h, 10% -> ~30h, 1% -> ~46h.
-  parkedPeerMaxProbeIntervalHours: Number(pick(process.env.PARKED_PEER_MAX_PROBE_INTERVAL_HOURS, '12')),
-  parkedPeerSlowProbeIntervalHours: Number(pick(process.env.PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS, '48')),
-  parkedPeerFullSpeedPct: Number(pick(process.env.PARKED_PEER_FULL_SPEED_PCT, '20')),
-
-  // Retention: days = clamp(firstPct * daysPerPct, min, max). 0.8% -> 4 days,
-  // 5% -> 25 days, 36% and up -> the six-month ceiling. Same shape as the
-  // offline grace above, for the same reason - a peer's own record is the
-  // only honest answer to "how long is this worth remembering?".
-  parkedPeerRetentionDaysPerPct: Number(pick(process.env.PARKED_PEER_RETENTION_DAYS_PER_PCT, '5')),
-  parkedPeerMinRetentionDays: Number(pick(process.env.PARKED_PEER_MIN_RETENTION_DAYS, '2')),
-  parkedPeerMaxRetentionDays: Number(pick(process.env.PARKED_PEER_MAX_RETENTION_DAYS, '180')),
-
   // How long a relay race stays "open" for late stratum-style bookkeeping
   // is not needed here (relay races resolve synchronously on ZMQ), but the
   // stratum race timeout window (ms) a pool has to report a new prevhash
@@ -283,7 +255,7 @@ module.exports = {
   // get a much shorter window.
   feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
   // A peer that was around for blocks but never delivered one first, is not
-  // manual or parked, and has not been seen for this long: its rows only take
+  // manual, and has not been seen for this long: its rows only take
   // space. Most inbound connections end up here - one row each, kept forever,
   // was the bulk of the database on a node with an open port. Removing them
   // changes nobody else's record: they never took a first from anyone.

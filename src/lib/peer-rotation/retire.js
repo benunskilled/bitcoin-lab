@@ -1,0 +1,68 @@
+'use strict';
+
+/**
+ * A manual peer that went dark gives its slot back.
+ *
+ * Retiring used to park the peer, to be knocked on again and let back in. The
+ * slot fill takes its candidates from Core's address book instead, which holds
+ * thousands, the retired peer among them while Core still knows it - so
+ * retiring is simply removing.
+ */
+
+const peerSync = require('../peer-sync');
+const logger = require('../logger').make('peer-rotation');
+const { logAction } = require('./log');
+const { offlineForMs, offlineGraceMs, fmtHours } = require('./rules');
+
+/**
+ * Reclaim the slot of a manual peer that has been offline longer than its
+ * record has earned it.
+ *
+ * Without this, eight manual peers that all went dark held the entire list
+ * hostage: Core kept redialling addresses that were not answering, and no
+ * working peer could take their place.
+ *
+ * There is no "don't retire too many at once" guard: the pass does not run
+ * while Core does not answer (index.js), which is the case that would make
+ * every peer look offline at once.
+ *
+ * `onTrial` is the slot fill's candidate, which its trial judges, not this.
+ */
+async function retireOfflineManualPeers(ranking, onTrial = null) {
+  const now = Date.now();
+  let retired = 0;
+  // The padlock also covers being offline. Holding the slot costs nothing that
+  // matters: Core keeps trying to reach an addnode address by itself, which is
+  // exactly what was wanted. Take the padlock off and the peer is treated like
+  // any other from the next pass on - no fresh grace period, no exception.
+  //
+  // But only for a peer Core has actually managed to hold as a manual
+  // connection at least once. An address that never stood up is not a peer
+  // you are keeping, it is an address that does not work. Without this, one
+  // such address would sit on one of eight slots forever, protected.
+  for (const peer of ranking.filter((p) => p.trusted && !p.live && !(p.kept && p.everManual) && p.address !== onTrial)) {
+    const offlineMs = offlineForMs(peer, now);
+    if (offlineMs == null) continue;
+    const grace = offlineGraceMs(peer.firstPct);
+    if (offlineMs < grace) continue;
+
+    await peerSync.removeTrustedPeer(peer.address);
+    retired += 1;
+    logAction({
+      action: 'retire',
+      address: peer.address,
+      firstPct: peer.firstPct,
+      eligible: peer.eligible,
+      note: `offline ${fmtHours(offlineMs)}, allowed ${fmtHours(grace)}`,
+    });
+    logger.info('slot fill: retired a manual peer that stayed offline past its grace period', {
+      address: peer.address,
+      firstPct: peer.firstPct,
+      offlineHours: Math.round(offlineMs / 3600000),
+      graceHours: Math.round(grace / 3600000),
+    });
+  }
+  return retired;
+}
+
+module.exports = { retireOfflineManualPeers };

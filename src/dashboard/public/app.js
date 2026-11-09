@@ -245,7 +245,7 @@ function sizeColumns() {
     for (const th of ths) th.style.width = '';
     const shown = ths.filter((th) => getComputedStyle(th).display !== 'none');
     const col = (th) => [...th.classList].find((c) => c.startsWith('col-'));
-    // Only the three tables with these columns, not Parked.
+    // Only the tables with these columns.
     if (!shown.every((th) => COL_FIXED[col(th)] || COL_NEED[col(th)])) continue;
     let fixed = 0;
     let need = 0;
@@ -307,7 +307,7 @@ function fitTables() {
   // the browser's own scroll anchoring, see .card in style.css.)
   const anchor = window.scrollY > 0
     ? [...document.querySelectorAll('h2, h3, .table-wrap tbody tr')].find((e) => {
-      // A hidden element (the empty Parked panel) has a rect of zeros.
+      // A hidden element has a rect of zeros.
       const r = e.getBoundingClientRect();
       return r.height > 0 && r.top >= 0;
     })
@@ -771,8 +771,8 @@ function highlightClassFor(address) {
 // missing its first slot (e.g. a source-obscured peer with no "Add as
 // Manual") would have Disconnect visually collapse into the first slot's
 // position instead of staying put, making the column misalign row to row.
-// The lock: closed means the rotation leaves this peer alone - it is not swapped
-// out for a better-scoring candidate, and not parked when it goes offline.
+// The lock: closed means this peer keeps its slot - a person adding a peer to
+// a full set never displaces it, and it is not removed when it goes offline.
 // Both the state and the control, because they are the same thing to the
 // person looking at it. A lock on its own explains nothing, so the title says
 // in words what it does and what clicking will do next.
@@ -886,10 +886,9 @@ function sessionCell(p) {
  * deciding number appeared nowhere.
  *
  * The lifetime rate is not dropped: it is in the cell's tooltip, and in the
- * rotation log, where a swap is traced back. It is still the
- * right number for what a peer has been worth over its life, and it is still
- * what the offline grace, the parking retention and the re-probe interval are
- * scaled by - so the parked table and the rotation log keep showing it.
+ * slot fill log. It is still the right number for what a peer has been worth
+ * over its life, and it is still what the offline grace is scaled by - so the
+ * log keeps showing it.
  */
 function firstPctCell(p) {
   // A peer that cannot deliver a block reads "never first" instead of its
@@ -1392,7 +1391,7 @@ let rotationToggleEpoch = 0;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual', 'disconnect', 'revert']);
+const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual', 'disconnect', 'revert', 'retire']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -1403,6 +1402,8 @@ function rotationActionLabel(action) {
   // A swap is a promotion too; the note beside it says whom it replaced.
   if (action === 'swap') return 'Promoted';
   if (action === 'park') return 'Parked';
+  // Offline past its grace: the slot is free for the next candidate.
+  if (action === 'retire') return 'Removed';
   if (action === 'revive') return 'Back';
   if (action === 'manual') return 'Added';
   if (action === 'disconnect') return 'Disconnected';
@@ -1416,42 +1417,12 @@ function rotationActionLabel(action) {
 // because "my manual peer is gone" and "my manual peer is gone AND being
 // watched for a comeback" are very different pieces of news, and only the
 // second one is true.
-function renderParkedPeers(parked) {
-  const panel = document.getElementById('parked-peers');
-  const tbody = document.querySelector('#parked-peer-table tbody');
-  if (!panel || !tbody) return;
-  if (!parked || parked.length === 0) {
-    panel.hidden = true;
-    tbody.innerHTML = '';
-    return;
-  }
-  panel.hidden = false;
-  const now = Date.now();
-  // Three columns only: who, why it is worth waiting for, and since when. The
-  // testing details are on hover - as small cards on a phone, six lines per
-  // parked peer made the panel far longer than what it has to say.
-  tbody.innerHTML = parked.map((p) => {
-    const tested = p.lastProbeAt == null ? 'not tried again yet' : `last tried ${fmtDuration(now - p.lastProbeAt)} ago`;
-    const details = `${tested} · Core could not connect ${p.probeFailures} ${p.probeFailures === 1 ? 'time' : 'times'} · `
-      + `kept for ${fmtDuration(Math.max(0, p.forgottenAt - now))} more (a good record is remembered for months, a weak one for days)`;
-    return `
-    <tr title="${escapeHtml(details)}">
-      ${truncatedCell(p.address)}
-      <td title="${p.eligible == null ? 'no record' : `over ${p.eligible} eligible blocks`}">${fmtPct(p.firstPct)}</td>
-      <td class="hint">${fmtDuration(now - p.parkedAt)} ago</td>
-    </tr>
-  `;
-  }).join('');
-}
-
 async function refreshRotation() {
   const epochAtRequest = rotationToggleEpoch;
   const data = await api('/api/rotation');
   const toggle = document.getElementById('rotation-toggle');
   if (toggle && rotationToggleEpoch === epochAtRequest) toggle.checked = Boolean(data.enabled);
   foldSums();
-
-  renderParkedPeers(data.parked);
 
   lastRotationLog = data.log || [];
   renderRotationLog(lastRotationLog);
@@ -2440,8 +2411,8 @@ function wireReset(scope) {
     }
     await refreshStorage();
     await refreshStatus();
-    // What each reset empties: peer data includes the rotation log and the
-    // parked peers, pool history the pool table.
+    // What each reset empties: peer data includes the slot fill log, pool
+    // history the pool table.
     if (scope === 'pools') await refreshPools();
     else await Promise.all([refreshPeers(), refreshRotation()]);
   });

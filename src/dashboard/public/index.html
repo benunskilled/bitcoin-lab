@@ -190,28 +190,12 @@
         <details class="how">
           <summary>How it works</summary>
           <ul>
-            <li>Checks every ~10 minutes. A free slot, or a second peer in a region, goes to a peer from a region that is missing.</li>
-            <li>Candidates come from Core's address book: addresses Core has connected to before. Core's own connections are never touched.</li>
-            <li>Core tests each candidate itself. If it can't connect within about 20 minutes, the candidate goes and the peer it replaced comes back.</li>
-            <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
+            <li>Every ~10 minutes, a free slot goes to a peer from a missing region, taken from Core's address book.</li>
+            <li>Core tests it. If Core can't connect, the next one is tried.</li>
+            <li>A manual peer that stays offline frees its slot. The better its record, the longer it may stay away.</li>
+            <li>Working peers and Core's own connections are never touched.</li>
           </ul>
-          <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never replaced. Peers that were ever first and lose their slot are parked below and get one again when their region needs a peer.</p>
         </details>
-      </div>
-      <div id="parked-peers" class="parked-peers" hidden>
-        <h3>Parked</h3>
-        <div class="table-wrap">
-          <table id="parked-peer-table" class="peer-table">
-            <thead>
-              <tr>
-                <th class="col-address">Address</th>
-                <th class="col-pct">First %</th>
-                <th>Parked</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
       </div>
       <h3>Log</h3>
       <div class="table-wrap">
@@ -322,8 +306,8 @@
 
       <div class="reset-group">
         <h3>Peer measurement data <span id="reset-peers-size" class="hint"></span></h3>
-        <p class="hint">Block races, peer sessions, First %, the slot fill log and the parked
-          peers. Your manual peers are kept — only their record starts again.</p>
+        <p class="hint">Block races, peer sessions, First % and the slot fill log. Your manual
+          peers are kept — only their record starts again.</p>
         <button type="button" id="reset-peers" class="secondary">Reset peer data…</button>
         <div id="reset-peers-confirm" class="reset-confirm" hidden>
           <p class="warn">This cannot be undone. <span id="reset-peers-detail"></span></p>

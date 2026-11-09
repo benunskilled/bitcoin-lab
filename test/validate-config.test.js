@@ -17,13 +17,6 @@ function good(overrides = {}) {
     offlineGraceMinHours: 1,
     offlineGraceMaxHours: 24,
     offlineGraceHoursPerPct: 1,
-    parkedPeerMinProbeIntervalMinutes: 30,
-    parkedPeerMaxProbeIntervalHours: 12,
-    parkedPeerSlowProbeIntervalHours: 48,
-    parkedPeerFullSpeedPct: 20,
-    parkedPeerRetentionDaysPerPct: 5,
-    parkedPeerMinRetentionDays: 2,
-    parkedPeerMaxRetentionDays: 180,
     stratumRaceTimeoutMs: 8000,
     stratumIdleTimeoutMs: 6 * 60 * 60 * 1000,
     stratumHistoryRetentionDays: 365,
@@ -80,14 +73,6 @@ test('values that are each fine but wrong together are caught', () => {
   assert.ok(
     checkConfig(good({ offlineGraceMinHours: 48, offlineGraceMaxHours: 24 }))
       .some((p) => /OFFLINE_GRACE_MIN_HOURS must not exceed/.test(p)),
-  );
-  assert.ok(
-    checkConfig(good({ parkedPeerMinRetentionDays: 200, parkedPeerMaxRetentionDays: 180 }))
-      .some((p) => /PARKED_PEER_MIN_RETENTION_DAYS must not exceed/.test(p)),
-  );
-  assert.ok(
-    checkConfig(good({ parkedPeerMaxProbeIntervalHours: 72 }))
-      .some((p) => /PARKED_PEER_MAX_PROBE_INTERVAL_HOURS/.test(p)),
   );
   assert.ok(
     checkConfig(good({ recentScoreWindowBlocks: 10 }))

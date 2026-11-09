@@ -697,6 +697,13 @@ function runMigrations() {
         if (!existing.has(name)) db.prepare(`ALTER TABLE peer_session ADD COLUMN ${name} ${type}`).run();
       }
     });
+
+    // Parking went with the rotation: the slot fill takes its candidates from
+    // Core's address book, which holds thousands. The table stays, empty, so
+    // older queries and the migrations above still find it.
+    migrate('parked_peer_retired_v2_6_0', 'stopped keeping parked peers', () => {
+      db.prepare(`DELETE FROM parked_peer`).run();
+    });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
   }

@@ -222,11 +222,9 @@ function evictionNote(result) {
   return {
     warning:
       `all ${result.max} manual slots were taken, so ${result.evicted.address} (${pct}) ` +
-      (result.evicted.parked
-        ? 'was removed to make room - it will be re-tested and can come back on its own.'
-        : result.evicted.live
-          ? 'was disconnected to make room. It keeps its record and can win a slot again as an ordinary peer.'
-          : 'was removed to make room. It had no record yet, so it is not kept for re-testing.'),
+      (result.evicted.live
+        ? 'was disconnected to make room. It keeps its record.'
+        : 'was removed to make room.'),
   };
 }
 

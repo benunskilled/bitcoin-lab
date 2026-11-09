@@ -87,7 +87,8 @@ function offlineForMs(peer, now) {
  * percentage point - which turns "how long do we wait?" into a question the
  * peer has already answered itself.
  *
- * But it is bought cheaply, because parking makes the decision reversible.
+ * But it is bought cheaply, because the decision is reversible: Core's
+ * address book still has the peer, and the slot fill can pick it again.
  * Waiting days for a peer that might return only makes sense if losing the
  * slot were final; it is not (see parking.js). What the wait actually
  * has to cover is the outages that fix themselves within the hour - a node
@@ -102,39 +103,6 @@ function offlineGraceMs(firstPct) {
     Math.max(config.offlineGraceMinHours, (firstPct == null ? 0 : firstPct) * config.offlineGraceHoursPerPct),
   );
   return hours * 60 * 60 * 1000;
-}
-
-/**
- * The longest gap between two offers of a parked peer to Core (fill.js).
- *
- * Not one number for everyone. The peers worth waiting for are offered again
- * at full speed indefinitely; the ones that were barely better than random
- * progressively more rarely, because even a successful connection to them is
- * worth very little. Full speed from parkedPeerFullSpeedPct upwards, sliding
- * linearly down to the slow ceiling at a record of zero.
- */
-function probeIntervalCapMs(firstPct) {
-  const fast = config.parkedPeerMaxProbeIntervalHours * 60 * 60 * 1000;
-  const slow = config.parkedPeerSlowProbeIntervalHours * 60 * 60 * 1000;
-  const share = Math.min(1, (firstPct == null ? 0 : firstPct) / config.parkedPeerFullSpeedPct);
-  return slow + (fast - slow) * share;
-}
-
-/**
- * How long a parked peer is remembered at all, before its address is dropped
- * and it becomes just another peer the node has seen. Same shape as the
- * offline grace period: bought with the peer's own record.
- *
- * Kept in JavaScript as well as in the DELETE statement's SQL because the
- * dashboard and the tests both need to be able to ask the question without
- * running the deletion.
- */
-function parkedRetentionMs(firstPct) {
-  const days = Math.min(
-    config.parkedPeerMaxRetentionDays,
-    Math.max(config.parkedPeerMinRetentionDays, (firstPct == null ? 0 : firstPct) * config.parkedPeerRetentionDaysPerPct),
-  );
-  return days * 24 * 60 * 60 * 1000;
 }
 
 // Both only ever appear in a rotation-log note or a peer label, where a reader
@@ -153,8 +121,6 @@ module.exports = {
   evictableTrusted,
   offlineForMs,
   offlineGraceMs,
-  probeIntervalCapMs,
-  parkedRetentionMs,
   fmtHours,
   fmtPct,
 };

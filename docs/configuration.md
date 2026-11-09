@@ -61,15 +61,8 @@ The peer-profiler interval controls connection bookkeeping. Block observations a
 | `OFFLINE_GRACE_MIN_HOURS` | Minimum offline grace before automatic parking | `1` |
 | `OFFLINE_GRACE_MAX_HOURS` | Maximum offline grace before automatic parking | `24` |
 | `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of offline grace per percentage point of lifetime First | `1` |
-| `PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES` | Shortest gap between two tests of the same parked peer | `30` |
-| `PARKED_PEER_MAX_PROBE_INTERVAL_HOURS` | Backoff ceiling for peers at or above the full-speed First threshold | `12` |
-| `PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS` | Backoff ceiling at 0% lifetime First | `48` |
-| `PARKED_PEER_FULL_SPEED_PCT` | Lifetime First % at which the faster backoff ceiling applies | `20` |
-| `PARKED_PEER_RETENTION_DAYS_PER_PCT` | Days a parked peer is retained per percentage point of lifetime First | `5` |
-| `PARKED_PEER_MIN_RETENTION_DAYS` | Minimum parked retention in days | `2` |
-| `PARKED_PEER_MAX_RETENTION_DAYS` | Maximum parked retention in days | `180` |
 
-Offline grace and parked retention use lifetime First %, within their configured minimum and maximum values.
+Offline grace uses lifetime First %, within its configured minimum and maximum values.
 
 | Lifetime First | Offline grace | Parked retention |
 |---|---:|---:|
@@ -106,7 +99,7 @@ Stratum Race is controlled from the dashboard. While it is off, no pool connecti
 | `NEVER_FIRST_PEER_RETENTION_DAYS` | Retention for inbound peers that were seen at blocks but never delivered one first, in days | `30` |
 | `TRAFFIC_FLUSH_MS` | How often gathered traffic is written to the database, in milliseconds | `3600000` |
 
-Peers that delivered a block first, outbound peers, and manual or parked peers keep their delivery and session history. Inactive peers that never appeared in a block observation go after 14 days; inbound peers that appeared at blocks but never delivered one first go, with their observations, after 30 days. No other peer's record changes when they go.
+Peers that delivered a block first, outbound peers, and manual peers keep their delivery and session history. Inactive peers that never appeared in a block observation go after 14 days; inbound peers that appeared at blocks but never delivered one first go, with their observations, after 30 days. No other peer's record changes when they go.
 
 Blocks are never deleted. The 500-block scoring window controls the ranking, not data retention. You can clear peer measurements from the dashboard's Storage panel while keeping your manual selection.
 

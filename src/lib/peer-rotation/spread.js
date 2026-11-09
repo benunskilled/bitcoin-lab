@@ -13,11 +13,10 @@
  * outbound peers over network groups, but addnode connections are exempt
  * from that.
  *
- * So the slots are spread: one per operator, and TARGET_PER_REGION per region
- * (the six continents, Tor and I2P). A peer leaves only for a region that has
- * fewer than that, and only from a region that has more. Score only decides
- * between candidates for the same gap and which surplus peer goes. A free slot
- * goes to anyone the spread lets in, once no gap can be filled.
+ * So the free slots are spread: one per operator, and a region with fewer
+ * than TARGET_PER_REGION manual peers (the six continents, Tor and I2P) gets
+ * the next free slot first. A slot no missing region can fill goes to anyone
+ * the operator rule lets in. Nobody is ever moved out for the spread.
  *
  * Pure: plain rows in, an answer out. Region and operator come from
  * network.lookup; Tor and I2P are regions of their own with no operator, and
@@ -79,8 +78,8 @@ function countriesByRegion(peers) {
  * How good a newcomer would be for the spread, lower is better: a region with
  * fewer manual peers first, then a country that region does not have yet,
  * then a region Core's own outbound peers do not reach. Within that, the
- * order they came in (fill.js: parked peers first, then the address book
- * shuffled) - the sort is stable.
+ * order they came in (fill.js shuffles the address book) - the sort is
+ * stable.
  */
 function rankForGap(candidates, trusted, coreRegions) {
   const counts = regionCounts(trusted);
@@ -98,41 +97,13 @@ function rankForGap(candidates, trusted, coreRegions) {
 }
 
 /**
- * Would this peer be let into the manual set, and in place of whom?
- *
- *   { free: true }          a slot is free and its operator is not there yet
- *   { replace: holder }     the set is full and the peer fills a gap: its
- *                           region is below the target, the holder's is
- *                           above it
- *   null                    neither
- *
- * A new country is no reason for a swap on its own: within a region that is
- * over its target, as Europe often is, it only trades one surplus peer for
- * another and costs a connection Core may have picked as a high-bandwidth
- * peer. It decides between candidates for a gap instead (rankForGap).
- *
- * `evictable` are the holders that may lose their slot at all (no padlock, out
- * of their grace, not one of Core's high-bandwidth peers - fill.js asks Core
- * about that last one at the moment of the swap).
+ * Would this peer be let into a free manual slot? Only if one is free and its
+ * operator is not in the set yet.
  */
-function admit(peer, trusted, evictable, maxSlots) {
-  const place = placeOf(peer);
-  // One operator, one slot - in every case.
-  if (place.key && trusted.some((p) => placeOf(p).key === place.key)) return null;
-  if (trusted.length < maxSlots) return { free: true };
-  if (!place.region) return null;
-  const counts = regionCounts(trusted);
-  const weakest = (list) => list.sort((a, b) => (a.score ?? -1) - (b.score ?? -1))[0] || null;
-  if ((counts[place.region] || 0) < TARGET_PER_REGION) {
-    // The weakest of those whose region holds more than its target, by the
-    // same score the ranking sorts on - so a swap never empties one region to
-    // fill another. A peer that shares its operator with another but is
-    // alone in its region stays: trading one gap for another is no spread.
-    const crowded = (p) => counts[placeOf(p).region] > TARGET_PER_REGION;
-    const holder = weakest(evictable.filter(crowded));
-    return holder ? { replace: holder } : null;
-  }
-  return null;
+function admit(peer, trusted, maxSlots) {
+  const { key } = placeOf(peer);
+  if (key && trusted.some((p) => placeOf(p).key === key)) return false;
+  return trusted.length < maxSlots;
 }
 
 // For the log: "Asia (JP, Sakura Internet)".
@@ -142,19 +113,11 @@ function describe(peer) {
   return `${REGION_NAMES[region] || 'unknown region'}${where ? ` (${where})` : ''}`;
 }
 
-// For the log, and why: "Asia (JP, Sakura Internet) in for Europe (DE,
-// Hetzner Online GmbH): Asia had none". `trusted` is the set before the swap.
-function swapNote(peer, holder, trusted) {
-  const { region } = placeOf(peer);
-  const n = regionCounts(trusted)[region] || 0;
-  return `${describe(peer)} in for ${describe(holder)}: ${REGION_NAMES[region]} had ${n ? `only ${n}` : 'none'}`;
-}
-
 // How many of Core's own outbound peers (not the manual ones) sit in each region.
 function coreRegionsOf(ranking) {
   return regionCounts(ranking.filter((p) => p.live && !p.trusted && p.direction === 'outbound'));
 }
 
 module.exports = {
-  TARGET_PER_REGION, REGION_NAMES, PRIVATE_REGIONS, placeOf, regionCounts, rankForGap, admit, describe, swapNote, coreRegionsOf, operatorKey,
+  TARGET_PER_REGION, REGION_NAMES, PRIVATE_REGIONS, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf, operatorKey,
 };
