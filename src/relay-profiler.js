@@ -389,6 +389,9 @@ async function handleHashBlock({ blockHash, detectedAtMs, t0 }) {
     return;
   }
   const recon = reconstructionOf(peers, header, detectedAtMs);
+  if (recon && recon.ignoredWholeBlocks) {
+    logger.info('whole block beside a compact block, not counted', { height: header && header.height, kind: recon.kind, from: recon.ignoredWholeBlocks });
+  }
 
   // The block that ends a catch-up is at the tip by every test above - one
   // confirmation, headers equal to blocks - yet it came in the same burst as
