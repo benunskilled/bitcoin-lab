@@ -1601,3 +1601,20 @@ test('a Tor manual peer that stays offline is let go, not parked', async () => {
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(onion).n, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get(onion).n, 0);
 });
+
+test('on a node that reaches only Tor, no clearnet address is probed and the slots still fill', async () => {
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: [
+    { name: 'ipv4', reachable: false, proxy: '' }, { name: 'ipv6', reachable: false, proxy: '' },
+    { name: 'onion', reachable: true, proxy: '10.0.0.1:9050' },
+  ] }));
+  inBook('192.0.2.50', 'AS');
+  const a = inBook('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion', null, { network: 'onion' });
+  const b = inBook('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion', null, { network: 'onion' });
+  const probe = mock.method(manualPeer, 'probePort', async () => true);
+
+  assert.equal(await addrbook.fillFromAddressBook(ranking()), 1);
+  assert.equal(await addrbook.fillFromAddressBook(ranking()), 1, 'a second Tor peer, rather than an empty slot');
+  const trusted = db.instance.prepare('SELECT address FROM trusted_peer').all().map((r) => r.address).sort();
+  assert.deepEqual(trusted, [a, b].sort());
+  assert.equal(probe.mock.callCount(), 0, 'the clearnet address was never touched');
+});

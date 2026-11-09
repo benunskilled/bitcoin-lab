@@ -90,9 +90,14 @@ async function reach() {
   try {
     const info = await rpc.getNetworkInfo();
     const by = Object.fromEntries((info.networks || []).map((n) => [n.name, n]));
+    // Clearnet only where Core itself goes there directly: not through a
+    // proxy, and not shut off. A node told to use only Tor (onlynet=onion)
+    // has no proxy for clearnet, it has no clearnet at all - and a probe from
+    // here would show its address all the same.
+    const direct = (n) => by[n] && by[n].reachable && !by[n].proxy;
     const proxied = ['ipv4', 'ipv6'].some((n) => by[n] && by[n].proxy);
     return {
-      clearnet: !proxied,
+      clearnet: !proxied && (direct('ipv4') || direct('ipv6')),
       onion: Boolean(by.onion && by.onion.proxy),
       i2p: Boolean(by.i2p && by.i2p.proxy),
     };
@@ -130,7 +135,7 @@ async function fillFromAddressBook(ranking, now = Date.now()) {
   const trusted = ranking.filter((p) => p.trusted);
   const counts = spread.regionCounts(trusted);
   const gaps = new Set(Object.keys(spread.REGION_NAMES).filter((r) => (counts[r] || 0) < spread.TARGET_PER_REGION));
-  if (!gaps.size) return 0;
+  if (!gaps.size && trusted.length >= config.maxManualPeers) return 0;
   const evictable = evictableTrusted(trusted).filter((p) => !p.hb);
   if (trusted.length >= config.maxManualPeers && !evictable.length) return 0;
 
@@ -138,9 +143,14 @@ async function fillFromAddressBook(ranking, now = Date.now()) {
   const inUse = hostsInUse(ranking);
   const fresh = (await bookEntries(now)).filter((c) => reachable(c, can)
     && !inUse.has(hostFromAddress(c.address))
-    && !(probedAt.get(c.address) > now - RETRY_AFTER_MS)
-    && gaps.has(spread.placeOf(c).region));
-  const ordered = spread.rankForGap(shuffle(fresh), trusted, spread.coreRegionsOf(ranking));
+    && !(probedAt.get(c.address) > now - RETRY_AFTER_MS));
+  // The gaps first. A free slot no gap can fill - a node that reaches only
+  // Tor, say - goes to anyone the spread lets in, so that no slot stays empty.
+  const ranked = spread.rankForGap(shuffle(fresh), trusted, spread.coreRegionsOf(ranking));
+  const ordered = [
+    ...ranked.filter((c) => gaps.has(spread.placeOf(c).region)),
+    ...(trusted.length < config.maxManualPeers ? ranked.filter((c) => !gaps.has(spread.placeOf(c).region)) : []),
+  ];
 
   let probes = 0;
   for (const c of ordered) {
