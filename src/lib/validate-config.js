@@ -32,9 +32,8 @@ const RULES = {
   newManualGraceBlocks: { min: 0, max: 100000 },
   manualPerRegion: { min: 1, max: 8 },
   recentScoreWindowBlocks: { min: 1, max: 1000000 },
-  offlineGraceMinHours: { min: 0, max: 8760, integer: false },
-  offlineGraceMaxHours: { min: 0, max: 8760, integer: false },
-  offlineGraceHoursPerPct: { min: 0, max: 8760, integer: false },
+  offlineGraceHours: { min: 0, max: 8760, integer: false },
+  offlineGraceDeliveredHours: { min: 0, max: 8760, integer: false },
   stratumRaceTimeoutMs: { min: 100, max: 600000 },
   stratumIdleTimeoutMs: { min: 1000, max: 7 * 24 * 60 * 60 * 1000 },
   stratumHistoryRetentionDays: { min: 1, max: 36500 },
@@ -55,9 +54,8 @@ const ENV_NAMES = {
   newManualGraceBlocks: 'NEW_MANUAL_PEER_GRACE_BLOCKS',
   manualPerRegion: 'MANUAL_PER_REGION',
   recentScoreWindowBlocks: 'RECENT_SCORE_WINDOW_BLOCKS',
-  offlineGraceMinHours: 'OFFLINE_GRACE_MIN_HOURS',
-  offlineGraceMaxHours: 'OFFLINE_GRACE_MAX_HOURS',
-  offlineGraceHoursPerPct: 'OFFLINE_GRACE_HOURS_PER_PCT',
+  offlineGraceHours: 'OFFLINE_GRACE_HOURS',
+  offlineGraceDeliveredHours: 'OFFLINE_GRACE_DELIVERED_HOURS',
   stratumRaceTimeoutMs: 'STRATUM_RACE_TIMEOUT_MS',
   stratumIdleTimeoutMs: 'STRATUM_IDLE_TIMEOUT_MS',
   stratumHistoryRetentionDays: 'STRATUM_HISTORY_RETENTION_DAYS',
@@ -96,10 +94,6 @@ function checkConfig(config) {
   }
 
   // Pairs, where each value is fine on its own and the combination is not.
-  if (Number.isFinite(config.offlineGraceMinHours) && Number.isFinite(config.offlineGraceMaxHours)
-      && config.offlineGraceMinHours > config.offlineGraceMaxHours) {
-    problems.push('OFFLINE_GRACE_MIN_HOURS must not exceed OFFLINE_GRACE_MAX_HOURS');
-  }
   if (Number.isFinite(config.recentScoreWindowBlocks) && Number.isFinite(config.minEligibleForJudgement)
       && config.recentScoreWindowBlocks < config.minEligibleForJudgement) {
     problems.push(

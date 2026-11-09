@@ -58,11 +58,10 @@ The peer-profiler interval controls connection bookkeeping. Block observations a
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `OFFLINE_GRACE_MIN_HOURS` | Minimum offline grace before automatic parking | `1` |
-| `OFFLINE_GRACE_MAX_HOURS` | Maximum offline grace before automatic parking | `24` |
-| `OFFLINE_GRACE_HOURS_PER_PCT` | Hours of offline grace per percentage point of lifetime First | `1` |
+| `OFFLINE_GRACE_HOURS` | Hours a manual peer that never delivered a block first may stay offline before it loses its slot | `1` |
+| `OFFLINE_GRACE_DELIVERED_HOURS` | The same for a manual peer that delivered at least one block first | `24` |
 
-Offline grace uses lifetime First %, within its configured minimum and maximum values.
+A padlocked manual peer that Core has connected to at least once never loses its slot to being offline.
 
 | Lifetime First | Offline grace | Parked retention |
 |---|---:|---:|

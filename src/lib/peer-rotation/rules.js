@@ -78,30 +78,19 @@ function offlineForMs(peer, now) {
 /**
  * How long a manual peer may stay offline before its slot is reclaimed.
  *
- * Two things decide this together, and they pull in opposite directions.
+ * Two lengths. A peer that has never delivered a block first gets an hour:
+ * enough to ride out its node restarting or a network blip, and Core's address
+ * book has plenty like it. A peer that has delivered at least one first has
+ * shown it is a quick path to this node, and gets a day. Beyond that an empty
+ * slot is better spent on another peer; one that should never lose its slot
+ * gets the padlock.
  *
- * A single flat timeout is the obvious design and the wrong one: it treats the
- * peer delivering 40% of your blocks first exactly like the one delivering
- * 0.8%, when the whole point of the ranking is that those are not the same
- * peer. So the wait is bought with performance - roughly an hour per
- * percentage point - which turns "how long do we wait?" into a question the
- * peer has already answered itself.
- *
- * But it is bought cheaply, because the decision is reversible: Core's
- * address book still has the peer, and the slot fill can pick it again.
- * Waiting days for a peer that might return only makes sense if losing the
- * slot were final; it is not. What the wait actually
- * has to cover is the outages that fix themselves within the hour - a node
- * restarting, a network blip - not "might be back next week". So the ceiling
- * is a day rather than a week, and the floor an hour rather than six.
- *
- * See config.js for the numbers and the worked examples.
+ * How often a peer was first no longer stretches the wait further: the slots
+ * are spread for the paths they add, and a peer in Africa or on Tor is seldom
+ * first however good a path it is.
  */
 function offlineGraceMs(firstPct) {
-  const hours = Math.min(
-    config.offlineGraceMaxHours,
-    Math.max(config.offlineGraceMinHours, (firstPct == null ? 0 : firstPct) * config.offlineGraceHoursPerPct),
-  );
+  const hours = firstPct > 0 ? config.offlineGraceDeliveredHours : config.offlineGraceHours;
   return hours * 60 * 60 * 1000;
 }
 

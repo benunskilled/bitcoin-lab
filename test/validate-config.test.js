@@ -14,9 +14,8 @@ function good(overrides = {}) {
     newManualGraceBlocks: 50,
     manualPerRegion: 1,
     recentScoreWindowBlocks: 500,
-    offlineGraceMinHours: 1,
-    offlineGraceMaxHours: 24,
-    offlineGraceHoursPerPct: 1,
+    offlineGraceHours: 1,
+    offlineGraceDeliveredHours: 24,
     stratumRaceTimeoutMs: 8000,
     stratumIdleTimeoutMs: 6 * 60 * 60 * 1000,
     stratumHistoryRetentionDays: 365,
@@ -70,10 +69,6 @@ test('counts must be whole numbers, rates need not be', () => {
 });
 
 test('values that are each fine but wrong together are caught', () => {
-  assert.ok(
-    checkConfig(good({ offlineGraceMinHours: 48, offlineGraceMaxHours: 24 }))
-      .some((p) => /OFFLINE_GRACE_MIN_HOURS must not exceed/.test(p)),
-  );
   assert.ok(
     checkConfig(good({ recentScoreWindowBlocks: 10 }))
       .some((p) => /no peer could ever fill the window/.test(p)),

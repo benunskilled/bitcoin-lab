@@ -128,21 +128,10 @@ module.exports = {
   recentScoreWindowBlocks: Number(pick(process.env.RECENT_SCORE_WINDOW_BLOCKS, '500')),
 
   // How long a manual peer may stay offline before the slot fill gives its
-  // slot to someone else.
-  //
-  // Short on purpose: losing a manual slot is not losing the peer. Core's
-  // address book still knows it, and the slot fill can pick it again. So the
-  // grace period only has to ride out the things that resolve themselves: the
-  // peer's node restarting, a brief network blip, a router reboot. An hour
-  // covers all of those. Beyond that, an empty slot is just an empty slot.
-  //
-  // Scaled by record, so a peer that has often been first gets more room:
-  // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max). 0.8% -> 1h
-  // (the floor), 5% -> 5h, 12% -> 12h, 24% and up -> the 24h ceiling. A peer
-  // with no track record yet gets the floor.
-  offlineGraceMinHours: Number(pick(process.env.OFFLINE_GRACE_MIN_HOURS, '1')),
-  offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '24')),
-  offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
+  // slot to someone else (peer-rotation/rules.js, offlineGraceMs): an hour for
+  // a peer that has never delivered a block first, a day for one that has.
+  offlineGraceHours: Number(pick(process.env.OFFLINE_GRACE_HOURS, '1')),
+  offlineGraceDeliveredHours: Number(pick(process.env.OFFLINE_GRACE_DELIVERED_HOURS, '24')),
 
   // How long a relay race stays "open" for late stratum-style bookkeeping
   // is not needed here (relay races resolve synchronously on ZMQ), but the

@@ -215,29 +215,16 @@ test('setEnabled/isEnabled round-trip through the meta table', () => {
 
 // --- Offline manual peers: a grace period bought with performance -----------
 //
-// The rule these cover is the one a user can actually feel: a peer that
-// delivers 40% of your blocks first is worth waiting a week for, one at 0.8%
-// is not worth waiting a day for. A single flat timeout for both is the
-// obvious implementation and the one worth having tests against.
-
-test('the offline grace period scales with the peer\'s own First %', () => {
+test('the offline grace: an hour for a peer never first, a day for one that ever was', () => {
   const hours = (pct) => peerRotation.offlineGraceMs(pct) / HOUR;
-
-  assert.equal(hours(0.8), 1, 'a weak peer gets the floor - an hour, not a day');
-  assert.equal(hours(40), 24, 'a strong peer gets the ceiling - a day, not a week');
-  assert.ok(hours(5) > hours(0.8), 'more performance always buys more patience');
-  assert.ok(hours(20) > hours(5));
-  assert.equal(hours(null), 1, 'no track record yet gets the floor, never the ceiling');
-
-  // The ceiling is deliberately a day rather than a week: parking makes
-  // retiring reversible, so the wait only has to cover outages that fix
-  // themselves, not "might come back eventually".
-  assert.ok(hours(100) <= 24, 'no record, however good, buys more than a day');
+  assert.equal(hours(null), 1);
+  assert.equal(hours(0), 1);
+  assert.equal(hours(0.1), 24, 'one block first is enough');
+  assert.equal(hours(40), 24, 'and being first often buys no more');
 });
 
-test('a weak manual peer loses its slot once it is offline past its short grace', async () => {
-  // 2/200 = 1% -> 1h of grace. Offline for 5.
-  const address = seedOfflineTrustedPeer({ eligible: 200, first: 2, offlineHours: 5 });
+test('a manual peer never first loses its slot once it is offline past its hour', async () => {
+  const address = seedOfflineTrustedPeer({ eligible: 200, first: 0, offlineHours: 5 });
 
   const retired = await peerRotation.retireOfflineManualPeers(ranking());
 
@@ -247,16 +234,15 @@ test('a weak manual peer loses its slot once it is offline past its short grace'
   assert.equal(logRow.address, address);
 });
 
-test('a strong manual peer keeps its slot through an outage that would retire a weak one', async () => {
-  // 80/200 = 40% -> the 24h ceiling. Offline for 5 - the exact same outage
-  // that just cost the 1% peer its slot in the test above.
-  const strong = seedOfflineTrustedPeer({ eligible: 200, first: 80, offlineHours: 5 });
+test('a manual peer that was ever first keeps its slot through an outage that retires one that never was', async () => {
+  // One block first: a day of grace. Offline for 5 - the outage that just
+  // cost the other peer its slot in the test above.
+  const strong = seedOfflineTrustedPeer({ eligible: 200, first: 1, offlineHours: 5 });
 
   const retired = await peerRotation.retireOfflineManualPeers(ranking());
 
   assert.equal(retired, 0);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(strong).n, 1);
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer').get().n, 0);
 });
 
 test('a live manual peer is never retired, however bad its record', async () => {
@@ -282,9 +268,6 @@ test('a manual peer that has never connected at all is timed from when it was ad
 
   assert.equal(retired, 1);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 0);
-  // Nothing to park: it has no eligible blocks, so there is no record to
-  // come back to. Re-probing it forever would be busywork.
-  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer').get().n, 0);
 });
 
 // --- REGRESSIONS: the rotation loop eating itself (v1.15.5) ------------------
