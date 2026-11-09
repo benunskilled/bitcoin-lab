@@ -4,7 +4,7 @@ const db = require('./db');
 const rpc = require('./rpc');
 const config = require('./config');
 const queries = require('./queries');
-const { hostFromAddress, addressKey, unreachableNetwork } = require('./address');
+const { hostFromAddress, addressKey } = require('./address');
 const { evictableTrusted } = require('./peer-rotation/rules');
 const logger = require('./logger').make('peer-sync');
 
@@ -620,5 +620,4 @@ module.exports = {
   adoptExternalManualPeers,
   addTrustedPeer,
   removeTrustedPeer,
-  disconnectIfLiveNonManual,
 };

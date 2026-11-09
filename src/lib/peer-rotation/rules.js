@@ -102,14 +102,9 @@ function fmtHours(ms) {
   return `${Math.round(hours / 24)}d`;
 }
 
-function fmtPct(pct) {
-  return pct == null ? 'no record' : `${pct.toFixed(1)}%`;
-}
-
 module.exports = {
   evictableTrusted,
   offlineForMs,
   offlineGraceMs,
   fmtHours,
-  fmtPct,
 };

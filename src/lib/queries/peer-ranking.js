@@ -124,7 +124,7 @@ function peerRanking() {
   const recent = recentRelayStats();
   const graceFrom = newManualGraceStartedAt();
   const liveTip = liveTipStmt.get()?.tip || 0;
-  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent, graceFrom, liveTip));
+  const rows = peerRankingStmt.all().map(mapRankingRow(now, recent, graceFrom, liveTip));
 
   // The manual peer the slot fill has on trial (peer-rotation/fill.js): in its
   // slot, but only for good once Core has connected to it.
@@ -196,12 +196,10 @@ function peerRankingSql() {
          -- Has Core ever actually held a manual connection to this peer? Not
          -- the same as being in the manual set: an address can sit there for
          -- days without Core ever getting a connection to stand up, which is
-         -- what a peer that only ever dialled IN looks like. The star's
-         -- protection against parking hangs on this, so a bad address cannot
+         -- what a peer that only ever dialled IN looks like. The padlock's
+         -- protection against retiring hangs on this, so a bad address cannot
          -- hold one of eight slots forever.
          EXISTS (SELECT 1 FROM peer_session s WHERE s.peer_id = p.id AND s.connection_type = 'manual') AS everManual,
-         (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
-            FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
          -- What the peer said about itself comes from a session in which it
          -- said something: one that got as far as its version message (a
          -- client name) or a ping, which Core only sends after the

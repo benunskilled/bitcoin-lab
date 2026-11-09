@@ -915,19 +915,20 @@ function firstPctCell(p) {
 const LIVE_PEER_LIMIT = 10;
 let showAllLivePeers = false; // toggled by #live-peer-limit-toggle
 
-// The rotation log is a diary, and a diary is mostly interesting at the end:
-// the four most recent rows answer "what did it do lately". There used to be a
-// "Show all" behind them, which on a real node opened one more row.
+// The log is a diary, and a diary is mostly interesting at the end: the four
+// most recent rows answer "what changed lately". The rest of what the server
+// keeps - thirty - is behind "Show all".
 const ROTATION_LOG_LIMIT = 4;
+let showAllLog = false; // toggled by #rotation-log-toggle
 // A reload keeps what was opened, like the scroll position: "Show all" stays.
 const OPENED_KEY = 'opened:' + location.pathname;
 try {
   const nav = performance.getEntriesByType('navigation')[0];
   if (nav && (nav.type === 'reload' || nav.type === 'back_forward')) {
     const o = JSON.parse(sessionStorage.getItem(OPENED_KEY) || 'null');
-    if (o) showAllLivePeers = !!o.live;
+    if (o) { showAllLivePeers = !!o.live; showAllLog = !!o.log; }
   }
-  const keep = () => { try { sessionStorage.setItem(OPENED_KEY, JSON.stringify({ live: showAllLivePeers })); } catch { /* private window */ } };
+  const keep = () => { try { sessionStorage.setItem(OPENED_KEY, JSON.stringify({ live: showAllLivePeers, log: showAllLog })); } catch { /* private window */ } };
   window.addEventListener('pagehide', keep);
   document.addEventListener('visibilitychange', () => { if (document.hidden) keep(); });
 } catch { /* no storage: nothing to keep */ }
@@ -957,7 +958,7 @@ function markArrivals(ranking) {
   for (const [a, t] of arrivedAt) if (now - t > 3000 || !seen.has(a)) arrivedAt.delete(a);
   knownAddresses = seen;
 }
-let lastRotationLog = null; // kept so a kick group can open without refetching
+let lastRotationLog = null; // kept so "Show all" can open without refetching
 
 // The most recent ranking payload, kept so purely visual changes (the "show
 // all" toggle) can re-render from it instead of re-fetching the single most
@@ -1391,24 +1392,18 @@ let rotationToggleEpoch = 0;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['kick', 'promote', 'swap', 'park', 'revive', 'manual', 'disconnect', 'revert', 'retire']);
+const ROTATION_ACTIONS = new Set(['promote', 'retire', 'manual', 'disconnect']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
 
 function rotationActionLabel(action) {
-  if (action === 'kick') return 'Kicked';
-  if (action === 'promote') return 'Promoted';
-  // A swap is a promotion too; the note beside it says whom it replaced.
-  if (action === 'swap') return 'Promoted';
-  if (action === 'park') return 'Parked';
+  // From Core's address book into a free slot, and Core connected to it.
+  if (action === 'promote') return 'Added';
   // Offline past its grace: the slot is free for the next candidate.
   if (action === 'retire') return 'Removed';
-  if (action === 'revive') return 'Back';
-  if (action === 'manual') return 'Added';
-  if (action === 'disconnect') return 'Disconnected';
-  // A candidate Core could not connect to: taken out again.
-  if (action === 'revert') return 'Not taken';
+  if (action === 'manual') return 'Added by hand';
+  if (action === 'disconnect') return 'Disconnected by hand';
   return action;
 }
 
@@ -1423,110 +1418,31 @@ async function refreshRotation() {
   renderRotationLog(lastRotationLog);
 }
 
-// A kick of an outbound peer that delivered nothing first: "0/50 recent
-// blocks first". On a typical node nearly every entry is one of these, and
-// thirty lines saying the same said nothing a single line could not.
-const EMPTY_KICK = /^0\/(\d+) recent blocks first$/;
-const emptyKick = (e) => e.action === 'kick' && EMPTY_KICK.test(e.note || '');
-// Said plainly: "0/50 recent blocks first" read like a score to work out. A
-// run says only the smallest count - every one of them went at least that
-// long without a block first, and "50–53" was noise.
-const nothingFirst = (blocks) => `nothing first in ${blocks} blocks`;
-// A peer dropped by hand, said the same way. The stored note keeps its old
-// form ("by hand · inbound · 3/40 recent blocks first"), so older lines read
-// the new way too.
-const BY_HAND = /^by hand((?: · (?:inbound|outbound))?) · (\d+)\/(\d+) recent blocks first$/;
-function byHandNote(note) {
-  const m = BY_HAND.exec(note);
-  if (!m) return note;
-  const first = Number(m[2]);
-  const blocks = Number(m[3]);
-  const record = blocks === 0 ? 'no blocks yet' : first === 0 ? nothingFirst(blocks) : `${first} of ${blocks} blocks first`;
-  return `by hand${m[1]} · ${record}`;
-}
-const entryNote = (e) => (emptyKick(e) ? nothingFirst(Number(EMPTY_KICK.exec(e.note)[1]))
-  : e.action === 'disconnect' ? byHandNote(e.note || '') : e.note || '-');
-
-// Peers dropped by hand in a row are one line too, as the empty kicks are.
-const byHand = (e) => e.action === 'disconnect';
-// Candidates Core could not connect to, in a row, are one line as well: the
-// slot fill tries until one works, and each try alone says little.
-const logGroupOf = (e) => (emptyKick(e) ? 'kick' : byHand(e) ? 'disconnect' : e.action === 'revert' ? 'revert' : null);
-
-// Entries in order, with every run of two or more empty kicks in a row as
-// one group, and of peers dropped by hand. Promotions, swaps, parks and the
-// rest stay lines of their own: they are the news.
-function rotationLogRows(log) {
-  const rows = [];
-  for (const e of log) {
-    const last = rows[rows.length - 1];
-    const g = logGroupOf(e);
-    if (g && last && last.kind === g) last.kicks.push(e);
-    else rows.push(g ? { kind: g, kicks: [e] } : { entry: e });
-  }
-  return rows.map((r) => (r.kicks && r.kicks.length === 1 ? { entry: r.kicks[0] } : r));
-}
-// Opened groups, by the time of their oldest kick: a new empty kick joins a
-// group at the top, so its newest time moves, the oldest stays put.
-const openKickGroups = new Set();
-
-function rotationEntryRow(entry, cls = '') {
+// Where the peer is goes under its address, as for the manual peers above.
+function rotationEntryRow(entry) {
   return `
-    <tr${cls ? ` class="${cls}"` : ''}>
+    <tr>
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
-      ${truncatedCell(entry.address)}
+      ${withPlaceLine(truncatedCell(entry.address), entry)}
       <td>${fmtPct(entry.firstPct)}</td>
-      <td class="hint"${entry.replacedAddress ? ` title="In for ${escapeHtml(entry.replacedAddress)}"` : ''}>${escapeHtml(entryNote(entry))}</td>
+      <td class="hint"${entry.replacedAddress ? ` title="In for ${escapeHtml(entry.replacedAddress)}"` : ''}>${escapeHtml(entry.note || '-')}</td>
     </tr>`;
-}
-
-function kickGroupRows(kicks, kind = 'kick') {
-  const now = Date.now();
-  const newest = kicks[0];
-  const oldest = kicks[kicks.length - 1];
-  // Only peers dropped by hand open up: who they were is worth a look. A run
-  // of empty kicks stays one line - the log keeps a thousand entries, and the
-  // peers in it are interchangeable, which is the whole point of the kick.
-  const opens = kind === 'disconnect' || kind === 'revert';
-  const open = opens && openKickGroups.has(oldest.at);
-  const span = `${fmtDuration(now - newest.at)} – ${fmtDuration(now - oldest.at)} ago`;
-  const mark = opens ? ` <span class="fold-mark" aria-hidden="true">${open ? '▾' : '▸'}</span>` : '';
-  let who, pct, note;
-  if (kind === 'disconnect') {
-    // Their records differ, so the line names only what they share.
-    who = `${kicks.length} peers`;
-    pct = '';
-    note = `<td class="hint">by hand${mark}</td>`;
-  } else if (kind === 'revert') {
-    who = `${kicks.length} candidates`;
-    pct = '';
-    note = `<td class="hint">Core could not use them${mark}</td>`;
-  } else {
-    const lo = Math.min(...kicks.map((e) => Number(EMPTY_KICK.exec(e.note)[1])));
-    who = `${kicks.length} peers`;
-    pct = fmtPct(0);
-    note = `<td class="hint" title="None of them delivered a block first">${nothingFirst(lo)}${mark}</td>`;
-  }
-  const head = `
-    <tr class="${opens ? 'kick-group' : 'kick-sum'}"${opens ? ` data-group="${oldest.at}" tabindex="0" aria-expanded="${open}"` : ''}>
-      <td class="hint" title="${escapeHtml(new Date(oldest.at).toLocaleString())} – ${escapeHtml(new Date(newest.at).toLocaleString())}">${span}</td>
-      <td><span class="pill ${rotationActionClass(kind)}">${escapeHtml(rotationActionLabel(kind))}</span></td>
-      <td>${who}</td>
-      <td>${pct}</td>
-      ${note}
-    </tr>`;
-  return head + (open ? kicks.map((e) => rotationEntryRow(e, 'kick-member')).join('') : '');
 }
 
 function renderRotationLog(log) {
   const tbody = document.querySelector('#rotation-log-table tbody');
   if (!tbody) return;
 
-  const visible = rotationLogRows(log).slice(0, ROTATION_LOG_LIMIT);
-
-  tbody.innerHTML = visible.map((r) => (r.kicks ? kickGroupRows(r.kicks, r.kind) : rotationEntryRow(r.entry))).join('')
+  const visible = showAllLog ? log : log.slice(0, ROTATION_LOG_LIMIT);
+  tbody.innerHTML = visible.map((e) => rotationEntryRow(e)).join('')
     || `<tr><td colspan="5" class="hint">Nothing yet.</td></tr>`;
+
+  const toggle = document.getElementById('rotation-log-toggle');
+  if (toggle) {
+    toggle.hidden = log.length <= ROTATION_LOG_LIMIT;
+    toggle.textContent = showAllLog ? `Show latest ${ROTATION_LOG_LIMIT} only` : `Show all ${log.length}`;
+  }
 }
 
 /**
@@ -1737,22 +1653,18 @@ function reportRefreshHealth(errors) {
   banner.textContent = `The dashboard has not been able to refresh for ${consecutiveFailedRefreshes} rounds (${errors[0].message}). The numbers below are stale.`;
 }
 
-// A group of kicks opens and closes on a click or Enter, in place.
-function toggleKickGroup(row) {
-  const at = Number(row.dataset.group);
-  if (openKickGroups.has(at)) openKickGroups.delete(at); else openKickGroups.add(at);
+// A client-side slice of the log already in hand, as for the live peers.
+document.getElementById('rotation-log-toggle').addEventListener('click', () => {
+  const collapsing = showAllLog;
+  showAllLog = !showAllLog;
   if (lastRotationLog) renderRotationLog(lastRotationLog);
-  document.querySelector(`#rotation-log-table tr.kick-group[data-group="${at}"]`)?.focus({ preventScroll: true });
-}
-document.getElementById('rotation-log-table').addEventListener('click', (e) => {
-  const row = e.target.closest('tr.kick-group');
-  if (row) toggleKickGroup(row);
+  // Closing takes up to 26 rows away; a reader who scrolled down through them
+  // is put back at the log rather than somewhere below it.
+  const table = document.getElementById('rotation-log-table');
+  if (collapsing && table && table.getBoundingClientRect().top < 0) {
+    table.scrollIntoView({ block: 'start', behavior: glide() });
+  }
 });
-document.getElementById('rotation-log-table').addEventListener('keydown', (e) => {
-  const row = e.target.closest('tr.kick-group');
-  if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleKickGroup(row); }
-});
-
 
 // Every card folds to its title on a tap and stays so on this device: open
 // unless the reader closed it (28.10.2026). Storage keeps its own <details>.

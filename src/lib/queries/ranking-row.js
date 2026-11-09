@@ -216,7 +216,6 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
       hbFrom: r.liveHbFrom === 1,
       lastPingMs: r.liveLastPingMs,
       sessionsCount: r.sessionsCount,
-      totalConnectionMs: r.totalMs,
       status: statusFor(r, trusted),
       // Connection-type-only status, ignoring the manual/trusted override -
       // used where "MANUAL LIVE" would just be redundant noise (e.g. the
@@ -226,4 +225,4 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
   };
 }
 
-module.exports = { mapRankingRow, otherChainOf };
+module.exports = { mapRankingRow, otherChainOf, whereOf };

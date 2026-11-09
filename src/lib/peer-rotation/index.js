@@ -120,7 +120,6 @@ module.exports = {
   logAction,
   recentLog,
   retireOfflineManualPeers,
-  currentTrial: fill.currentTrial,
   offlineGraceMs,
   tick,
 };

@@ -102,4 +102,4 @@ function lookup(address) {
   return { asn: op.asn, operator: op.name, country: cc.code, region: cc.region };
 }
 
-module.exports = { lookup, REGIONS: REGIONS.slice(1) };
+module.exports = { lookup };

@@ -119,5 +119,5 @@ function coreRegionsOf(ranking) {
 }
 
 module.exports = {
-  TARGET_PER_REGION, REGION_NAMES, PRIVATE_REGIONS, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf, operatorKey,
+  TARGET_PER_REGION, REGION_NAMES, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf,
 };

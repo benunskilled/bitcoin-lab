@@ -10,6 +10,8 @@
  */
 
 const config = require('../config');
+const db = require('../db');
+const rpc = require('../rpc');
 const peerSync = require('../peer-sync');
 const { addressKey } = require('../address');
 const logger = require('../logger').make('peer-rotation');
@@ -17,6 +19,21 @@ const { logAction } = require('./log');
 const { offlineForMs, offlineGraceMs, fmtHours } = require('./rules');
 
 const keyOf = (address) => addressKey(address, config.bitcoin.network);
+
+// Asked again right before the remove: the pass's getpeerinfo is seconds old,
+// and the remove would cut a manual connection Core has made since. A padlock
+// put on meanwhile counts as well. If Core does not answer, nothing goes.
+async function stillToRetire(peer) {
+  let peers;
+  try {
+    peers = await rpc.getPeerInfo();
+  } catch {
+    return false;
+  }
+  if (peers.some((p) => p.connection_type === 'manual' && keyOf(p.addr) === keyOf(peer.address))) return false;
+  const row = db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(peer.address);
+  return Boolean(row) && !(row.kept && peer.everManual);
+}
 
 /**
  * Reclaim the slot of a manual peer that has been offline longer than its
@@ -54,6 +71,7 @@ async function retireOfflineManualPeers(ranking, onTrial = null, peers = []) {
     if (offlineMs == null) continue;
     const grace = offlineGraceMs(peer.firstPct);
     if (offlineMs < grace) continue;
+    if (!(await stillToRetire(peer))) continue;
 
     await peerSync.removeTrustedPeer(peer.address);
     retired += 1;

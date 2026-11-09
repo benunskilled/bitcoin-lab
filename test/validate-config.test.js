@@ -21,7 +21,6 @@ function good(overrides = {}) {
     stratumHistoryRetentionDays: 365,
     feelerPeerRetentionDays: 14,
     peerPollIntervalMs: 15000,
-    rotationLogEntries: 30,
     trafficFlushMs: 3600000,
     neverFirstPeerRetentionDays: 30,
     ...overrides,
@@ -76,7 +75,7 @@ test('values that are each fine but wrong together are caught', () => {
 });
 
 test('every problem is reported, not just the first', () => {
-  const problems = checkConfig(good({ dashboardPort: 0, rotationLogEntries: 0, stratumRaceTimeoutMs: 0 }));
+  const problems = checkConfig(good({ dashboardPort: 0, peerPollIntervalMs: 0, stratumRaceTimeoutMs: 0 }));
   assert.equal(problems.length, 3, 'somebody fixing a compose file should not go round the loop three times');
 });
 

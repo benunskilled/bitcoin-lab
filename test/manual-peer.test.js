@@ -346,7 +346,7 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
     // And it is in the rotation log, so it does not vanish without a trace.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
     assert.equal(logged.replaced_address, '198.51.100.1:8333');
-    assert.equal(logged.note, 'added by hand, replaced the weakest');
+    assert.equal(logged.note, 'replaced the weakest');
   } finally {
     server.close();
   }
@@ -469,7 +469,7 @@ test('the button beside a peer adds it unstarred - the rotation keeps its pool',
     // Logged even with a slot free: a hand-made choice stands beside the
     // rotation's own.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
-    assert.equal(logged.note, 'added by hand');
+    assert.equal(logged.note, null, '"by hand" is in the action\'s name');
     assert.equal(logged.replaced_address, null);
   } finally {
     server.close();

@@ -169,6 +169,27 @@ test('stratum ranking respects the block-count range filter and flags the last r
   assert.equal(allTime.find((p) => p.id === poolB.id).wonLastRace, true);
 });
 
+test('REGRESSION: the all-time stratum ranking forgets races the prune took out', () => {
+  // Pruning old races moves neither the newest race nor the newest
+  // observation, which was all the cache looked at.
+  const [poolA, poolB] = db.instance.prepare('SELECT * FROM stratum_pool ORDER BY id LIMIT 2 OFFSET 2').all();
+  const insertRace = db.instance.prepare('INSERT INTO stratum_race (prevhash, created_at) VALUES (?, ?)');
+  const insertObs = db.instance.prepare('INSERT INTO stratum_observation (race_id, pool_id, latency_ms, rank) VALUES (?, ?, ?, ?)');
+  const raceId = insertRace.run('pruned-prevhash', Date.now() - 400 * 24 * 60 * 60 * 1000).lastInsertRowid;
+  insertObs.run(raceId, poolA.id, 0, 1);
+  insertObs.run(raceId, poolB.id, 40, 2);
+  const winsOfA = () => queries.stratumRanking('all').find((p) => p.id === poolA.id).wins;
+  // Newer races follow it, as on a real node: the prune then takes nothing
+  // off the end of either table.
+  const next = insertRace.run('pruned-prevhash-next', Date.now()).lastInsertRowid;
+  insertObs.run(next, poolB.id, 0, 1);
+  const before = winsOfA();
+
+  queries.pruneOldData({ stratumHistoryRetentionDays: 365 });
+
+  assert.equal(winsOfA(), before - 1);
+});
+
 test('deletePool removes a pool that already has observation history without throwing', () => {
   // Reproduces the "Remove" button's 500 "internal error": stratum_pool has
   // no ON DELETE CASCADE from stratum_observation, and foreign keys are

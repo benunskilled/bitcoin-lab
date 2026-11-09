@@ -247,7 +247,7 @@ function refuseWrite(req) {
   return hosts.includes(originHost) ? null : [403, 'cross-site requests are not accepted'];
 }
 
-function serveStatic(req, res, pathname) {
+function serveStatic(res, pathname) {
   const rel = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!filePath.startsWith(PUBLIC_DIR)) {
@@ -337,7 +337,7 @@ function sseBroadcast(event, payload) {
   }
 }
 
-function broadcastLatestBlock({ force = false } = {}) {
+function broadcastLatestBlock() {
   let race;
   try {
     race = queries.latestBlock();
@@ -347,7 +347,7 @@ function broadcastLatestBlock({ force = false } = {}) {
   }
   if (!race) return;
   const key = `${race.id}:${race.poolSource || ''}`;
-  if (!force && key === lastBroadcastKey) return;
+  if (key === lastBroadcastKey) return;
   lastBroadcastKey = key;
   sseBroadcast('block', race);
 }
@@ -859,13 +859,14 @@ async function router(req, res, pathname, url) {
       const session = peer && db.instance
         .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
         .get(peer.id);
-      const way = session && /^(inbound|outbound)$/.test(session.direction) ? ` · ${session.direction}` : '';
+      const way = session && /^(inbound|outbound)$/.test(session.direction) ? session.direction : null;
+      const record = recent && recent.eligible ? `${recent.first} of ${recent.eligible} blocks first` : 'no blocks yet';
       peerRotation.logAction({
         action: 'disconnect',
         address,
         firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
         eligible: peer ? peer.eligible : null,
-        note: `by hand${way} · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
+        note: [way, record].filter(Boolean).join(' · '),
       });
     } catch (err) {
       logger.warn('rotation log entry for a disconnect failed', { address, error: err.message });
@@ -1012,7 +1013,7 @@ const server = http.createServer(async (req, res) => {
       if (handled === null) sendJson(res, 404, { error: 'not found' });
       return;
     }
-    serveStatic(req, res, pathname);
+    serveStatic(res, pathname);
   } catch (err) {
     // A malformed request body is the caller's mistake, not ours - answering
     // 500 "internal error" sends whoever is debugging it looking in the wrong

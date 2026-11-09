@@ -416,6 +416,5 @@ const reconstructionWeek = (now) => reconstructionOver(RECON_WEEK_MS, now);
 
 module.exports = {
   reconstructionDay, reconstructionWeek, reconstructionLast,
-  latestBlock, blockDetail, stratumForBlock, routeMedian, ROUTE_MEDIAN_BLOCKS, deliveredEver, unclearFirsts, attributionHealth,
-  ATTRIBUTION_SAMPLE, ATTRIBUTION_WINDOW_MS,
+  latestBlock, blockDetail, routeMedian, deliveredEver, unclearFirsts, attributionHealth, ATTRIBUTION_WINDOW_MS,
 };

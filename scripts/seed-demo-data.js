@@ -41,8 +41,6 @@ const CURRENT_HEIGHT = Number(process.env.MOCK_RPC_HEIGHT || 921845);
 // ranking has a long tail worth filtering ("showing 10 of 206"), and that a
 // full outbound table is mostly 0.0% peers waiting to be replaced.
 const LIVE_INBOUND = 188;
-const LIVE_OUTBOUND_NON_MANUAL = 10; // 8 full-relay + 2 block-relay-only
-const MANUAL_COUNT = 8;              // Core's MAX_ADDNODE_CONNECTIONS
 
 const CLIENTS = ['/Satoshi:29.0.0/', '/Satoshi:28.1.0/', '/Satoshi:28.0.0/', '/Satoshi:27.2.0/', '/Satoshi:27.1.0/', '/Satoshi:26.2.0/'];
 
@@ -262,20 +260,20 @@ for (let i = 0; i < STRATUM_RACE_COUNT; i++) {
     });
 }
 
-// --- Peer rotation -----------------------------------------------------------
-// The toggle on, plus a plausible day of activity, so the Peer Rotation panel
-// shows what it actually does rather than an empty table.
+// --- Manual slot fill ---------------------------------------------------------
+// The toggle on, plus a plausible week of changes, so the panel shows what it
+// actually does rather than an empty table - more than four, so the log opens.
 inst
   .prepare(`INSERT INTO meta (key, value) VALUES ('peer_rotation_enabled', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
   .run();
 
 const rotationLog = [
-  ['promote', '203.0.113.140:8333', null, null, null, null, 'from the address book · Oceania (AU, Example Net): Oceania had none', 0.7],
-  ['revert', '198.51.100.203:8333', null, null, null, null, 'Oceania (NZ, Example Hosting): Core could not connect in 21 min', 1.1],
-  ['retire', '192.0.2.240:8333', 1.2, 188, null, null, 'offline 4h, allowed 1h', 6.5],
-  ['promote', '198.51.100.20:8333', null, null, null, null, 'from the address book · Tor', 9.2],
-  ['revert', '192.0.2.19:8333', null, null, null, null, 'Asia (JP, Example Cloud): connected, but not on our chain tip in 20 min', 14.8],
-  ['manual', '203.0.113.55:8333', 31.4, 221, null, null, 'added by hand', 22.1],
+  ['promote', '203.0.113.140:8333', null, null, null, null, 'Oceania had none', 0.7],
+  ['retire', '192.0.2.240:8333', 0, 188, null, null, 'offline 1h, allowed 1h', 1.4],
+  ['disconnect', '198.51.100.77:51344', 0, 96, null, null, 'inbound · 0 of 96 blocks first', 9.2],
+  ['promote', '198.51.100.20:8333', null, null, null, null, 'free slot', 22.5],
+  ['manual', '203.0.113.55:8333', 31.4, 221, null, null, null, 46.1],
+  ['retire', '192.0.2.19:8333', 2.1, 430, null, null, 'offline 24h, allowed 24h', 70.3],
 ];
 
 for (const [action, address, firstPct, eligible, replacedAddress, replacedFirstPct, note, hoursAgo] of rotationLog) {

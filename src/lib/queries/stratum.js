@@ -31,10 +31,14 @@ function stratumRanking(range = '10') {
   const pools = db.instance.prepare(`SELECT * FROM stratum_pool ORDER BY is_default DESC, label ASC`).all();
   // The newest race and the newest observation row, both read off the end of
   // their table: a race finished after a newer one opened still changes it.
+  // And how many races there are: the daily prune takes old ones out, which
+  // moves neither end - "all" kept counting them until the next race. A
+  // year of races counts in well under a millisecond.
   const head = db.instance
-    .prepare(`SELECT (SELECT MAX(id) FROM stratum_race) AS race, (SELECT MAX(rowid) FROM stratum_observation) AS obs`)
+    .prepare(`SELECT (SELECT MAX(id) FROM stratum_race) AS race, (SELECT COUNT(*) FROM stratum_race) AS races,
+                     (SELECT MAX(rowid) FROM stratum_observation) AS obs`)
     .get();
-  const key = `${head.race}:${head.obs}:${JSON.stringify(pools)}`;
+  const key = `${head.races}:${head.race}:${head.obs}:${JSON.stringify(pools)}`;
   const hit = rankingCache.get(range);
   if (hit && hit.key === key) return hit.value;
   const value = computeRanking(range, pools);

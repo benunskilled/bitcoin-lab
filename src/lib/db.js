@@ -114,7 +114,6 @@ CREATE TABLE IF NOT EXISTS parked_peer (
   last_probe_at INTEGER,          -- NULL until the first re-probe
   probe_failures INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_parked_peer_probe ON parked_peer(last_probe_at ASC);
 
 -- Address-book candidates the slot fill has put to Core, and whether Core
 -- connected to them. One that did not is left alone for a week; the rows are
@@ -254,21 +253,20 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT
 );
 
--- Audit trail for the automatic peer-rotation loop (src/lib/peer-rotation/).
--- One row per action it actually takes (kick or promote/swap), so the
--- dashboard can show what the toggle has been doing without the user having
--- to dig through container logs. Deliberately NOT time-pruned by
--- queries.pruneOldData - this is a small, slow-growing table (at most a
--- couple of rows per 10-minute tick) and its history is the whole point.
+-- Audit trail for the manual slots (src/lib/peer-rotation/log.js): a peer
+-- the slot fill added or retired, and one added or disconnected by hand, so
+-- the dashboard can show what changed without the user having to dig through
+-- container logs. Trimmed to its last thirty rows on every write, never by
+-- age. (The name is from the rotation it used to log.)
 CREATE TABLE IF NOT EXISTS rotation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at INTEGER NOT NULL,
-  action TEXT NOT NULL,             -- kick | promote | swap | park | revive
+  action TEXT NOT NULL,             -- promote | retire | manual | disconnect
   address TEXT NOT NULL,
   first_pct REAL,
   eligible INTEGER,
-  replaced_address TEXT,            -- set only for 'swap'
-  replaced_first_pct REAL,          -- set only for 'swap'
+  replaced_address TEXT,            -- the peer a manual add pushed out
+  replaced_first_pct REAL,
   note TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rotation_log_at ON rotation_log(at DESC);
@@ -704,6 +702,15 @@ function runMigrations() {
     migrate('parked_peer_retired_v2_6_0', 'stopped keeping parked peers', () => {
       db.prepare(`DELETE FROM parked_peer`).run();
     });
+
+    // The log starts over with the slot fill: kicks, parks and swaps are moves
+    // it no longer makes, and their lines only needed code to show them. Once;
+    // the slot fill's own lines are kept from here on. The probe index went
+    // with the probing.
+    migrate('rotation_log_slot_fill_v2_6_0', 'started the log over for the slot fill', () => {
+      db.prepare(`DELETE FROM rotation_log`).run();
+      db.prepare(`DROP INDEX IF EXISTS idx_parked_peer_probe`).run();
+    });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
   }
@@ -1017,7 +1024,6 @@ module.exports = {
   resetPeerData,
   resetPoolHistory,
   PEER_DATA_TABLES,
-  POOL_HISTORY_TABLES,
   rebuildRelayStats,
   // Exported so the suite can run them a second time and assert they are
   // genuinely no-ops. Asserting a list of flag names instead proved nothing:

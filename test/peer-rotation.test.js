@@ -27,6 +27,7 @@ const queries = require('../src/lib/queries');
 const peerRotation = require('../src/lib/peer-rotation');
 const peerSync = require('../src/lib/peer-sync');
 const network = require('../src/lib/network');
+const { LOG_ENTRIES } = require('../src/lib/peer-rotation/log');
 
 // Where each test address is, set per test with at(). The real table would
 // tie these tests to a database that changes every week; an address with no
@@ -306,21 +307,15 @@ test('REGRESSION: a manual peer added seconds ago is not retired on the next tic
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get(address).n, 1);
 });
 
-test('the rotation log never holds more than it can show', async (t) => {
+test('the rotation log never holds more than it can show', async () => {
   // Nothing is kept that is not shown: the table is trimmed on every write to
   // exactly the number the dashboard offers behind "Show all", so there is no
   // retention window to reason about and no way for a misbehaving loop to
   // leave tens of thousands of rows behind before anyone notices.
-  // A small limit stands in for the real one: the trimming is the same at any
-  // size, and filling a thousand rows only makes the suite slow.
-  const cfg = require('../src/lib/config');
-  const saved = cfg.rotationLogEntries;
-  cfg.rotationLogEntries = 30;
-  t.after(() => { cfg.rotationLogEntries = saved; });
-  const limit = cfg.rotationLogEntries;
+  const limit = LOG_ENTRIES;
 
   for (let i = 0; i < limit + 15; i += 1) {
-    peerRotation.logAction({ action: 'kick', address: `198.51.100.${i}:8333`, firstPct: 0, eligible: 144, note: `entry ${i}` });
+    peerRotation.logAction({ action: 'retire', address: `198.51.100.${i}:8333`, firstPct: 0, eligible: 144, note: `entry ${i}` });
   }
 
   const stored = db.instance.prepare('SELECT COUNT(*) AS n FROM rotation_log').get().n;
@@ -641,7 +636,7 @@ test('slot fill: once Core holds a working connection the candidate keeps the sl
   assert.ok(isManual(asia));
   const [row] = logRows();
   assert.equal(row.action, 'promote');
-  assert.match(row.note, /^from the address book · Asia \(JP, /);
+  assert.equal(row.note, 'Asia had none', 'where it is shows under the address; the note says why');
 });
 
 test('slot fill: while Core has not connected yet, nothing else moves', async () => {
@@ -667,9 +662,7 @@ test('slot fill: a candidate Core cannot connect to goes again, and is not tried
 
   assert.equal(result.reverted, 1);
   assert.ok(!isManual(asia));
-  const [row] = logRows();
-  assert.equal(row.action, 'revert');
-  assert.match(row.note, /^Asia \(JP, .*\): Core could not connect in 16 min$/);
+  assert.deepEqual(logRows(), [], 'a candidate that did not work is not news');
   assert.equal((await step(setPeers([coreOut()]), t0 + 17 * MIN)).started, 0, 'the only candidate failed');
 });
 
@@ -697,7 +690,7 @@ test('slot fill: a connection that serves no blocks, or is not on our tip, does 
   await step(setPeers([coreOut(), manualSession(asia, { services: '0000000000000000' })]), t0 + 16 * MIN);
 
   assert.ok(!isManual(asia));
-  assert.match(logRows()[0].note, /connected, but serves no blocks/);
+  assert.equal(db.instance.prepare('SELECT ok FROM slot_fill_tried WHERE address = ?').get(asia).ok, 0, 'held against it for a week');
 });
 
 test('slot fill: one operator, one slot', async () => {
@@ -793,16 +786,13 @@ test('slot fill: what it adds carries no padlock; what a person types in does', 
   assert.equal(byAddress[asia]?.kept, false);
 });
 
-test('promotions are remembered after the rotation log has been trimmed away', async (t) => {
+test('promotions are remembered after the rotation log has been trimmed away', async () => {
   // The funnel counts Core's outbound peers that ever held a manual slot.
   const address = seedLivePeer({ eligible: 300, first: 100 });
   peerRotation.logAction({ action: 'promote', address, note: 'test' });
   assert.equal(queries.outboundFunnel().promoted, 1);
-  const saved = config.rotationLogEntries;
-  config.rotationLogEntries = 30;
-  t.after(() => { config.rotationLogEntries = saved; });
-  for (let i = 0; i < config.rotationLogEntries + 5; i += 1) {
-    peerRotation.logAction({ action: 'park', address: `198.51.100.${i + 1}:8333`, note: 'filler' });
+  for (let i = 0; i < LOG_ENTRIES + 5; i += 1) {
+    peerRotation.logAction({ action: 'retire', address: `198.51.100.${i + 1}:8333`, note: 'filler' });
   }
   assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'promote'`).get().n, 0);
   assert.equal(queries.outboundFunnel().promoted, 1, 'the count survives the trim');
@@ -889,7 +879,7 @@ test('slot fill: switched off during a trial, nothing is left half done', async 
 
   assert.equal(fill.currentTrial(), null);
   assert.ok(!isManual(asia), 'Core had not connected: taken out again');
-  assert.match(logRows()[0].note, /slot fill switched off during the trial$/);
+  assert.deepEqual(logRows(), []);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0, 'and the candidate is not held against');
 });
 
@@ -987,6 +977,25 @@ test('slot fill: a trial whose candidate never got its row is cleared, and Core 
   assert.deepEqual(calls, [`remove ${asia}`]);
 });
 
+test('REGRESSION: a cleared trial whose remove Core did not take is removed again, never adopted', async () => {
+  // Core timed out on the remove: the trial is gone, Core still lists the
+  // candidate, and the next sync used to take it in as somebody else's
+  // addnode - padlocked, for good.
+  const asia = '198.18.0.10:8333';
+  db.instance.prepare("INSERT INTO meta (key, value) VALUES ('slot_fill_trial', ?)").run(JSON.stringify({ address: asia, startedAt: Date.now() - 5 * MIN }));
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    calls.push(`${cmd} ${addr}`);
+    if (calls.length === 1) throw new Error('timeout');
+  });
+  assert.equal(await fill.settle([], { headers: TIP }, Date.now()), 'left');
+  assert.equal(fill.currentTrial(), null);
+  mock.method(rpc, 'getAddedNodeInfo', async () => [{ addednode: asia }]);
+  await peerSync.adoptExternalManualPeers();
+  assert.ok(!isManual(asia), 'not adopted');
+  assert.deepEqual(calls, [`remove ${asia}`, `remove ${asia}`], 'the sync told Core again');
+});
+
 test('a peer whose last connection never finished its handshake is not "offers nothing"', () => {
   const at0 = Date.now() - 3 * HOUR;
   const insert = db.instance.prepare(`INSERT INTO peer_session
@@ -1027,6 +1036,25 @@ test('a manual peer Core has just reconnected is not retired on an old picture',
   setPeers([{ id: 4, addr: address, network: 'ipv4', connection_type: 'manual' }]);
   const result = await peerRotation.tick();
   assert.equal(result.retired, 0);
+  assert.ok(isManual(address));
+});
+
+test('REGRESSION: a manual peer Core reconnects during the pass is not retired', async () => {
+  // Absent from the pass's getpeerinfo, back by the time it would go: the
+  // remove would have cut the new connection.
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 0 });
+  rpc.getPeerInfo.mock.mockImplementation(async () => [{ id: 4, addr: address, network: 'ipv4', connection_type: 'manual' }]);
+  const disconnects = [];
+  rpc.disconnectNode.mock.mockImplementation(async (id) => { disconnects.push(id); });
+  assert.equal(await peerRotation.retireOfflineManualPeers(ranking(), null, []), 0);
+  assert.ok(isManual(address));
+  assert.deepEqual(disconnects, []);
+});
+
+test('a manual peer is not retired while Core does not answer the check before', async () => {
+  const address = seedOfflineTrustedPeer({ offlineHours: 500, eligible: 500, first: 0 });
+  rpc.getPeerInfo.mock.mockImplementation(async () => { throw new Error('timeout'); });
+  assert.equal(await peerRotation.retireOfflineManualPeers(ranking(), null, []), 0);
   assert.ok(isManual(address));
 });
 

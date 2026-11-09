@@ -137,10 +137,13 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
   }
   // Taken out by hand - or the app stopped, or the add failed, after Core was
   // told: Core's list may still hold it, and the next sync would adopt it as
-  // somebody else's addnode, padlocked. Told again to drop it.
+  // somebody else's addnode, padlocked. Told again to drop it - through
+  // removeTrustedPeer, which remembers a remove Core did not take, so the sync
+  // repeats it rather than adopting the candidate. Before the trial closes:
+  // the trial is what keeps the sync off it until then.
   if (!row) {
+    await peerSync.removeTrustedPeer(trial.address, { disconnect: false });
     writeTrial(null);
-    await rpc.addNode(trial.address, 'remove').catch(() => {});
     return 'left';
   }
   const session = manualSession(peers, trial.address);
@@ -155,16 +158,15 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
 
   // Out of the set first, then the trial is closed: a crash in between leaves
   // a trial whose candidate is gone, which the next pass reads as 'left'.
+  // Not in the dashboard's log: a candidate Core could not use is the slot
+  // fill's own business, and the next one is tried anyway.
   await peerSync.removeTrustedPeer(trial.address);
   writeTrial(null);
   if (!force) markTried(trial.address, false, now);
   const minutes = Math.max(1, Math.round((now - trial.startedAt) / 60000));
-  logAction({
-    action: 'revert',
-    address: trial.address,
-    note: force ? `${trial.what}: slot fill switched off during the trial` : `${trial.what}: ${whyNot(session)} in ${minutes} min`,
+  logger.info('slot fill: candidate not kept', {
+    address: trial.address, what: trial.what, reason: force ? 'switched off' : `${whyNot(session)} in ${minutes} min`,
   });
-  logger.info('slot fill: candidate not kept', { address: trial.address, reason: force ? 'switched off' : whyNot(session) });
   return 'reverted';
 }
 
@@ -215,7 +217,8 @@ async function start(ranking, peers, chain, now = Date.now()) {
     if (!spread.admit(c, trusted, max)) continue;
     const what = spread.describe(c);
     const { region } = spread.placeOf(c);
-    const filled = inGap(c) ? `: ${spread.REGION_NAMES[region]} had ${counts[region] ? `only ${counts[region]}` : 'none'}` : '';
+    // Where it is shows under its address in the log; the note says why.
+    const why = inGap(c) ? `${spread.REGION_NAMES[region]} had ${counts[region] ? `only ${counts[region]}` : 'none'}` : 'free slot';
     // Written before the add: if the app stops between the two, the next pass
     // finds the trial and either its candidate (and judges it) or nothing.
     writeTrial({
@@ -223,7 +226,7 @@ async function start(ranking, peers, chain, now = Date.now()) {
       startedAt: now,
       tip: Number(chain.headers ?? chain.blocks),
       what,
-      note: `from the address book · ${what}${filled}`,
+      note: why,
     });
     const result = await peerSync.addTrustedPeer(c.address, `slot fill: ${what}`, { neverDisconnect: true });
     if (result.ok) {
@@ -248,8 +251,7 @@ async function start(ranking, peers, chain, now = Date.now()) {
 async function abandon(address, now = Date.now()) {
   await peerSync.removeTrustedPeer(address);
   writeTrial(null);
-  logAction({ action: 'revert', address, note: `${spread.describe({ address })}: slot fill switched off during the trial` });
   logger.info('slot fill: candidate taken out, switched off while adding', { address, at: now });
 }
 
-module.exports = { settle, start, abandon, currentTrial, works, TRIAL_KEY, TRIAL_MS };
+module.exports = { settle, start, abandon, currentTrial, works };

@@ -225,23 +225,13 @@ tr.weak td { color: var(--muted); }
    separate - measured, not assumed. It is not a fault either; a wallet is doing
    what a wallet does, and the colour still says what kind of connection this is. */
 .pill.norelay { opacity: .7; }
-/* Peer Rotation's own action log - kick is a removal (bad-colored, even
-   though it's working as intended), promote/swap add a manual peer
-   (good-colored); swap gets the accent color since, unlike a plain
-   promote, it also displaces an existing manual peer. */
-.pill.rotation-kick { background: rgba(248,81,73,.15); color: #e5534b; }
+/* The manual slots' log: a peer the slot fill added is green, one added by
+   hand the blue that means manual in both apps. A peer that went - offline,
+   or disconnected by hand - is grey: nothing went wrong. */
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
-.pill.rotation-swap { background: rgba(63,185,80,.15); color: var(--good); }
-/* Added by hand: the blue that means manual in both apps. */
 .pill.rotation-manual { background: rgba(57,135,229,.15); color: #6aa8f0; }
-/* Parking is not a kick - the peer is kept and re-tested - so it gets the
-   neutral treatment rather than the red one a removal gets. */
-.pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
-.pill.rotation-revert { background: rgba(138,153,168,.15); color: var(--muted); }
 .pill.rotation-retire { background: rgba(138,153,168,.15); color: var(--muted); }
-/* By hand, grey: it is not the rotation's red kick. */
 .pill.rotation-disconnect { background: rgba(138,153,168,.15); color: var(--muted); }
-.pill.rotation-revive { background: rgba(63,185,80,.15); color: var(--good); }
 
 /* The Add-a-Peer result line. "not reachable" is a perfectly good answer
    rather than an error - Test exists to produce it - so it is coloured as
@@ -368,10 +358,6 @@ button.secondary {
    no hover to show the rest. */
 .rotation-log-table td:last-child { white-space: normal; min-width: 12em; }
 /* A run of kicks that delivered nothing, as one line that opens to the kicks. */
-.rotation-log-table tr.kick-group { cursor: pointer; }
-.rotation-log-table tr.kick-member td { color: var(--muted); }
-.rotation-log-table tr.kick-member td:first-child { padding-left: 22px; }
-.fold-mark { color: var(--muted); margin-left: 4px; font-size: 13px; }
 
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 

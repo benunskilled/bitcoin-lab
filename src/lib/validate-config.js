@@ -40,7 +40,6 @@ const RULES = {
   feelerPeerRetentionDays: { min: 1, max: 36500 },
   neverFirstPeerRetentionDays: { min: 1, max: 36500 },
   peerPollIntervalMs: { min: 1000, max: 3600000, note: 'below a second this is a busy loop against Core' },
-  rotationLogEntries: { min: 1, max: 100000 },
   trafficFlushMs: { min: 1000, max: 86400000, note: 'below a second this writes to the database all the time' },
 };
 
@@ -62,7 +61,6 @@ const ENV_NAMES = {
   feelerPeerRetentionDays: 'FEELER_PEER_RETENTION_DAYS',
   neverFirstPeerRetentionDays: 'NEVER_FIRST_PEER_RETENTION_DAYS',
   peerPollIntervalMs: 'PEER_POLL_INTERVAL_MS',
-  rotationLogEntries: 'ROTATION_LOG_ENTRIES',
 };
 
 /**

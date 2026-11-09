@@ -86,7 +86,7 @@
         Said here rather than in the README because this is the table where it
         shows.
       -->
-      <div class="panel-note" id="outbound-note">
+      <div class="panel-note">
         <p><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
         <details class="how">
           <summary>Why</summary>
@@ -190,9 +190,9 @@
         <details class="how">
           <summary>How it works</summary>
           <ul>
-            <li>Every ~10 minutes, a free slot goes to a peer from a missing region, taken from Core's address book.</li>
+            <li>When a manual slot is free, it goes to a peer from a missing region, taken from Core's address book.</li>
             <li>Core tests it. If Core can't connect, the next one is tried.</li>
-            <li>A manual peer that stays offline frees its slot. The better its record, the longer it may stay away.</li>
+            <li>A manual peer that is offline for an hour frees its slot. One that ever delivered a block first gets a day.</li>
             <li>Working peers and Core's own connections are never touched.</li>
           </ul>
         </details>
@@ -205,12 +205,15 @@
               <th class="col-time">When</th>
               <th class="col-rot-action">Action</th>
               <th class="col-address">Address</th>
-              <th class="col-pct" title="Of all the blocks this peer saw, the share it delivered first, at the time of the action. Why it was acted on is in the note.">First % (lifetime)</th>
+              <th class="col-pct" title="Of all the blocks this peer saw, the share it delivered first, at the time of the change.">First % (lifetime)</th>
               <th>Note</th>
             </tr>
           </thead>
           <tbody><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr></tbody>
         </table>
+      </div>
+      <div class="inline-form">
+        <button type="button" id="rotation-log-toggle" class="link" hidden></button>
       </div>
     </section>
 
@@ -238,7 +241,7 @@
         <button type="button" data-action="add-found-pools">Add to Stratum Race</button>
         <button type="button" class="secondary" data-action="dismiss-found-pools">No thanks</button>
       </div>
-      <div class="inline-form" id="pool-quickfill">
+      <div class="inline-form">
         <span class="hint">Local Umbrel pool:</span>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="gobrrr">GoBrrr</button>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="bassin">Bassin</button>
@@ -296,7 +299,7 @@
       <h2>Traffic <span class="hint fold-sum" id="traffic-sum"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
-      <p class="hint" id="traffic-note">Updated hourly from Core's byte counters.</p>
+      <p class="hint">Updated hourly from Core's byte counters.</p>
     </section>
 
     <!-- Closed by default and last on the page: nothing here is part of daily
