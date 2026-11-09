@@ -432,12 +432,19 @@ async function main() {
     // session to it serves blocks and reports our tip in synced_headers. That
     // rests on Core asking every new peer for headers from just below its tip;
     // checked here on a real Core rather than taken on trust.
+    // A candidate from the address book is a node that is at the tip when
+    // Core dials it, so the helper syncs first, and is then dialled afresh.
     const fill = require('../../src/lib/peer-rotation/fill');
     const chain = await rpc.getBlockchainInfo();
-    const session = await waitFor('the new manual peer to report our tip', async () => {
-      const s = await connected(helpers[7]);
-      return s && fill.works(s, chain) ? s : null;
-    }, { timeoutMs: 60000 });
+    const helper = helpers[7];
+    cli(helper, 'addnode', `127.0.0.1:${NODES.miner.p2p}`, 'onetry');
+    await waitFor('the helper to have our chain', () => Number(cli(helper, 'getblockcount')) >= chain.blocks, { timeoutMs: 60000 });
+    const before = await connected(helper);
+    await rpc.disconnectNode(before.id);
+    const session = await waitFor('Core to dial it again and see our tip', async () => {
+      const s = await connected(helper);
+      return s && s.id !== before.id && fill.works(s, chain) ? s : null;
+    }, { timeoutMs: 90000 });
     assert.equal(session.connection_type, 'manual');
   });
 

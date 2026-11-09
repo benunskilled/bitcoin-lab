@@ -48,14 +48,37 @@ function setEnabled(enabled) {
 }
 
 /**
+ * Switched off, nothing is left half done: a candidate on trial is kept if
+ * Core already holds a working connection to it, and otherwise taken out
+ * again, with the peer it replaced brought back.
+ */
+async function settleOnSwitchOff() {
+  if (!fill.currentTrial()) return;
+  try {
+    const [peers, chain] = await Promise.all([rpc.getPeerInfo(), rpc.getBlockchainInfo()]);
+    await fill.settle(peers, chain, Date.now(), { force: true });
+  } catch (err) {
+    // Core not answering: the next time the slot fill runs, it settles then.
+    logger.warn('slot fill: could not settle the trial on switching off', { error: err.message });
+  }
+}
+
+/**
  * One pass - a complete no-op unless the toggle is on.
  *
+ *   settle  keeps the candidate on trial if Core holds a working connection
+ *           to it, or undoes the move once the trial is over.
  *   retire  frees the slot of a manual peer that has not been there for
- *           longer than its record buys it, and parks it.
- *   fill    settles the candidate on trial, and puts the next one on trial
- *           if a slot is free or a region is missing.
+ *           longer than its record buys it, and parks it - never the
+ *           candidate still on trial, which is the trial's to judge.
+ *   start   puts the next candidate on trial if a slot is free or a region
+ *           is missing, and nothing is on trial.
  *
- * Both read the same getpeerinfo, taken first: whether a candidate works and
+ * Settling comes first: a trial that outlived a pause (Core down, the app
+ * stopped) would otherwise have its candidate retired as offline, and the
+ * peer it replaced would never come back.
+ *
+ * All read the same getpeerinfo, taken first: whether a candidate works and
  * whether a holder is one of Core's high-bandwidth peers are Core's answers
  * of this minute, not of the last snapshot.
  */
@@ -63,10 +86,11 @@ async function tick() {
   const idle = { enabled: false, retired: 0, started: 0, confirmed: 0, reverted: 0, deduped: 0 };
   if (!isEnabled()) return idle;
   let peers;
+  let chain;
   try {
-    peers = await rpc.getPeerInfo();
+    [peers, chain] = await Promise.all([rpc.getPeerInfo(), rpc.getBlockchainInfo()]);
   } catch (err) {
-    logger.debug('slot fill: getpeerinfo failed, skipping this pass', { error: err.message });
+    logger.debug('slot fill: Core not answering, skipping this pass', { error: err.message });
     return { ...idle, enabled: true };
   }
   // A host held as a manual peer that is ALSO connected inbound. The other
@@ -80,16 +104,25 @@ async function tick() {
   } catch (err) {
     logger.debug('could not check for duplicate inbound sessions', { error: err.message });
   }
+  const settled = await fill.settle(peers, chain);
   forgetExpiredParked();
+  const onTrial = fill.currentTrial();
   const ranking = queries.peerRanking();
-  const retired = await retireOfflineManualPeers(ranking);
-  const result = await fill.step(retired > 0 ? queries.peerRanking() : ranking, peers);
-  return { enabled: true, retired, deduped, ...result };
+  const retired = await retireOfflineManualPeers(ranking, onTrial && onTrial.address);
+  // One move per pass: nothing new while a candidate is on trial, nor in the
+  // pass that just brought a replaced peer back.
+  const started = onTrial || settled === 'reverted'
+    ? 0
+    : await fill.start(retired > 0 ? queries.peerRanking() : ranking, peers, chain);
+  return {
+    enabled: true, retired, deduped, started, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0,
+  };
 }
 
 module.exports = {
   isEnabled,
   setEnabled,
+  settleOnSwitchOff,
   logAction,
   recentLog,
   retireOfflineManualPeers,

@@ -699,7 +699,14 @@ function setPeers(list) {
 }
 const isManual = (address) => Boolean(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(address));
 const logRows = () => db.instance.prepare('SELECT * FROM rotation_log ORDER BY id').all();
-const step = (peers, now) => fill.step(ranking(), peers, now);
+// One pass of the slot fill as tick() runs it, without the retire and dedupe
+// around it.
+async function step(peers, now) {
+  const chain = await rpc.getBlockchainInfo();
+  const settled = await fill.settle(peers, chain, now);
+  const started = settled === 'waiting' || settled === 'reverted' ? 0 : await fill.start(ranking(), peers, chain, now);
+  return { started, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0 };
+}
 
 test('slot fill: a free slot goes to an address-book peer from a missing region, and Core is asked, not probed', async () => {
   at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
@@ -764,6 +771,20 @@ test('slot fill: a candidate Core cannot connect to goes again, and is not tried
   assert.equal(row.action, 'revert');
   assert.match(row.note, /^Asia \(JP, .*\): Core could not connect in 16 min$/);
   assert.equal((await step(setPeers([coreOut()]), t0 + 17 * MIN)).started, 0, 'the only candidate failed');
+});
+
+test('slot fill: blocks found during the trial do not fail a candidate that had the tip when it connected', async () => {
+  // Core only moves synced_headers when that peer announces a block first, so
+  // a good peer can sit a few blocks behind the tip a quarter of an hour on.
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+  rpc.getBlockchainInfo.mock.mockImplementation(async () => ({ blocks: TIP + 4, headers: TIP + 4, initialblockdownload: false }));
+
+  const result = await step(setPeers([coreOut(), manualSession(asia, { synced: TIP })]), t0 + 14 * MIN);
+
+  assert.equal(result.confirmed, 1);
 });
 
 test('slot fill: a connection that serves no blocks, or is not on our tip, does not count', async () => {
@@ -985,6 +1006,7 @@ test('slot fill: taken out or padlocked by hand during the trial, the person\'s 
   assert.equal(fill.currentTrial(), null);
   assert.ok(isManual(asia), 'padlocked: it stays');
   assert.ok(!isManual(weak), 'and nothing is undone behind the person\'s back');
+  assert.ok(peerRotation.parkedPeers().some((p) => p.address === weak), 'the peer it replaced keeps its record parked');
   assert.equal(logRows().length, 0);
 });
 
@@ -1133,4 +1155,94 @@ test('after a reset, an offline manual peer gets a fresh offline grace instead o
   db.resetPeerData();
   await peerRotation.tick();
   assert.ok(ranking().find((p) => p.address === address)?.trusted, 'not retired on the first tick after the reset');
+});
+
+test('slot fill: switched off during a trial, nothing is left half done', async () => {
+  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
+  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  await step(setPeers([coreOut()]), Date.now());
+  assert.ok(!isManual(weak));
+
+  peerRotation.setEnabled(false);
+  await peerRotation.settleOnSwitchOff();
+
+  assert.equal(fill.currentTrial(), null);
+  assert.ok(isManual(weak) && !isManual(asia), 'Core had not connected: undone, the replaced peer back');
+  assert.match(logRows()[0].note, /slot fill switched off during the trial · Europe .* back$/);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0, 'and the candidate is not held against');
+});
+
+test('slot fill: a trial that outlived a long pause is undone, not retired', async () => {
+  // Core down, or the app stopped, for longer than the shortest offline
+  // grace: the candidate reads as an hour offline. Retiring it first lost the
+  // peer it had replaced for good.
+  peerRotation.setEnabled(true);
+  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
+  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  setPeers([coreOut()]);
+  await peerRotation.tick();
+  assert.equal(fill.currentTrial().address, asia);
+  // Two hours later, as far as the trial knows.
+  const trial = fill.currentTrial();
+  db.instance.prepare("UPDATE meta SET value = ? WHERE key = 'slot_fill_trial'").run(JSON.stringify({ ...trial, startedAt: trial.startedAt - 2 * HOUR }));
+  db.instance.prepare('UPDATE trusted_peer SET created_at = ? WHERE address = ?').run(Date.now() - 2 * HOUR, asia);
+
+  const result = await peerRotation.tick();
+
+  assert.equal(result.reverted, 1);
+  assert.equal(result.retired, 0);
+  assert.ok(isManual(weak), 'the replaced peer is back');
+});
+
+test('slot fill: a replaced peer Core will not take back is parked, not lost', async () => {
+  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
+  const weak = at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
+  inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+  // Meanwhile it dialled in.
+  await step(setPeers([coreOut(), { id: 3, addr: weak.replace(':8333', ':50000'), network: 'ipv4', connection_type: 'inbound' }]), t0 + 16 * MIN);
+
+  assert.ok(!isManual(weak));
+  assert.ok(peerRotation.parkedPeers().some((p) => p.address === weak));
+  assert.match(logRows()[0].note, /not back \(.*already connected to Core\), parked$/);
+});
+
+test('slot fill: each failed swap in a row makes the next one wait twice as long', async () => {
+  at(seedLivePeer({ eligible: 144, first: 90, trusted: true }), 'EU');
+  at(seedLivePeer({ eligible: 144, first: 5, trusted: true }), 'EU');
+  for (let i = 0; i < 4; i++) inBook(`198.18.0.${10 + i}`, 'AS', { operator: `AS-${i}` });
+  let t = Date.now();
+  await step(setPeers([coreOut()]), t);
+  await step(setPeers([coreOut()]), t += 16 * MIN); // first failure: an hour
+  assert.equal((await step(setPeers([coreOut()]), t + 61 * MIN)).started, 1);
+  t += 61 * MIN;
+  await step(setPeers([coreOut()]), t += 16 * MIN); // second: two hours
+  assert.equal((await step(setPeers([coreOut()]), t + 61 * MIN)).started, 0);
+  assert.equal((await step(setPeers([coreOut()]), t + 121 * MIN)).started, 1);
+});
+
+test('slot fill: a parked peer waiting out its backoff does not slip in through the address book', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const parked = at(seedParked({ firstPct: 1, lastProbeAt: Date.now() - 10 * MIN, probeFailures: 5 }), 'AS');
+  inBook(parked.split(':')[0], 'AS');
+  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
+});
+
+test('slot fill: never this node\'s own address', async () => {
+  mock.method(rpc, 'getNetworkInfo', async () => ({
+    networks: [{ name: 'ipv4', reachable: true, proxy: '' }],
+    localaddresses: [{ address: '198.18.0.10', port: 8333, score: 4 }],
+  }));
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  inBook('198.18.0.10', 'AS');
+  assert.equal((await step(setPeers([coreOut()]), Date.now())).started, 0);
+});
+
+test('a peer-data reset forgets which candidates failed', () => {
+  db.instance.prepare('INSERT INTO slot_fill_tried (address, tried_at, ok) VALUES (?, ?, 0)').run('198.18.0.99:8333', Date.now());
+  db.resetPeerData();
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM slot_fill_tried').get().n, 0);
 });

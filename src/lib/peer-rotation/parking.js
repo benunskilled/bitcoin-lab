@@ -56,7 +56,7 @@ const {
  * and the ones still out there come back. A guard would only turn a
  * self-healing situation into a stuck one.
  */
-async function retireOfflineManualPeers(ranking) {
+async function retireOfflineManualPeers(ranking, onTrial = null) {
   const now = Date.now();
   let retired = 0;
   // The star also covers being offline, which is the other way a manual peer
@@ -71,7 +71,7 @@ async function retireOfflineManualPeers(ranking) {
   // in, answered the port probe, and then could not sustain a connection the
   // other way round - which is the common case, not a rare one. Without this,
   // one such address would sit on one of eight slots forever, protected.
-  for (const peer of ranking.filter((p) => p.trusted && !p.live && !(p.kept && p.everManual))) {
+  for (const peer of ranking.filter((p) => p.trusted && !p.live && !(p.kept && p.everManual) && p.address !== onTrial)) {
     const offlineMs = offlineForMs(peer, now);
     if (offlineMs == null) continue;
     const grace = offlineGraceMs(peer.firstPct);

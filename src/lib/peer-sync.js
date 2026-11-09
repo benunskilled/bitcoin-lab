@@ -162,6 +162,9 @@ async function adoptExternalManualPeers() {
       }
       continue;
     }
+    // Taken out a moment ago, by this process: Core's list was read before
+    // that, or the remove is still on its way. Not somebody else's addnode.
+    if (removedJustNow(keyOf(addednode))) continue;
     // Never past the limit. Core keeps its own list either way; what does not
     // fit is only left out of ours, and said so in the log.
     if (known.size >= config.maxManualPeers) {
@@ -315,20 +318,21 @@ async function dropDuplicateInboundSessions(peers) {
  * RPCs, and then nothing is written and the addnode is taken back - and
  * finally take the slot back from the peer being replaced, if there is one.
  *
- * `evictToFit` is off by default because the rotation loop does its own,
- * stricter capacity arithmetic (a promotion must beat the peer it replaces);
- * it must not silently get a second, laxer eviction path underneath it.
+ * `evictToFit` is off by default because the slot fill does its own,
+ * stricter capacity arithmetic (only a surplus peer leaves, only for a
+ * missing region); it must not silently get a second, laxer eviction path
+ * underneath it.
  */
 async function addTrustedPeer(address, label, options = {}) {
   // `kept` is the star: set for anything a person typed in, unset for anything
-  // the rotation promoted. Typing an address in is already the decision - the
-  // loop's own promotions are not, and must stay swappable or it would freeze
-  // itself out of every slot it ever filled.
-  // `replace` is the rotation's own swap: it has already chosen whom the new
+  // the slot fill added. Typing an address in is already the decision - the
+  // slot fill's own additions are not, and must stay swappable or it would
+  // freeze itself out of every slot it ever filled.
+  // `replace` is the slot fill's own swap: it has already chosen whom the new
   // peer displaces, by its stricter rule, and only needs the order done right
   // - the new peer in first, the old one out only once that has worked.
-  // `parkEvicted` is false for a displaced peer that is still connected,
-  // which promote.js does not park.
+  // `parkEvicted` is false where the caller parks the displaced peer itself
+  // (the slot fill does, once its trial is settled).
   // `neverDisconnect` is the slot fill's: it only ever adds addresses Core is
   // not connected to, and if one turns out to be connected after all it is
   // left alone rather than dropped and redialled - Core's own connections are
@@ -566,23 +570,6 @@ function parkPeer(peer) {
   return true;
 }
 
-/**
- * Take an address out of the manual set.
- *
- * `disconnect` is false for one caller only: the rotation displacing a peer
- * for a better one. Everywhere else - the Remove button, a peer retiring
- * offline - dropping the connection is the point.
- *
- * A displaced peer has done nothing wrong; it was simply beaten. Forcing it
- * off the node meant it stopped being measured at the exact moment the
- * measurement was going against it, and the only way back was the parked
- * table - which revives on the lifetime record, the very number the peer had
- * just been displaced despite. That is a loop, and it ran on a real node:
- * a peer swapped out at 5h43m was back in ten minutes later, two disconnects
- * and two addnodes for no change. Leaving the connection up instead, it goes
- * back to being an ordinary outbound peer, keeps accumulating a record, and
- * has to earn a slot again the same way everyone else does.
- */
 // Addresses this app took out of the manual set while Core refused the
 // matching `addnode remove` (Core restarting, an RPC timeout). Core still has
 // the entry, and the next sync would read it as somebody else's addnode and
@@ -608,9 +595,31 @@ function savePendingRemovals(map) {
     .run(PENDING_REMOVAL_KEY, JSON.stringify(map));
 }
 
+// Removed in this process within the last few minutes (see removeTrustedPeer).
+const RECENTLY_REMOVED_MS = 5 * 60 * 1000;
+const recentlyRemoved = new Map();
+function removedJustNow(key) {
+  const at = recentlyRemoved.get(key);
+  if (at == null) return false;
+  if (Date.now() - at < RECENTLY_REMOVED_MS) return true;
+  recentlyRemoved.delete(key);
+  return false;
+}
+
 const notAdded = (err) => /not been added|not added/i.test((err && err.message) || '');
 
+/**
+ * Take an address out of the manual set, and out of Core's addnode list.
+ *
+ * `disconnect` (on by default) also drops the connection. It has to for any
+ * swap: a manual connection left up keeps its addnode grant, and with eight
+ * of them Core never dials the newcomer (test/integration/regtest.js).
+ */
 async function removeTrustedPeer(address, { disconnect = true } = {}) {
+  // Noted before the row goes: an adoption pass already holding Core's list
+  // from a moment ago would otherwise see the entry there and none here, and
+  // take it back in as somebody else's addnode - padlocked.
+  recentlyRemoved.set(keyOf(address), Date.now());
   db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(address);
   try {
     // Also tell Core to drop it as a manual/addnode entry - otherwise Core

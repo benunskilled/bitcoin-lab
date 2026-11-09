@@ -833,6 +833,7 @@ async function router(req, res, pathname, url) {
     // Only a real boolean, as on the pool route: Boolean("false") is true.
     if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be true or false' });
     peerRotation.setEnabled(enabled);
+    if (!enabled) await peerRotation.settleOnSwitchOff();
     return sendJson(res, 200, { ok: true, enabled: peerRotation.isEnabled() });
   }
 

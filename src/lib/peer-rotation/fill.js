@@ -28,7 +28,6 @@ const config = require('../config');
 const db = require('../db');
 const rpc = require('../rpc');
 const peerSync = require('../peer-sync');
-const queries = require('../queries');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
 const { addressKey, hostFromAddress, unreachableNetwork } = require('../address');
@@ -44,8 +43,12 @@ const REST_KEY = 'slot_fill_swap_rest_until';
 // let go for a candidate that never comes is back within two passes.
 const TRIAL_MS = 15 * 60 * 1000;
 // After a candidate failed in place of a peer, the next swap waits: every
-// failed one cost that peer its connection for a quarter of an hour.
+// failed one cost that peer its connection for a quarter of an hour. An hour
+// after the first failure, doubling with each one after it up to a day, and
+// back to an hour once a swap holds - a region whose address-book entries
+// mostly fail must not cost a working peer its connection all day long.
 const SWAP_REST_MS = 60 * 60 * 1000;
+const SWAP_REST_MAX_MS = 24 * 60 * 60 * 1000;
 // An address-book address Core could not connect to is left alone this long.
 const FAILED_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 const TRIED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
@@ -74,6 +77,15 @@ function currentTrial() {
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
+  }
+}
+
+function swapRest() {
+  try {
+    const value = JSON.parse(readMeta(REST_KEY) || 'null');
+    return value && typeof value === 'object' ? value : { until: 0, failures: 0 };
+  } catch {
+    return { until: 0, failures: 0 };
   }
 }
 
@@ -114,10 +126,14 @@ function manualSession(peers, address) {
 
 // What the slot needs from the peer: blocks and segwit, and our chain. Core
 // asks every new peer for headers from just below its own tip, so a peer on
-// this chain answers with the tip within seconds.
-function works(session, chain) {
+// this chain answers with the tip within seconds - on a real node, fresh
+// connections showed the tip in synced_headers after 12 s. Later blocks do not
+// move it unless that peer announces them first, so it is held against the
+// tip as it was when the trial began, not as it is now: three blocks in a
+// quarter of an hour would otherwise fail a good peer.
+function works(session, chain, since = null) {
   if (!session || !servesBlocks(session.services)) return false;
-  const tip = Number(chain.headers ?? chain.blocks);
+  const tip = Number(since ?? chain.headers ?? chain.blocks);
   return Number.isFinite(tip) && Number(session.synced_headers) >= tip - 2;
 }
 
@@ -127,22 +143,51 @@ function whyNot(session) {
   return 'connected, but not on our chain tip';
 }
 
-async function confirmOrRevert(trial, peers, chain, now) {
+// The peer let go for a candidate, back in the set - or, if Core will not
+// have it back as a manual peer (the slots filled up by hand meanwhile, or it
+// is connected to Core some other way now), parked with its record, so that
+// it is not simply gone.
+async function bringBack(holder) {
+  const result = await peerSync.addTrustedPeer(holder.address, holder.label, { neverDisconnect: true });
+  if (result.ok) {
+    // On the slot it had held since when it had: a fresh start would hand it
+    // the new-slot grace for having been let go for nothing.
+    if (holder.since != null) {
+      db.instance.prepare('UPDATE trusted_peer SET created_at = ? WHERE address = ?').run(holder.since, holder.address);
+    }
+    return ` · ${holder.where} back`;
+  }
+  const parked = peerSync.parkPeer(holder);
+  return ` · ${holder.where} not back (${result.error})${parked ? ', parked' : ''}`;
+}
+
+/**
+ * Settle the candidate on trial: keep it if Core holds a working connection
+ * to it, wait while the trial runs, undo the move once it is over. `force`
+ * settles now either way - the slot fill is being switched off.
+ */
+async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
+  const trial = currentTrial();
+  if (!trial) return 'none';
   const row = db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(trial.address);
   // Taken out, or given the padlock, by hand while on trial: that was a
-  // person's decision, and it stands.
+  // person's decision about the candidate, and it stands. The peer it
+  // replaced was not part of that decision; it goes back to parking.
   if (!row || row.kept) {
     writeMeta(TRIAL_KEY, null);
+    if (trial.holder) peerSync.parkPeer(trial.holder);
     return 'left';
   }
   const session = manualSession(peers, trial.address);
-  if (works(session, chain)) {
+  if (works(session, chain, trial.tip)) {
     writeMeta(TRIAL_KEY, null);
     if (!trial.parked) markTried(trial.address, true, now);
-    // A peer that was offline when it was let go keeps its record parked, as
-    // it would have on retiring; one still connected goes on as an ordinary
-    // peer.
-    if (trial.holder && trial.holder.offline) peerSync.parkPeer(trial.holder);
+    if (trial.holder) writeMeta(REST_KEY, JSON.stringify({ until: 0, failures: 0 }));
+    // The peer it replaced keeps its record parked: its region had one too
+    // many, and it may be wanted again when that changes. (It was
+    // disconnected: Core will not dial a newcomer while the old manual
+    // connection holds the slot.)
+    if (trial.holder) peerSync.parkPeer(trial.holder);
     logAction({
       action: trial.parked ? 'revive' : trial.holder ? 'swap' : 'promote',
       address: trial.address,
@@ -155,26 +200,20 @@ async function confirmOrRevert(trial, peers, chain, now) {
     logger.info('slot fill: Core connected, the candidate keeps the slot', { address: trial.address });
     return 'confirmed';
   }
-  if (now - trial.startedAt < TRIAL_MS) return 'waiting';
+  if (!force && now - trial.startedAt < TRIAL_MS) return 'waiting';
 
   writeMeta(TRIAL_KEY, null);
   await peerSync.removeTrustedPeer(trial.address);
   if (trial.parked) reparkAfterFailedTrial(trial.parked, now);
-  else markTried(trial.address, false, now);
+  else if (!force) markTried(trial.address, false, now);
   let back = '';
   if (trial.holder) {
-    writeMeta(REST_KEY, now + SWAP_REST_MS);
-    const result = await peerSync.addTrustedPeer(trial.holder.address, trial.holder.label, { neverDisconnect: true });
-    if (result.ok) {
-      // On the slot it had held since when it had: a fresh start would hand
-      // it the new-slot grace for having been let go for nothing.
-      if (trial.holder.since != null) {
-        db.instance.prepare('UPDATE trusted_peer SET created_at = ? WHERE address = ?').run(trial.holder.since, trial.holder.address);
-      }
-      back = ` · ${trial.holder.where} back`;
-    } else {
-      back = ` · ${trial.holder.where} not back: ${result.error}`;
+    if (!force) {
+      const failures = swapRest().failures + 1;
+      const rest = Math.min(SWAP_REST_MAX_MS, SWAP_REST_MS * 2 ** (failures - 1));
+      writeMeta(REST_KEY, JSON.stringify({ until: now + rest, failures }));
     }
+    back = await bringBack(trial.holder);
   }
   const minutes = Math.max(1, Math.round((now - trial.startedAt) / 60000));
   logAction({
@@ -182,13 +221,17 @@ async function confirmOrRevert(trial, peers, chain, now) {
     address: trial.address,
     replacedAddress: trial.holder ? trial.holder.address : null,
     replacedFirstPct: trial.holder ? trial.holder.firstPct : null,
-    note: `${trial.what}: ${whyNot(session)} in ${minutes} min${back}`,
+    note: force
+      ? `${trial.what}: slot fill switched off during the trial${back}`
+      : `${trial.what}: ${whyNot(session)} in ${minutes} min${back}`,
   });
-  logger.info('slot fill: Core did not take the candidate, reverted', { address: trial.address, reason: whyNot(session) });
+  logger.info('slot fill: candidate not kept, reverted', { address: trial.address, reason: force ? 'switched off' : whyNot(session) });
   return 'reverted';
 }
 
-async function startTrial(ranking, peers, now) {
+async function start(ranking, peers, chain, now = Date.now()) {
+  // A node still catching up has no tip to test a candidate against.
+  if (chain.initialblockdownload) return 0;
   const trusted = ranking.filter((p) => p.trusted);
   const max = config.maxManualPeers;
   const free = trusted.length < max;
@@ -198,8 +241,7 @@ async function startTrial(ranking, peers, now) {
   // last snapshot had them: either direction, since either is a peer Core
   // relies on for the next block.
   const hbNow = (p) => p.hb || peers.some((s) => keyOf(s.addr) === keyOf(p.address) && (s.bip152_hb_to || s.bip152_hb_from));
-  const restUntil = Number(readMeta(REST_KEY)) || 0;
-  const evictable = now < restUntil ? [] : evictableTrusted(trusted).filter((p) => !hbNow(p));
+  const evictable = now < swapRest().until ? [] : evictableTrusted(trusted).filter((p) => !hbNow(p));
   const crowded = (p) => counts[spread.placeOf(p).region] > spread.TARGET_PER_REGION;
   if (!free && (!gaps.size || !evictable.some(crowded))) return 0;
 
@@ -215,12 +257,19 @@ async function startTrial(ranking, peers, now) {
   const banned = await bannedMatcher();
   if (!banned) return 0;
 
-  const inUse = new Set([...peers.map((p) => hostFromAddress(p.addr)), ...trusted.map((p) => hostFromAddress(p.address))]);
+  // Core's own address too: an address book can hold the node itself.
+  const inUse = new Set([
+    ...peers.map((p) => hostFromAddress(p.addr)),
+    ...trusted.map((p) => hostFromAddress(p.address)),
+    ...(networkInfo.localaddresses || []).map((a) => hostFromAddress(String(a.address))),
+  ]);
   const usable = (c) => nets.has(c.network) && !inUse.has(hostFromAddress(c.address)) && !banned(c.address);
   const parked = dueParkedPeers(now)
     .map((r) => ({ ...r, network: networkOf(r.address), fromParked: true }))
     .filter(usable);
-  const parkedHosts = new Set(parked.map((r) => hostFromAddress(r.address)));
+  // Every parked host, due or not: one waiting out its backoff must not slip
+  // in through the address book instead.
+  const parkedHosts = new Set(db.instance.prepare('SELECT address FROM parked_peer').all().map((r) => hostFromAddress(r.address)));
   const failed = recentlyFailed(now);
   const book = (await bookEntries(now))
     .filter((c) => usable(c) && !failed.has(c.address) && !parkedHosts.has(hostFromAddress(c.address)));
@@ -259,6 +308,7 @@ async function startTrial(ranking, peers, now) {
     writeMeta(TRIAL_KEY, JSON.stringify({
       address: c.address,
       startedAt: now,
+      tip: Number(chain.headers ?? chain.blocks),
       what,
       note: `${c.fromParked ? 'back' : 'from the address book'} · ${how}`,
       holder: replaced && {
@@ -285,37 +335,4 @@ async function startTrial(ranking, peers, now) {
   return 0;
 }
 
-/**
- * One pass: settle the candidate on trial, if there is one, then put the next
- * one on trial if a slot wants it. `peers` is getpeerinfo from this pass.
- */
-async function step(ranking, peers, now = Date.now()) {
-  const out = { started: 0, confirmed: 0, reverted: 0 };
-  let chain;
-  try {
-    chain = await rpc.getBlockchainInfo();
-  } catch (err) {
-    logger.debug('slot fill: getblockchaininfo failed', { error: err.message });
-    return out;
-  }
-  let current = ranking;
-  const trial = currentTrial();
-  if (trial) {
-    const outcome = await confirmOrRevert(trial, peers, chain, now);
-    if (outcome === 'waiting') return out;
-    if (outcome === 'confirmed') out.confirmed = 1;
-    if (outcome === 'reverted') {
-      out.reverted = 1;
-      // The peer let go is back in, so the next candidate is chosen next pass,
-      // against a set that has it.
-      return out;
-    }
-    current = queries.peerRanking();
-  }
-  // A node still catching up has no tip to test a candidate against.
-  if (chain.initialblockdownload) return out;
-  out.started = await startTrial(current, peers, now);
-  return out;
-}
-
-module.exports = { step, currentTrial, works, TRIAL_KEY, TRIAL_MS };
+module.exports = { settle, start, currentTrial, works, TRIAL_KEY, TRIAL_MS };

@@ -873,6 +873,7 @@ function resetPeerData() {
                      AND peer_id IN (SELECT p.id FROM peer p JOIN trusted_peer tp ON tp.address = p.address))`,
       ).run();
       db.prepare(`DELETE FROM parked_peer`).run();
+      db.prepare(`DELETE FROM slot_fill_tried`).run();
       db.prepare(`DELETE FROM rotation_log`).run();
       // Goes with the rest, not on its own. Everything the funnel shows -
       // seen, judged, delivered - is derived from the tables above and returns

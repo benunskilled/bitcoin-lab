@@ -192,7 +192,7 @@
           <ul>
             <li>Checks every ~10 minutes. A free slot, or a second peer in a region, goes to a peer from a region that is missing.</li>
             <li>Candidates come from Core's address book: addresses Core has connected to before. Core's own connections are never touched.</li>
-            <li>Core tests each candidate itself. If it can't connect within 15 minutes, the candidate goes and the peer it replaced comes back.</li>
+            <li>Core tests each candidate itself. If it can't connect within about 20 minutes, the candidate goes and the peer it replaced comes back.</li>
             <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
           </ul>
           <p>New slot holders are safe for 50 blocks. Locked peers and Core's high-bandwidth peers are never replaced. Peers that lose their slot while offline are parked below and get one again when their region needs a peer.</p>
