@@ -1041,3 +1041,27 @@ test('slot fill: a trial whose candidate never got its row is cleared, and Core 
   assert.equal(fill.currentTrial(), null);
   assert.deepEqual(calls, [`remove ${asia}`]);
 });
+
+test('a peer whose last connection never finished its handshake is not "offers nothing"', () => {
+  const at0 = Date.now() - 3 * HOUR;
+  const insert = db.instance.prepare(`INSERT INTO peer_session
+    (peer_id, direction, connection_type, started_at, ended_at, subver, services, min_ping_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  const seed = (sessions) => {
+    const address = nextAddress();
+    const peer = db.getOrCreatePeer(address);
+    for (const s of sessions) insert.run(peer.id, 'outbound', 'manual', ...s);
+    db.instance.prepare('INSERT INTO trusted_peer (address, label, kept, created_at) VALUES (?, NULL, 0, ?)').run(address, at0);
+    return ranking().find((p) => p.address === address);
+  };
+  // A working node, then a retry that failed: offline now.
+  let row = seed([[at0, at0 + HOUR, '/Satoshi:0.18.0/', 'NETWORK,WITNESS', 180], [at0 + 2 * HOUR, at0 + 2 * HOUR + 1000, null, '', null]]);
+  assert.equal(row.offersNothing, false);
+  assert.equal(row.client, '/Satoshi:0.18.0/');
+  // Connected right now, handshake not finished, nothing known before: unknown.
+  row = seed([[Date.now() - 2000, null, null, '', null]]);
+  assert.equal(row.offersNothing, false);
+  // A peer that did finish its handshake - empty user agent, but a ping - and
+  // announces no services really does offer nothing.
+  row = seed([[at0, null, null, '', 50]]);
+  assert.equal(row.offersNothing, true);
+});

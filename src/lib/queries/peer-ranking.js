@@ -202,13 +202,17 @@ function peerRankingSql() {
          EXISTS (SELECT 1 FROM peer_session s WHERE s.peer_id = p.id AND s.connection_type = 'manual') AS everManual,
          (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
             FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
-         -- The live session's own, where there is one: Core can open two
-         -- connections to a peer in the same second - one that never
-         -- finished its handshake, no client and no services, and the one
-         -- that did - and "latest" by start time then picked the failed one,
-         -- so a working manual peer read "offers no services" for hours.
-         COALESCE(os.subver, latest.subver) AS client,
-         COALESCE(os.services, latest.services) AS services,
+         -- What the peer said about itself comes from a session in which it
+         -- said something: one that got as far as its version message (a
+         -- client name) or a ping, which Core only sends after the
+         -- handshake. A connection that never finished its handshake reports
+         -- no client and no services - not the same as a peer that announces
+         -- none. Taking "latest" by start time picked such a connection when
+         -- Core opened two in the same second, or retried a peer and failed,
+         -- and a working node read "offers no services" for hours. NULL when
+         -- no session ever finished: unknown, not "nothing".
+         COALESCE(os.subver, known.subver) AS client,
+         CASE WHEN os.subver IS NOT NULL OR os.min_ping_ms IS NOT NULL THEN os.services ELSE known.services END AS services,
          COALESCE(os.synced_headers, latest.syncedHeaders) AS syncedHeaders,
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
@@ -235,6 +239,13 @@ function peerRankingSql() {
            ORDER BY started_at DESC LIMIT 1
          )
        ) latest ON latest.peer_id = p.id
+       -- Driven by p.id, so it runs once per peer: newest first along
+       -- idx_peer_session_peer_started, stopping at the first that finished.
+       LEFT JOIN peer_session known ON known.id = (
+         SELECT k.id FROM peer_session k
+         WHERE k.peer_id = p.id AND (k.subver IS NOT NULL OR k.min_ping_ms IS NOT NULL)
+         ORDER BY k.started_at DESC LIMIT 1
+       )
        -- Only what anything actually consumes: live peers and manual ones.
        --
        -- Written as a subquery on p.id rather than as a predicate reading
