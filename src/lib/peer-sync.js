@@ -4,7 +4,7 @@ const db = require('./db');
 const rpc = require('./rpc');
 const config = require('./config');
 const queries = require('./queries');
-const { hostFromAddress, addressKey } = require('./address');
+const { hostFromAddress, addressKey, unreachableNetwork } = require('./address');
 const { evictableTrusted } = require('./peer-rotation/rules');
 const logger = require('./logger').make('peer-sync');
 
@@ -525,6 +525,10 @@ function countTrusted() {
 function parkPeer(peer) {
   if (!peer || !peer.address) return false;
   if (!peer.eligible) return false;
+  // Never a Tor, I2P or CJDNS address: a parked peer is knocked on from this
+  // container, and dialling - or resolving - such a name from here is exactly
+  // what must not happen. Core reaches them through its own proxy.
+  if (unreachableNetwork(peer.address)) return false;
   db.instance
     .prepare(
       `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)

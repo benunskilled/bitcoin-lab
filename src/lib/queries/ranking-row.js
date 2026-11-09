@@ -6,17 +6,6 @@
 // node set bit 27 and stayed at the tip, while 3,945 of 3,947 sessions with
 // the bit shared no header past about 961,000. tip is the highest
 // synced_headers of any live peer; a peer not live keeps the bit alone.
-const REGION_NAMES = {
-  AF: 'Africa', AS: 'Asia', EU: 'Europe', NA: 'North America', OC: 'Oceania', SA: 'South America',
-};
-
-function whereOf(address) {
-  const hidden = unreachableNetwork(address);
-  if (hidden) return { region: hidden.toUpperCase(), regionName: hidden, country: '', operator: '' };
-  const { region, country, operator } = network.lookup(address);
-  return region ? { region, regionName: REGION_NAMES[region], country, operator } : null;
-}
-
 const FORK_TIP_SLACK = 6;
 function otherChainOf(services, syncedHeaders = null, tip = 0) {
   const list = typeof services === 'string' ? services.split(',') : [];
@@ -41,6 +30,18 @@ function otherChainOf(services, syncedHeaders = null, tip = 0) {
 const config = require('../config');
 const network = require('../network');
 const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('../address');
+
+const REGION_NAMES = {
+  AF: 'Africa', AS: 'Asia', EU: 'Europe', NA: 'North America', OC: 'Oceania', SA: 'South America',
+};
+
+function whereOf(address) {
+  const hidden = unreachableNetwork(address);
+  if (hidden === 'Tor' || hidden === 'I2P') return { region: hidden.toUpperCase(), regionName: hidden, country: '', operator: '' };
+  if (hidden) return null;
+  const { region, country, operator } = network.lookup(address);
+  return region ? { region, regionName: REGION_NAMES[region], country, operator } : null;
+}
 const { peerScore } = require('../score');
 
 // Core's spelling of the network, turned into the display name this app uses.

@@ -97,10 +97,9 @@ async function retireOfflineManualPeers(ranking) {
     if (offlineMs < grace) continue;
 
     await peerSync.removeTrustedPeer(peer.address);
-    // A Tor or I2P peer is not parked: knocking on its door would be this
-    // container dialling - or resolving - a .onion name itself, which it must
-    // never do. The address book has more where it came from.
-    const parked = unreachableNetwork(peer.address) ? false : peerSync.parkPeer(peer);
+    // parkPeer refuses a Tor or I2P peer (see there); the address book has
+    // more where it came from.
+    const parked = peerSync.parkPeer(peer);
     retired += 1;
     logAction({
       action: 'park',
@@ -190,6 +189,11 @@ async function reviveParkedPeers(ranking) {
   // backoff said to leave them alone - three dead ones were enough to keep a
   // good peer that was due from ever being knocked on. The table holds one
   // row per retired manual peer, so reading all of it is cheap.
+  // Parked before this rule existed: let them go rather than knock.
+  for (const r of db.instance.prepare('SELECT address FROM parked_peer').all()) {
+    if (unreachableNetwork(r.address)) db.instance.prepare('DELETE FROM parked_peer WHERE address = ?').run(r.address);
+  }
+
   const candidates = db.instance
     .prepare(
       `SELECT address, label, first_pct AS firstPct, eligible,

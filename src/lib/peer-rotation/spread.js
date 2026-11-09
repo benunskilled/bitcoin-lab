@@ -21,8 +21,9 @@
  * over.
  *
  * Pure: plain rows in, an answer out. Region and operator come from
- * network.lookup, and a peer without them (Tor, I2P, an address the table does
- * not know) belongs to no region and conflicts with no operator.
+ * network.lookup; Tor and I2P are regions of their own with no operator, and
+ * an address the table does not know belongs to no region and conflicts with
+ * no operator.
  */
 
 const config = require('../config');
@@ -133,10 +134,16 @@ function admit(peer, trusted, evictable, maxSlots) {
   if (place.key && trusted.some((p) => placeOf(p).key === place.key)) return null;
   if (trusted.length < maxSlots) return { free: true };
   if (!place.region) return null;
+  const counts = regionCounts(trusted);
   const weakest = (list) => list.sort((a, b) => (a.score ?? -1) - (b.score ?? -1))[0] || null;
-  if ((regionCounts(trusted)[place.region] || 0) < TARGET_PER_REGION) {
-    // The weakest of the surplus, by the same score the ranking sorts on.
-    const holder = weakest(evictable.filter(surplus(trusted)));
+  if ((counts[place.region] || 0) < TARGET_PER_REGION) {
+    // The weakest of the surplus, by the same score the ranking sorts on -
+    // first among those whose region still holds its target without them,
+    // so a swap never empties one region to fill another.
+    const isSurplus = surplus(trusted);
+    const crowded = (p) => counts[placeOf(p).region] > TARGET_PER_REGION;
+    const pool = evictable.filter(isSurplus);
+    const holder = weakest(pool.filter(crowded)) || weakest(pool);
     return holder ? { replace: holder } : null;
   }
   // Its region is at the target. It still improves the spread if it brings a

@@ -65,7 +65,8 @@ async function bookEntries(now) {
   let entries = [];
   try {
     const raw = await rpc.call('getrawaddrman', [], { timeoutMs: 30000 });
-    entries = Object.values((raw && raw.tried) || {});
+    if (!raw || typeof raw.tried !== 'object') throw new Error('no tried table in the answer');
+    entries = Object.values(raw.tried);
   } catch (err) {
     logger.debug('getrawaddrman unavailable, falling back to getnodeaddresses', { error: err.message });
     for (const net of ['ipv4', 'ipv6', 'onion', 'i2p']) {
@@ -74,15 +75,15 @@ async function bookEntries(now) {
       } catch { /* a network Core does not know */ }
     }
   }
-  book = {
-    at: now,
-    entries: entries.filter(usable).map((e) => ({
-      address: formatAddress(e.address, e.port),
-      network: e.network,
-      fromBook: true,
-    })),
-  };
-  return book.entries;
+  const usableEntries = entries.filter(usable).map((e) => ({
+    address: formatAddress(e.address, e.port),
+    network: e.network,
+    fromBook: true,
+  }));
+  // An empty answer is most likely Core not being up yet: ask again next
+  // tick rather than living on nothing for six hours.
+  book = usableEntries.length ? { at: now, entries: usableEntries } : null;
+  return usableEntries;
 }
 
 // Which networks this node can reach, and whether clearnet runs through a proxy.
@@ -98,8 +99,10 @@ async function reach() {
     const proxied = ['ipv4', 'ipv6'].some((n) => by[n] && by[n].proxy);
     return {
       clearnet: !proxied && (direct('ipv4') || direct('ipv6')),
-      onion: Boolean(by.onion && by.onion.proxy),
-      i2p: Boolean(by.i2p && by.i2p.proxy),
+      // A proxy alone is not enough: onlynet decides whether Core may go
+      // there, and the rotation follows that choice.
+      onion: Boolean(by.onion && by.onion.proxy && by.onion.reachable),
+      i2p: Boolean(by.i2p && by.i2p.proxy && by.i2p.reachable),
     };
   } catch {
     return { clearnet: false, onion: false, i2p: false };
@@ -213,6 +216,11 @@ async function trialInRegion(ranking, now = Date.now()) {
   if (!holders.length) return 0;
   const can = await reach();
   if (!can.clearnet) return 0;
+  // Counted from the attempt, not from a success: a holder that is simply far
+  // away delivers nothing first for weeks, and without this every tick would
+  // probe four more addresses for it.
+  db.instance.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(TRIAL_KEY, String(now));
 
   const inUse = hostsInUse(ranking);
   const entries = await bookEntries(now);
@@ -235,8 +243,6 @@ async function trialInRegion(ranking, now = Date.now()) {
       // eslint-disable-next-line no-await-in-loop
       const ms = await manualPeer.probeTime(addr, port);
       if (ms == null || ms / 2 >= holder.minPingMs * TRIAL_PING_FACTOR) continue;
-      db.instance.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-        .run(TRIAL_KEY, String(now));
       const note = `trial in ${spread.REGION_NAMES[region]}: ${spread.describe(c)} answered in ~${Math.round(ms / 2)} ms,`
         + ` the holder pings ${Math.round(holder.minPingMs)} ms and was first for none of ${holder.recentEligible} recent blocks`;
       // eslint-disable-next-line no-await-in-loop

@@ -11,8 +11,8 @@
  * in place: two binary searches per lookup, nothing decoded but the names.
  *
  * Only clearnet addresses have an answer. Tor, I2P and CJDNS peers, local
- * addresses and anything unparseable come back as unknown, which the rotation
- * treats as "no region, no operator" rather than as a region of its own.
+ * addresses and anything unparseable come back as unknown; the rotation gives
+ * Tor and I2P regions of their own (peer-rotation/spread.js).
  */
 
 const fs = require('fs');

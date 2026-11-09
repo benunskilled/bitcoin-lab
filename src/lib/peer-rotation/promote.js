@@ -8,7 +8,7 @@ const { MIN_ELIGIBLE_FOR_JUDGEMENT, evictableTrusted } = require('./rules');
 const spread = require('./spread');
 
 /**
- * Pass 4: give one manual slot to the live candidate that does the most for
+ * Pass 3: give one manual slot to the live candidate that does the most for
  * the spread (see spread.js) - a free slot to the best-placed candidate, or,
  * with all `config.maxManualPeers` slots taken, a surplus holder's slot to a
  * candidate from a region below the target. At most one move per tick, so the
@@ -78,6 +78,12 @@ async function promoteBestCandidate(ranking) {
   for (const candidate of spread.rankForGap(candidates, trusted, coreRegions)) {
     const decision = spread.admit(candidate, trusted, evictable, config.maxManualPeers);
     if (!decision) continue;
+    // A free slot goes to a region that is missing one. Anyone else waits for
+    // the address book's turn, which fills the gap if it can and the slot
+    // anyway if it cannot - otherwise the slot went to a second European now
+    // and was swapped again for the gap after the grace, two moves for one.
+    const { region } = spread.placeOf(candidate);
+    if (decision.free && region && (spread.regionCounts(trusted)[region] || 0) >= spread.TARGET_PER_REGION) continue;
     // An outbound peer's address is the one Core dialled, so it is already
     // what addnode needs - no probing, and no chance of resolving onto an
     // address that is a manual peer under a different spelling.
