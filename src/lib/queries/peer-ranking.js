@@ -202,9 +202,14 @@ function peerRankingSql() {
          EXISTS (SELECT 1 FROM peer_session s WHERE s.peer_id = p.id AND s.connection_type = 'manual') AS everManual,
          (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
             FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
-         latest.subver AS client,
-         latest.services AS services,
-         latest.syncedHeaders AS syncedHeaders,
+         -- The live session's own, where there is one: Core can open two
+         -- connections to a peer in the same second - one that never
+         -- finished its handshake, no client and no services, and the one
+         -- that did - and "latest" by start time then picked the failed one,
+         -- so a working manual peer read "offers no services" for hours.
+         COALESCE(os.subver, latest.subver) AS client,
+         COALESCE(os.services, latest.services) AS services,
+         COALESCE(os.synced_headers, latest.syncedHeaders) AS syncedHeaders,
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
@@ -222,18 +227,12 @@ function peerRankingSql() {
          -- session actually still live, in which case there's nothing to
          -- report here - offline duration only ever comes from a peer's
          -- most recent CLOSED session).
-         --
-         -- The live session first, then the newest, then the later row: Core
-         -- can open two connections to a peer in the same second - one that
-         -- never finished its handshake, no client and no services, and the
-         -- one that did - and on a tie the failed one was picked, so a
-         -- working manual peer read "offers no services" for hours.
          SELECT ps.peer_id, ps.subver, ps.network, ps.services, ps.synced_headers AS syncedHeaders, ps.ended_at AS latestEndedAt
          FROM peer_session ps
          WHERE ps.id = (
            SELECT id FROM peer_session ps2
            WHERE ps2.peer_id = ps.peer_id
-           ORDER BY ps2.ended_at IS NULL DESC, ps2.started_at DESC, ps2.id DESC LIMIT 1
+           ORDER BY started_at DESC LIMIT 1
          )
        ) latest ON latest.peer_id = p.id
        -- Only what anything actually consumes: live peers and manual ones.

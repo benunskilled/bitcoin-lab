@@ -127,22 +127,16 @@ module.exports = {
   // comment in score.js for how it failed the exact case it was added for.
   recentScoreWindowBlocks: Number(pick(process.env.RECENT_SCORE_WINDOW_BLOCKS, '500')),
 
-  // How long a manual peer may stay offline before the rotation loop gives its
+  // How long a manual peer may stay offline before the slot fill gives its
   // slot to someone else.
   //
-  // These numbers are short on purpose, and they are only defensible because
-  // of the parking below. Losing a manual slot is not losing the peer: the
-  // address is kept, re-probed, and takes its slot straight back the moment it
-  // answers. So the grace period does not have to be long enough to cover
-  // "might come back eventually" - parking covers that, better. It only has to
-  // be long enough to ride out the things that resolve themselves: the peer's
-  // node restarting, a brief network blip, a router reboot. An hour covers all
-  // of those. Beyond that, an empty slot is just an empty slot, and a live
-  // candidate could be using it.
+  // Short on purpose: losing a manual slot is not losing the peer. Core's
+  // address book still knows it, and the slot fill can pick it again. So the
+  // grace period only has to ride out the things that resolve themselves: the
+  // peer's node restarting, a brief network blip, a router reboot. An hour
+  // covers all of those. Beyond that, an empty slot is just an empty slot.
   //
-  // It is still scaled by record, because a retired peer has to beat the
-  // current weakest to get back in and a mid-table peer might not manage it -
-  // so a better peer gets more room before it has to fight for its place:
+  // Scaled by record, so a peer that has often been first gets more room:
   // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max). 0.8% -> 1h
   // (the floor), 5% -> 5h, 12% -> 12h, 24% and up -> the 24h ceiling. A peer
   // with no track record yet gets the floor.

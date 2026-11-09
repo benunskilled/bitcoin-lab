@@ -46,6 +46,9 @@ const FAILED_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 const TRIED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 // Adds refused before Core was even asked (already connected, say) per pass.
 const ATTEMPTS_PER_PASS = 3;
+// A trial this young may still be in the middle of its add, in the other
+// process: no row yet is not the same as a row someone took out.
+const ADDING_MS = 60 * 1000;
 
 const keyOf = (address) => addressKey(address, config.bitcoin.network);
 
@@ -125,11 +128,19 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
   const trial = currentTrial();
   if (!trial) return 'none';
   const row = db.instance.prepare('SELECT kept FROM trusted_peer WHERE address = ?').get(trial.address);
-  // Taken out, or given the padlock, by hand while on trial - that was a
-  // person's decision, and it stands. Also the state after a crash between
-  // writing the trial and the add: nothing was added.
-  if (!row || row.kept) {
+  if (!row && now - trial.startedAt < ADDING_MS) return 'waiting';
+  // Given the padlock by hand while on trial: a person's decision, and it
+  // stands.
+  if (row && row.kept) {
     writeTrial(null);
+    return 'left';
+  }
+  // Taken out by hand - or the app stopped, or the add failed, after Core was
+  // told: Core's list may still hold it, and the next sync would adopt it as
+  // somebody else's addnode, padlocked. Told again to drop it.
+  if (!row) {
+    writeTrial(null);
+    await rpc.addNode(trial.address, 'remove').catch(() => {});
     return 'left';
   }
   const session = manualSession(peers, trial.address);
@@ -159,7 +170,7 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
 
 /**
  * Put the next candidate on trial, if a slot is free. `peers` is getpeerinfo
- * from this pass.
+ * from this pass. Returns the candidate's address, or 0.
  */
 async function start(ranking, peers, chain, now = Date.now()) {
   // A node still catching up has no tip to test a candidate against.
@@ -217,18 +228,28 @@ async function start(ranking, peers, chain, now = Date.now()) {
     const result = await peerSync.addTrustedPeer(c.address, `slot fill: ${what}`, { neverDisconnect: true });
     if (result.ok) {
       logger.info('slot fill: candidate on trial', { address: c.address });
-      return 1;
+      return c.address;
     }
     writeTrial(null);
     logger.info('slot fill: candidate not added', { address: c.address, error: result.error });
     // The set filled up under us (a peer added by hand meanwhile): nothing
-    // wrong with the candidate, and nothing more to do this pass.
+    // wrong with the candidate, and nothing more to do this pass. Nor is a
+    // refusal held against it: it may be Core not answering, and a week's
+    // cooldown for that would cost good addresses.
     if (result.count >= max) return 0;
-    markTried(c.address, false, now);
     attempts += 1;
     if (attempts >= ATTEMPTS_PER_PASS) return 0;
   }
   return 0;
 }
 
-module.exports = { settle, start, currentTrial, works, TRIAL_KEY, TRIAL_MS };
+// Take a candidate out at once, trial or not: the slot fill was switched off
+// while this pass was adding it.
+async function abandon(address, now = Date.now()) {
+  await peerSync.removeTrustedPeer(address);
+  writeTrial(null);
+  logAction({ action: 'revert', address, note: `${spread.describe({ address })}: slot fill switched off during the trial` });
+  logger.info('slot fill: candidate taken out, switched off while adding', { address, at: now });
+}
+
+module.exports = { settle, start, abandon, currentTrial, works, TRIAL_KEY, TRIAL_MS };

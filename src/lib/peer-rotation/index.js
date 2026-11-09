@@ -96,14 +96,15 @@ async function tick() {
   let started = onTrial || settled === 'reverted'
     ? 0
     : await fill.start(retired > 0 ? queries.peerRanking() : ranking, peers, chain);
-  // Switched off while this pass was adding: settle it now rather than leave
-  // a trial no later pass would look at.
+  // Switched off while this pass was adding: the switch-off could not see the
+  // row yet, so the candidate is taken out here, rather than left in a slot
+  // no later pass would look at.
   if (started && !isEnabled()) {
-    await settleOnSwitchOff();
+    await fill.abandon(started);
     started = 0;
   }
   return {
-    enabled: true, retired, started, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0,
+    enabled: true, retired, started: started ? 1 : 0, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0,
   };
 }
 

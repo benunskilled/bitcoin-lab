@@ -90,7 +90,7 @@ function offlineForMs(peer, now) {
  * But it is bought cheaply, because the decision is reversible: Core's
  * address book still has the peer, and the slot fill can pick it again.
  * Waiting days for a peer that might return only makes sense if losing the
- * slot were final; it is not (see parking.js). What the wait actually
+ * slot were final; it is not. What the wait actually
  * has to cover is the outages that fix themselves within the hour - a node
  * restarting, a network blip - not "might be back next week". So the ceiling
  * is a day rather than a week, and the floor an hour rather than six.

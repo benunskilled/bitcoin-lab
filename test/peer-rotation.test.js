@@ -660,7 +660,7 @@ async function step(peers, now) {
   const chain = await rpc.getBlockchainInfo();
   const settled = await fill.settle(peers, chain, now);
   const started = settled === 'waiting' || settled === 'reverted' ? 0 : await fill.start(ranking(), peers, chain, now);
-  return { started, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0 };
+  return { started: started ? 1 : 0, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0 };
 }
 
 test('slot fill: a free slot goes to an address-book peer from a missing region, and Core is asked, not probed', async () => {
@@ -1003,4 +1003,41 @@ test('REGRESSION: two sessions started in the same second - the live one is what
   const row = ranking().find((p) => p.address === address);
   assert.equal(row.client, '/Satoshi:0.18.0/');
   assert.equal(row.offersNothing, false);
+});
+
+test('slot fill: switched off while a pass is adding, the candidate is taken out, not left unjudged', async () => {
+  peerRotation.setEnabled(true);
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  setPeers([coreOut()]);
+  // The switch goes off in the dashboard while this pass is inside its add.
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => {
+    if (cmd === 'add' && addr === asia) {
+      peerRotation.setEnabled(false);
+      await peerRotation.settleOnSwitchOff(); // sees the trial, but no row yet
+    }
+  });
+  const result = await peerRotation.tick();
+  assert.equal(result.started, 0);
+  assert.ok(!isManual(asia));
+  assert.equal(fill.currentTrial(), null);
+});
+
+test('slot fill: the sync never adopts the candidate between its addnode and its row', async () => {
+  const asia = '198.18.0.10:8333';
+  db.instance.prepare("INSERT INTO meta (key, value) VALUES ('slot_fill_trial', ?)").run(JSON.stringify({ address: asia, startedAt: Date.now() }));
+  mock.method(rpc, 'getAddedNodeInfo', async () => [{ addednode: asia }]);
+  await peerSync.adoptExternalManualPeers();
+  assert.ok(!isManual(asia), 'not taken in as somebody else\'s addnode, padlocked');
+});
+
+test('slot fill: a trial whose candidate never got its row is cleared, and Core told to drop it', async () => {
+  const asia = '198.18.0.10:8333';
+  const t0 = Date.now() - 5 * MIN;
+  db.instance.prepare("INSERT INTO meta (key, value) VALUES ('slot_fill_trial', ?)").run(JSON.stringify({ address: asia, startedAt: t0 }));
+  const calls = [];
+  rpc.addNode.mock.mockImplementation(async (addr, cmd) => { calls.push(`${cmd} ${addr}`); });
+  assert.equal(await fill.settle([], { headers: TIP }, Date.now()), 'left');
+  assert.equal(fill.currentTrial(), null);
+  assert.deepEqual(calls, [`remove ${asia}`]);
 });

@@ -165,6 +165,9 @@ async function adoptExternalManualPeers() {
     // Taken out a moment ago, by this process: Core's list was read before
     // that, or the remove is still on its way. Not somebody else's addnode.
     if (removedJustNow(keyOf(addednode))) continue;
+    // The slot fill's candidate, between its addnode and its row: the slot
+    // fill's to settle, not somebody else's addnode to adopt and padlock.
+    if (slotFillCandidate() === keyOf(addednode)) continue;
     // Never past the limit. Core keeps its own list either way; what does not
     // fit is only left out of ours, and said so in the log.
     if (known.size >= config.maxManualPeers) {
@@ -513,6 +516,15 @@ function savePendingRemovals(map) {
   db.instance
     .prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
     .run(PENDING_REMOVAL_KEY, JSON.stringify(map));
+}
+
+function slotFillCandidate() {
+  try {
+    const row = db.instance.prepare(`SELECT value FROM meta WHERE key = 'slot_fill_trial'`).get();
+    return row ? keyOf(JSON.parse(row.value).address) : null;
+  } catch {
+    return null;
+  }
 }
 
 // Removed in this process within the last few minutes (see removeTrustedPeer).

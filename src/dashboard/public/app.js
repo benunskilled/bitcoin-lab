@@ -1407,16 +1407,11 @@ function rotationActionLabel(action) {
   if (action === 'revive') return 'Back';
   if (action === 'manual') return 'Added';
   if (action === 'disconnect') return 'Disconnected';
-  // A candidate Core could not connect to; the peer it stood in for is back.
+  // A candidate Core could not connect to: taken out again.
   if (action === 'revert') return 'Not taken';
   return action;
 }
 
-// The peers that lost a manual slot to a long absence, and are being knocked
-// on periodically. Shown next to the rotation log rather than hidden in it,
-// because "my manual peer is gone" and "my manual peer is gone AND being
-// watched for a comeback" are very different pieces of news, and only the
-// second one is true.
 async function refreshRotation() {
   const epochAtRequest = rotationToggleEpoch;
   const data = await api('/api/rotation');
