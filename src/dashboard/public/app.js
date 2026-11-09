@@ -1009,13 +1009,16 @@ function countryName(cc) {
 // Where a manual peer is, as one more line under its address: flag and
 // provider, or Tor / I2P. The rotation spreads the slots by exactly this, so
 // it is shown where the slots are. Country and region are in the tooltip.
+function placeHtml(w) {
+  const flag = HIDDEN_FLAG[w.region] || flagOf(w.country);
+  const text = w.country ? (w.operator || countryName(w.country)) : w.regionName;
+  return `<span class="flag">${flag}</span>${escapeHtml(text)}`;
+}
 function withPlaceLine(cell, p) {
   const w = p.where;
   if (!w) return cell;
-  const flag = HIDDEN_FLAG[w.region] || flagOf(w.country);
-  const text = w.country ? (w.operator || countryName(w.country)) : w.regionName;
   const tip = w.country ? `${countryName(w.country)}, ${w.regionName}` : w.regionName;
-  return cell.replace(/<\/td>$/, () => `<small class="addr-place" title="${escapeHtml(tip)}"><span class="flag">${flag}</span>${escapeHtml(text)}</small></td>`);
+  return cell.replace(/<\/td>$/, () => `<small class="addr-place" title="${escapeHtml(tip)}">${placeHtml(w)}</small></td>`);
 }
 
 // "Europe 3 · North America 1 · Tor 1", most first.
@@ -1418,14 +1421,25 @@ async function refreshRotation() {
   renderRotationLog(lastRotationLog);
 }
 
+// On a phone each entry is a card, and where and why are one grey line under
+// the address; the table's own cells for them are hidden there
+// (style.css).
+function logCardLine(entry) {
+  const parts = [
+    entry.where ? placeHtml(entry.where) : '',
+    entry.note ? escapeHtml(entry.note) : '',
+  ].filter(Boolean);
+  return parts.length ? `<small class="log-card-line">${parts.map((x) => `<span>${x}</span>`).join(' · ')}</small>` : '';
+}
+
 // Where the peer is goes under its address, as for the manual peers above.
 function rotationEntryRow(entry) {
+  const address = withPlaceLine(truncatedCell(entry.address), entry).replace(/<\/td>$/, () => `${logCardLine(entry)}</td>`);
   return `
     <tr>
       <td class="hint" title="${escapeHtml(new Date(entry.at).toLocaleString())}">${fmtDuration(Date.now() - entry.at)} ago</td>
       <td><span class="pill ${rotationActionClass(entry.action)}">${escapeHtml(rotationActionLabel(entry.action))}</span></td>
-      ${withPlaceLine(truncatedCell(entry.address), entry)}
-      <td>${fmtPct(entry.firstPct)}</td>
+      ${address}
       <td class="hint"${entry.replacedAddress ? ` title="In for ${escapeHtml(entry.replacedAddress)}"` : ''}>${escapeHtml(entry.note || '-')}</td>
     </tr>`;
 }
@@ -1436,7 +1450,7 @@ function renderRotationLog(log) {
 
   const visible = showAllLog ? log : log.slice(0, ROTATION_LOG_LIMIT);
   tbody.innerHTML = visible.map((e) => rotationEntryRow(e)).join('')
-    || `<tr><td colspan="5" class="hint">Nothing yet.</td></tr>`;
+    || `<tr><td colspan="4" class="hint">Nothing yet.</td></tr>`;
 
   const toggle = document.getElementById('rotation-log-toggle');
   if (toggle) {

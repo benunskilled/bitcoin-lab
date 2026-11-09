@@ -401,7 +401,7 @@ test('a peer disconnected by hand is in the rotation log, with its recent record
     assert.equal(disconnect.mock.callCount(), 1);
     const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'disconnect' AND address = ?").get('203.0.113.88:8333');
     assert.ok(row, 'logged');
-    assert.equal(row.note, 'no blocks yet', '"by hand" is in the action\'s name');
+    assert.equal(row.note, 'no recent blocks', '"by hand" is in the action\'s name');
   } finally {
     disconnect.mock.restore();
     db.instance.prepare("DELETE FROM rotation_log WHERE action = 'disconnect'").run();
@@ -421,7 +421,7 @@ test('a peer disconnected by hand says whether it had dialled in or was dialled'
       // eslint-disable-next-line no-await-in-loop
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
       const row = db.instance.prepare("SELECT note FROM rotation_log WHERE action = 'disconnect' AND address = ?").get(address);
-      assert.equal(row.note, `${direction} · no blocks yet`);
+      assert.equal(row.note, `${direction} · no recent blocks`);
     }
   } finally {
     disconnect.mock.restore();

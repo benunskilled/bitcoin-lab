@@ -348,17 +348,14 @@ button.secondary {
 @media (prefers-reduced-motion: reduce) { .how summary::after { transition: none; } .how[open] > :not(summary) { animation: none; } }
 
 .rotation-log-table .col-time { width: 14%; }
-.rotation-log-table .col-rot-action { width: 12%; }
-.rotation-log-table .col-address { width: 20%; }
-.rotation-log-table .col-pct { width: 10%; }
-/* The note is a sentence ("replaced the weakest manual peer: ..."). Kept
+.rotation-log-table .col-rot-action { width: 14%; }
+.rotation-log-table .col-address { width: 26%; }
+/* The note can be a sentence. Kept
    on one line it made this table about 900px wide, and as fitTables decides
    for all tables together, a laptop window of that width turned every panel
    into cards. It wraps instead - not cut with an ellipsis, as a tablet has
    no hover to show the rest. */
 .rotation-log-table td:last-child { white-space: normal; min-width: 12em; }
-/* A run of kicks that delivered nothing, as one line that opens to the kicks. */
-
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
 /* Side by side, not stacked - stacking would double every row's height just
@@ -695,7 +692,6 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
 /* "First % (lifetime)" folds onto two lines before the note does. */
-.table-wrap[data-drops]:not([data-drops="0"]) .rotation-log-table th.col-pct { white-space: normal; }
 .table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 800px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 740px; }
 .table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 680px; }
@@ -794,16 +790,20 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { grid-column: 1 / -1; white-space: normal; }
-/* The rotation log is a log, not a table to compare: no labels, three short
-   lines - when, what, first % on top, the address under it, the note last. */
-.cards.cards #rotation-log-table tr { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 8px 14px; }
+/* The log is a log, not a table to compare: no labels, three lines - what
+   and when, the address, then where and why in one grey line. */
+.log-card-line { display: none; }
+.cards.cards #rotation-log-table tr { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 10px 14px; }
 .cards.cards #rotation-log-table tr td[data-label]::before { content: none; }
-.cards.cards #rotation-log-table tr td:first-child { grid-column: auto; order: 1; }
-.cards.cards #rotation-log-table tr td:nth-child(2) { order: 2; }
-.cards.cards #rotation-log-table tr td:nth-child(4) { order: 3; justify-self: end; }
-.cards.cards #rotation-log-table tr td:nth-child(3) { order: 4; }
-.cards.cards #rotation-log-table tr td:nth-child(5) { order: 5; font-size: 12px; }
-.cards.cards #rotation-log-table tr td[colspan] { grid-column: 1 / -1; }
+.cards.cards #rotation-log-table tr td:nth-child(2) { grid-column: 1; grid-row: 1; }
+.cards.cards #rotation-log-table tr td:first-child { grid-column: 2; grid-row: 1; justify-self: end; font-size: 12px; }
+.cards.cards #rotation-log-table tr td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
+.cards.cards #rotation-log-table tr td:nth-child(4),
+.cards.cards #rotation-log-table .addr-place { display: none; }
+.cards.cards #rotation-log-table .log-card-line { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); white-space: normal; }
+.cards.cards #rotation-log-table .log-card-line > span { white-space: nowrap; }
+.cards.cards #rotation-log-table .log-card-line .flag { margin-right: 6px; }
+.cards.cards #rotation-log-table tr td[colspan] { grid-column: 1 / -1; grid-row: auto; justify-self: stretch; }
 
 /* ---- V2 design ---- */
 

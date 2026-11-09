@@ -270,7 +270,7 @@ inst
 const rotationLog = [
   ['promote', '203.0.113.140:8333', null, null, null, null, 'Oceania had none', 0.7],
   ['retire', '192.0.2.240:8333', 0, 188, null, null, 'offline 1h, allowed 1h', 1.4],
-  ['disconnect', '198.51.100.77:51344', 0, 96, null, null, 'inbound · 0 of 96 blocks first', 9.2],
+  ['disconnect', '198.51.100.77:51344', 0, 96, null, null, 'inbound · 0 of 96 recent blocks first', 9.2],
   ['promote', '198.51.100.20:8333', null, null, null, null, 'free slot', 22.5],
   ['manual', '203.0.113.55:8333', 31.4, 221, null, null, null, 46.1],
   ['retire', '192.0.2.19:8333', 2.1, 430, null, null, 'offline 24h, allowed 24h', 70.3],

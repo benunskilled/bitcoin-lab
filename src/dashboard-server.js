@@ -846,8 +846,7 @@ async function router(req, res, pathname, url) {
     // The peer is gone by now; a busy database must not turn that into an
     // error the user would retry.
     try {
-      // The column is the lifetime share, as for every other line; the note
-      // has the recent window, as a kick's does.
+      // The lifetime share is stored with it; the note has the recent window.
       const peer = db.instance
         .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
                     LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
@@ -860,7 +859,7 @@ async function router(req, res, pathname, url) {
         .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
         .get(peer.id);
       const way = session && /^(inbound|outbound)$/.test(session.direction) ? session.direction : null;
-      const record = recent && recent.eligible ? `${recent.first} of ${recent.eligible} blocks first` : 'no blocks yet';
+      const record = recent && recent.eligible ? `${recent.first} of ${recent.eligible} recent blocks first` : 'no recent blocks';
       peerRotation.logAction({
         action: 'disconnect',
         address,
