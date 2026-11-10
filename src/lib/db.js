@@ -118,11 +118,17 @@ CREATE TABLE IF NOT EXISTS parked_peer (
 -- Address-book candidates the slot fill has put to Core, and whether Core
 -- connected to them. One that did not is left alone for a week; the rows are
 -- dropped after a month. The candidate on trial right now is in meta
--- (slot_fill_trial), as one JSON value.
+-- (slot_fill_trial), as one JSON value. Per address, the last trial: why it
+-- ended (ok, no_connection, no_services, height_unknown, height_wrong), when
+-- it began, and the network (clearnet, tor, i2p) - what the app log said, kept
+-- where a restart does not take it.
 CREATE TABLE IF NOT EXISTS slot_fill_tried (
   address TEXT PRIMARY KEY,
   tried_at INTEGER NOT NULL,
-  ok INTEGER NOT NULL
+  ok INTEGER NOT NULL,
+  reason TEXT,
+  started_at INTEGER,
+  network TEXT
 );
 
 CREATE TABLE IF NOT EXISTS relay_race (
@@ -543,6 +549,15 @@ function runMigrations() {
         .prepare(`SELECT COUNT(*) AS n FROM pragma_table_info('trusted_peer') WHERE name = 'kept'`)
         .get().n > 0;
       if (!hasColumn) db.prepare(`ALTER TABLE trusted_peer ADD COLUMN kept INTEGER NOT NULL DEFAULT 0`).run();
+    });
+
+    // Why a slot-fill trial ended, and how long it ran: the reason used to be
+    // in the app log only, which a restart empties.
+    migrate('slot_fill_tried_reason_v1', 'added reason, started_at and network to slot_fill_tried', () => {
+      const has = new Set(db.prepare(`SELECT name FROM pragma_table_info('slot_fill_tried')`).all().map((c) => c.name));
+      if (!has.has('reason')) db.prepare(`ALTER TABLE slot_fill_tried ADD COLUMN reason TEXT`).run();
+      if (!has.has('started_at')) db.prepare(`ALTER TABLE slot_fill_tried ADD COLUMN started_at INTEGER`).run();
+      if (!has.has('network')) db.prepare(`ALTER TABLE slot_fill_tried ADD COLUMN network TEXT`).run();
     });
 
     // Two numbers per block that were computed and then thrown away, and

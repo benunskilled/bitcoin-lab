@@ -86,11 +86,15 @@ function currentTrial() {
   }
 }
 
-function markTried(address, ok, now) {
+// The last trial of an address: how it ended and how long it ran, kept so a
+// restart does not take the reason with it (the app log is all that held it).
+function markTried(address, ok, now, { reason = null, startedAt = null } = {}) {
+  const net = unreachableNetwork(address);
   db.instance
-    .prepare(`INSERT INTO slot_fill_tried (address, tried_at, ok) VALUES (?, ?, ?)
-              ON CONFLICT(address) DO UPDATE SET tried_at = excluded.tried_at, ok = excluded.ok`)
-    .run(address, now, ok ? 1 : 0);
+    .prepare(`INSERT INTO slot_fill_tried (address, tried_at, ok, reason, started_at, network) VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT(address) DO UPDATE SET tried_at = excluded.tried_at, ok = excluded.ok,
+                reason = excluded.reason, started_at = excluded.started_at, network = excluded.network`)
+    .run(address, now, ok ? 1 : 0, reason, startedAt, net === 'Tor' ? 'tor' : net === 'I2P' ? 'i2p' : 'clearnet');
 }
 
 function recentlyFailed(now) {
@@ -134,11 +138,14 @@ function works(session, chain, since = null) {
   return Number.isFinite(tip) && Number(session.synced_headers) >= tip - 2;
 }
 
+// Why a trial ended without the slot, as a short code (kept in the database)
+// and as words (the app log). "No connection" is what was seen at the checks:
+// a session that came and went between two of them leaves no trace.
 function whyNot(session) {
-  if (!session) return 'Core could not connect';
-  if (!servesBlocks(session.services)) return 'connected, but serves no blocks';
-  if (!(Number(session.synced_headers) >= 0)) return 'connected, but Core had no header height for it';
-  return 'connected, but not on our chain tip';
+  if (!session) return { code: 'no_connection', text: 'no connection seen' };
+  if (!servesBlocks(session.services)) return { code: 'no_services', text: 'connected, but serves no blocks' };
+  if (!(Number(session.synced_headers) >= 0)) return { code: 'height_unknown', text: 'connected, but Core had no header height for it' };
+  return { code: 'height_wrong', text: 'connected, but not on our chain tip' };
 }
 
 /**
@@ -171,7 +178,7 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
   const session = manualSession(peers, trial.address);
   if (works(session, chain, trial.tip)) {
     writeTrial(null);
-    markTried(trial.address, true, now);
+    markTried(trial.address, true, now, { reason: 'ok', startedAt: trial.startedAt });
     logAction({ action: 'promote', address: trial.address, note: trial.note });
     logger.info('slot fill: Core connected, the candidate keeps the slot', { address: trial.address });
     return 'confirmed';
@@ -192,10 +199,11 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
   // fill's own business, and the next one is tried anyway.
   await peerSync.removeTrustedPeer(trial.address);
   writeTrial(null);
-  if (!force) markTried(trial.address, false, now);
+  const why = whyNot(session);
+  if (!force) markTried(trial.address, false, now, { reason: why.code, startedAt: trial.startedAt });
   const minutes = Math.max(1, Math.round((now - trial.startedAt) / 60000));
   logger.info('slot fill: candidate not kept', {
-    address: trial.address, what: trial.what, reason: force ? 'switched off' : `${whyNot(session)} in ${minutes} min`,
+    address: trial.address, what: trial.what, reason: force ? 'switched off' : `${why.text} in ${minutes} min`,
   });
   return 'reverted';
 }

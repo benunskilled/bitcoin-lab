@@ -1354,3 +1354,59 @@ test('tick: two passes at once - the second does nothing, so no second candidate
   assert.equal(done.started, 1);
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2, 'one candidate only');
 });
+
+// --- Why a trial ended, kept in the database -----------------------------------
+
+const triedRow = (address) => db.instance.prepare('SELECT ok, reason, started_at, network FROM slot_fill_tried WHERE address = ?').get(address);
+
+test('slot fill: a trial that ended without a connection keeps its reason, start and network', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+  await step(setPeers([coreOut()]), t0 + 5 * MIN);
+
+  assert.deepEqual(triedRow(asia), { ok: 0, reason: 'no_connection', started_at: t0, network: 'clearnet' });
+});
+
+async function endTrialWith(session, waitedMin) {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+  await step(setPeers([coreOut(), manualSession(asia, session)]), t0 + waitedMin * MIN);
+  return triedRow(asia);
+}
+
+test('slot fill: the reason tells serves-no-blocks from a wrong height', async () => {
+  assert.equal((await endTrialWith({ services: '0000000000000000' }, 15)).reason, 'no_services');
+});
+
+test('slot fill: a height that is not ours is recorded as such', async () => {
+  assert.equal((await endTrialWith({ synced: TIP - 50 }, 15)).reason, 'height_wrong');
+});
+
+test('slot fill: no header height after the long wait is recorded as unknown, not as wrong', async () => {
+  assert.equal((await endTrialWith({ synced: -1 }, 30)).reason, 'height_unknown');
+});
+
+test('slot fill: a candidate that was kept is recorded as ok, with how long it took', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+  await step(setPeers([coreOut(), manualSession(asia)]), t0 + 2 * MIN);
+
+  assert.deepEqual(triedRow(asia), { ok: 1, reason: 'ok', started_at: t0, network: 'clearnet' });
+});
+
+test('slot fill: a Tor candidate is recorded as tor', async () => {
+  at(seedLivePeer({ address: `${'t'.repeat(56)}.onion:8333`, eligible: 144, first: 50, trusted: true }), null);
+  const tor = inBook(`${'u'.repeat(56)}.onion`, null, { network: 'onion' });
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: [{ name: 'onion', reachable: true, proxy: '' }] }));
+  const t0 = Date.now();
+  await step(setPeers([coreOut('onion')]), t0);
+  await step(setPeers([coreOut('onion')]), t0 + 10 * MIN);
+
+  assert.equal(triedRow(tor).network, 'tor');
+});
