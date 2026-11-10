@@ -413,8 +413,8 @@ function fitSeconds() {
       + (sep && sep.hidden ? textWidth(sep, sep.textContent) : 0);
     const room = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const fits = (t) => start + textWidth(e, t) <= room + 1;
-    // An opened card's line wraps: everything, whole.
-    const next = box.closest('tr.open') || fits(e.dataset.full) ? e.dataset.full : fits(e.dataset.one) || !e.dataset.word ? e.dataset.one : '';
+    // An opened card's line wraps: everything, whole. A table cell does not.
+    const next = (box.closest('tr.open') && cs.whiteSpace !== 'nowrap') || fits(e.dataset.full) ? e.dataset.full : fits(e.dataset.one) || !e.dataset.word ? e.dataset.one : '';
     if (e.textContent !== next) e.textContent = next;
     if (sep && sep.hidden !== !next) sep.hidden = !next;
   }
@@ -1039,6 +1039,9 @@ function foldInPlace({ anchor, box, set, open }) {
   // To where, not by how much: Safari reports a scroll a frame late, and
   // moving by the difference moved twice and swung back and forth.
   const pin = () => {
+    // A row redrawn under the fold is gone from the page and says it is at
+    // the top: following it would throw the reader up by a screen.
+    if (!anchor.isConnected) return;
     const want = anchor.getBoundingClientRect().top + window.scrollY - top0;
     if (Math.abs(window.scrollY - want) >= 0.5) window.scrollTo(0, want);
   };
@@ -1057,11 +1060,17 @@ function foldInPlace({ anchor, box, set, open }) {
   // The place-keeping of a refresh waits a frame more: the last changes of a
   // fold reach it after the fold has pinned the anchor, and it would move the
   // page by the top of the window instead.
-  const done = () => { pin(); giveBack(); pin(); requestAnimationFrame(() => { pin(); folding -= 1; notePlace(); }); };
+  const done = () => { pin(); giveBack(); pin(); requestAnimationFrame(() => {
+    pin(); folding -= 1; notePlace();
+    // A refresh that came in while it rolled waited for it.
+    if (!folding) setTimeout(flushDeferredRenders, 0);
+  }); };
   // Fitted before it is measured: re-rendered rows are cards only once
   // fitTables has run, and the end of the roll would be off by that.
   const settle = (state) => { set(state); fitTables(); fitSeconds(); fitPct(); };
-  settle(open);
+  // A fold that fails half way must not leave the page thinking it is
+  // still folding: the runway and the place-keeping would stay off.
+  try { settle(open); } catch (err) { folding -= 1; throw err; }
   const h1 = box ? box.getBoundingClientRect().height : 0;
   // A whole list of peers is tens of thousands of pixels: rolled in a third
   // of a second that rushes past at a screen per frame. That opens and shuts
@@ -1077,8 +1086,7 @@ function foldInPlace({ anchor, box, set, open }) {
   let frame = requestAnimationFrame(function follow() { pin(); frame = requestAnimationFrame(follow); });
   anim.onfinish = anim.oncancel = () => {
     cancelAnimationFrame(frame);
-    if (!open) settle(false);
-    done();
+    try { if (!open) settle(false); } finally { done(); }
   };
 }
 
@@ -1257,7 +1265,7 @@ for (const type of ['touchend', 'touchcancel']) {
 window.addEventListener('scroll', () => { scrolledAt = Date.now(); settle(); }, { passive: true });
 
 function interactionInProgress(selector) {
-  if (actionsInFlight > 0 || pressing() || moving()) return true;
+  if (actionsInFlight > 0 || folding > 0 || pressing() || moving()) return true;
   // Keyboard focus only. A mouse click leaves the focus on the button in
   // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
@@ -1851,12 +1859,16 @@ for (const card of document.querySelectorAll('main > section.card')) {
   };
   const flip = (e) => {
     if (e.target.closest('button, a, input')) return;
-    foldInPlace({ anchor: title, box: card, open: folded.has(id), set: (open) => {
+    const opening = folded.has(id);
+    foldInPlace({ anchor: title, box: card, open: opening, set: (open) => {
       if (open) folded.delete(id); else folded.add(id);
       show();
     } });
+    // Kept as the reader left it, not as it is half way: closing rolls up
+    // from open and is folded only at the end.
+    if (opening) folded.delete(id); else folded.add(id);
     try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch { /* private window */ }
-    if (!folded.has(id)) window.dispatchEvent(new Event('resize')); // the traffic chart measures its width
+    if (opening) window.dispatchEvent(new Event('resize')); // the traffic chart measures its width
   };
   title.addEventListener('click', flip);
   title.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(e); } });
@@ -2453,7 +2465,9 @@ function wireReset(scope) {
   const no = document.getElementById(`reset-${scope}-no`);
   if (!ask || !panel || !yes || !no) return;
 
-  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; });
+  // At the page's end the question could open below the screen: brought up
+  // only as far as it needs.
+  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; panel.scrollIntoView({ block: 'nearest', behavior: glide() }); });
   no.addEventListener('click', () => { panel.hidden = true; ask.hidden = false; });
   yes.addEventListener('click', async () => {
     yes.disabled = true;
