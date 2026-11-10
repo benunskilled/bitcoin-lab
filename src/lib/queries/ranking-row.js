@@ -144,11 +144,11 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
       localUmbrelPeer,
       privateNetwork,
       proxiedPrivatePeer,
-      // Where a manual peer is, for the dashboard: what the rotation spreads
-      // the slots by (peer-rotation/spread.js). Only for manual peers - the
-      // only ones the page shows it for - and never for an address that is
-      // not the peer's own.
-      where: trusted && !sourceObscured && !localUmbrelPeer && !proxiedPrivatePeer ? whereOf(r.address) : null,
+      // Where a manual or outbound peer is, for the dashboard: what the
+      // rotation spreads the slots by (peer-rotation/spread.js). Only for the
+      // two tables that show it, and never for an address that is not the
+      // peer's own.
+      where: (trusted || r.liveDirection === 'outbound') && !sourceObscured && !localUmbrelPeer && !proxiedPrivatePeer ? whereOf(r.address) : null,
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       trusted,
       trustedLabel: r.trustedLabel,

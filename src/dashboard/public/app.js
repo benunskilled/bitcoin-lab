@@ -591,20 +591,6 @@ async function refreshStatus() {
 
   setBlockHeight(s.blockHeight);
 
-  // The whole history behind the table below, in four numbers: how many
-  // outbound peers Core has handed this node, how many stayed long enough to
-  // be judged, how many ever delivered a block first, how many were kept.
-  // Counted by IP, so a host that reconnected or was promoted under a second
-  // address counts once. The table underneath shows ten peers right now; this
-  // says what those ten are a sample of.
-  const funnel = document.getElementById('outbound-funnel');
-  if (funnel) {
-    const f = s.outboundFunnel;
-    funnel.textContent = f
-      ? `${f.seen} seen · ${f.tested} tested · ${f.delivered} delivered · ${f.promoted} kept`
-      : '';
-  }
-
   // The last field is the colour strip along the tile's foot, in the group's
   // own colour. Outbound leaves out the manual peers, which have a tile of
   // their own - as in Peer Map, so the three groups add up to the total.
@@ -1515,7 +1501,7 @@ function renderPeerTables(peers, options = {}) {
     .join('') || `<tr><td colspan="8" class="hint">No peers currently connected.</td></tr>`;
 
   document.querySelector('#outbound-peer-table tbody').innerHTML = outboundPeers
-    .map((p) => peerRow(p, { status: p.connectionStatus, actions: actionsCell(p) }))
+    .map((p) => peerRow(p, { status: p.connectionStatus, actions: actionsCell(p), place: true }))
     .join('') || `<tr><td colspan="8" class="hint">No non-manual outbound peers currently connected.</td></tr>`;
 
   // A slot is taken by a manual peer whether or not it happens to be

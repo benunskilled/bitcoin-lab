@@ -337,58 +337,11 @@ test('the rotation log never holds more than it can show', async () => {
   assert.ok(!notes.includes('entry 0'), 'the oldest is gone');
 });
 
-// --- the outbound funnel -----------------------------------------------
-//
-// Four counts over the whole history rather than the live snapshot, and every
-// one of them de-duplicated by IP. The de-duplication is the part worth
-// testing: it is the difference between "this node has seen 74 peers" and a
-// number that grows every time a host reconnects on a different port.
-
-test('the funnel counts outbound peers by IP, not by address', () => {
-  // Same host, two addresses - which is exactly what a promoted inbound peer
-  // looks like: once on its ephemeral source port, once on 8333.
-  seedLivePeer({ address: '203.0.113.77:51234', eligible: 60, first: 5 });
-  seedLivePeer({ address: '203.0.113.77:8333', eligible: 60, first: 5 });
-  seedLivePeer({ address: '198.51.100.9:8333', eligible: 60, first: 2 });
-
-  const f = queries.outboundFunnel();
-  assert.equal(f.seen, 2);
-  assert.equal(f.tested, 2);
-  assert.equal(f.delivered, 2);
-});
-
-test('the funnel separates seen, judged and delivered', () => {
-  seedLivePeer({ address: '203.0.113.10:8333', eligible: 5, first: 0 });   // too new to judge
-  seedLivePeer({ address: '203.0.113.11:8333', eligible: 300, first: 0 }); // judged, never delivered
-  seedLivePeer({ address: '203.0.113.12:8333', eligible: 300, first: 7 }); // judged and delivering
-
-  const f = queries.outboundFunnel();
-  assert.equal(f.seen, 3);
-  assert.equal(f.tested, 2);
-  assert.equal(f.delivered, 1);
-});
-
-test('the funnel ignores inbound peers', () => {
-  seedLivePeer({ address: '203.0.113.20:8333', eligible: 300, first: 9 });
-  seedLivePeer({ address: '198.51.100.20:44444', direction: 'inbound', connectionType: 'inbound', eligible: 300, first: 9 });
-
-  const f = queries.outboundFunnel();
-  assert.equal(f.seen, 1);
-  assert.equal(f.delivered, 1);
-});
-
-test('the same host promoted twice counts once', () => {
-  seedLivePeer({ address: '203.0.113.30:8333', eligible: 300, first: 9 });
-  db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 1);
-  db.instance.prepare(`INSERT OR IGNORE INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`).run('203.0.113.30', 2);
-  assert.equal(queries.outboundFunnel().promoted, 1);
-});
-
 /**
  * One host, one spelling. The rotation wrote the bare host that
  * hostFromAddress returns; the backfill kept the brackets an IPv6 address
  * arrives in. Both meant "this host was kept", the primary key could not see
- * that they were the same, and the funnel counted one peer as two.
+ * that they were the same, and one kept peer was counted as two.
  */
 test('a host added by hand and promoted by the rotation is one kept peer, not two', () => {
   const address = '[2001:db8::5]:8333';
@@ -406,76 +359,6 @@ test('a host added by hand and promoted by the rotation is one kept peer, not tw
 
   const ips = db.instance.prepare(`SELECT ip FROM promoted_peer ORDER BY ip`).all().map((r) => r.ip);
   assert.deepEqual(ips, ['2001:db8::5']);
-});
-
-/**
- * An address with no port is not a nameless peer.
- *
- * Core echoes an added node back through getaddednodeinfo exactly as it was
- * given, so a peer added on the default port carries no port at all. Stripping
- * everything from the first colon found none and returned the empty string, so
- * every portless peer on the node shared one bucket and any number of them
- * counted as one.
- */
-test('the funnel counts a peer whose address carries no port as itself', () => {
-  seedLivePeer({ address: '192.0.2.31', eligible: 300, first: 4 });
-  seedLivePeer({ address: '192.0.2.32', eligible: 300, first: 4 });
-
-  const f = queries.outboundFunnel();
-  assert.equal(f.seen, 2);
-  assert.equal(f.tested, 2);
-  assert.equal(f.delivered, 2);
-});
-
-/**
- * All four numbers over one population, or it is not a funnel.
- *
- * "Kept" was a bare count of promoted_peer, which is also backfilled from the
- * manual set - and a hand-added peer need never have been an outbound peer at
- * all, including the case the rotation exists to notice: an address Core never
- * manages to connect. A node with eight of those read "3 seen, 2 tested, 1
- * delivered, 9 kept", where the last stage is larger than the first. That is
- * not a surprising statistic, it is a contradiction, and it is read as one.
- */
-test('the funnel counts kept peers from the same population as the other three', () => {
-  seedLivePeer({ address: '203.0.113.40:8333', eligible: 300, first: 9 });
-  const insert = db.instance.prepare(`INSERT INTO promoted_peer (ip, first_promoted_at) VALUES (?, ?)`);
-  insert.run('203.0.113.40', 1);   // the outbound peer above: belongs in the funnel
-  insert.run('198.51.100.40', 2);  // added by hand, no outbound session ever
-  insert.run('2001:db8::40', 3);   // likewise
-
-  const f = queries.outboundFunnel();
-  assert.equal(f.seen, 1);
-  assert.equal(f.promoted, 1);
-  assert.ok(f.promoted <= f.seen, 'a funnel whose last stage exceeds its first is reporting nonsense');
-
-  // The record itself keeps all three: it is the durable answer to "how many
-  // peers has this node ever kept", which rotation_log cannot give. Only the
-  // funnel narrows it.
-  assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM promoted_peer`).get().n, 3);
-});
-
-/**
- * The funnel runs on every /api/status poll, several times a minute, and it is
- * a scan of the peer table - which is deliberately never pruned for any peer
- * that has ever been around when a block landed. Cached against the newest
- * block, like routeMedian(), because that is the only thing that can change
- * three of its four numbers.
- */
-test('the funnel is worked out once per block, not once per poll', () => {
-  seedLivePeer({ address: '203.0.113.50:8333', eligible: 300, first: 9 });
-  const first = queries.outboundFunnel();
-  assert.equal(first.seen, 1);
-
-  // A second outbound peer and no new block: the same answer, and the same
-  // object, which is what says the scan did not run again.
-  seedLivePeer({ address: '203.0.113.51:8333' });
-  assert.equal(queries.outboundFunnel(), first);
-
-  db.instance
-    .prepare('INSERT INTO relay_race (block_hash, detected_at) VALUES (?, ?)')
-    .run('funnel-cache-block', Date.now());
-  assert.equal(queries.outboundFunnel().seen, 2, 'a block is what makes it look again');
 });
 
 // ---------------------------------------------------------------------------
@@ -904,15 +787,15 @@ test('slot fill: what it adds carries no padlock; what a person types in does', 
 });
 
 test('promotions are remembered after the rotation log has been trimmed away', async () => {
-  // The funnel counts Core's outbound peers that ever held a manual slot.
   const address = seedLivePeer({ eligible: 300, first: 100 });
   peerRotation.logAction({ action: 'promote', address, note: 'test' });
-  assert.equal(queries.outboundFunnel().promoted, 1);
+  const kept = () => db.instance.prepare(`SELECT COUNT(*) AS n FROM promoted_peer`).get().n;
+  assert.equal(kept(), 1);
   for (let i = 0; i < LOG_ENTRIES + 5; i += 1) {
     peerRotation.logAction({ action: 'retire', address: `198.51.100.${i + 1}:8333`, note: 'filler' });
   }
   assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'promote'`).get().n, 0);
-  assert.equal(queries.outboundFunnel().promoted, 1, 'the count survives the trim');
+  assert.equal(kept(), 1, 'the record survives the trim');
 });
 
 test('REGRESSION: a manual peer always has a peer row, so the slot fill can see it', async () => {

@@ -619,12 +619,6 @@ async function router(req, res, pathname, url) {
       // written into the page: a heading that states the wrong window is worse
       // than one that states none.
       recentScoreWindowBlocks: config.recentScoreWindowBlocks,
-      // Four counts over the whole history, not the current snapshot: how many
-      // outbound peers Core has handed this node, how many lasted long enough
-      // to be judged, how many ever delivered, how many were kept. Cheap - one
-      // aggregate over a table that already exists, plus a COUNT of a table
-      // with one row per promoted IP.
-      outboundFunnel: queries.outboundFunnel(),
       // Whether the pool race is running at all. The page needs it before it
       // renders anything of that card: switched off there is nothing to show
       // and, more to the point, nothing being measured, so a table of

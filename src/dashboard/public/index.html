@@ -43,6 +43,17 @@
     -->
     <section class="card" id="live-peer-card">
       <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
+      <!-- On a phone nothing can be hovered, so the marks are said here,
+           folded. A wide screen says them on hover. -->
+      <details class="key">
+        <summary>What the marks mean</summary>
+        <ul>
+          <li><b class="hb">⚡</b> May send you new blocks without being asked</li>
+          <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
+          <li><b class="key-new">orange row</b> Delivered the newest block first</li>
+          <li><b class="key-green">green address</b> Has delivered a block first</li>
+        </ul>
+      </details>
       <div class="stick" id="live-stick" hidden><div><span>Live Peer Ranking<span id="live-stick-count"></span></span><button type="button" class="secondary" id="live-stick-back">Top 10</button></div></div>
       <div class="table-wrap">
         <table id="peer-table" class="peer-table">
@@ -64,36 +75,16 @@
       <div class="inline-form">
         <button type="button" id="live-peer-limit-toggle" class="link" hidden></button>
       </div>
-      <!-- On a phone nothing can be hovered, so the marks are said here,
-           folded. A wide screen says them on hover. -->
-      <details class="key">
-        <summary>What the marks mean</summary>
-        <ul>
-          <li><b class="hb">⚡</b> May send you new blocks without being asked</li>
-          <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
-          <li><b class="key-new">orange row</b> Delivered the newest block first</li>
-          <li><b class="key-green">green address</b> Has delivered a block first</li>
-        </ul>
-      </details>
     </section>
 
     <section class="card panel">
-      <h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2>
+      <h2>Outbound Peers</h2>
       <!--
-        Clearnet only used to be the advice here: a Tor or I2P peer could never
-        become manual. Now the slot fill keeps one of each among the manual
-        peers, and Core can only reach them with those networks switched on.
-        Said here rather than in the README because this is the table where it
-        shows.
+        Slot Fill can keep a Tor and an I2P peer among the manual peers, and
+        Core can only reach them with those networks switched on. Said here
+        because this is the table where it shows.
       -->
-      <div class="panel-note">
-        <p><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
-        <details class="how">
-          <summary>Why</summary>
-          <p>Slot Fill can add Tor and I2P peers to the manual peers, and Core needs those networks
-          switched on to reach them. Tor and I2P peers are seldom first; their paths are slower, and that is expected.</p>
-        </details>
-      </div>
+      <p class="panel-note"><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
@@ -124,15 +115,9 @@
     -->
     <section class="card">
       <h2>Add a Peer</h2>
-      <!--
-        The caution is not decoration: with the lock set by default on every
-        hand-added peer, all eight being protected is the likely end state
-        rather than an oddity, and it is the moment the loop quietly stops
-        finding anyone new.
-      -->
       <p class="panel-note">
         <strong>Add &amp; Keep</strong> makes a peer manual and locks it, so it keeps its slot even while
-        offline. The lock below undoes that. <strong>Caution:</strong> with all eight locked, Slot Fill can't add anyone.
+        offline. The lock below undoes that.
       </p>
       <form id="manual-add-form" class="inline-form">
         <input
