@@ -41,11 +41,9 @@ Wallets, crawlers and indexers connect to your node for different reasons. They 
 
 Bitcoin Lab marks software categories that are not expected to relay blocks.
 
-## From ranking to selection
+## What the ranking is for
 
-The ranking updates as new blocks arrive. With rotation enabled, Bitcoin Lab uses these scores to choose candidates for your manual slots.
-
-See [grace period](grace-period.md), [clear lead](swap-margin.md) and [protected peers](protected-peers.md) for what happens after the ranking.
+The ranking updates as new blocks arrive. It is for you to read: Slot Fill picks manual peers for spread, not by score. The score only decides which unlocked manual peer makes room when you add one by hand and all eight slots are taken, among the peers the spread misses least. See [manual slots](manual-slots.md).
 
 ---
 

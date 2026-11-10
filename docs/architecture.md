@@ -5,7 +5,7 @@ Bitcoin Lab runs four processes from the same container image. They share one SQ
 | Process | Responsibility |
 |---|---|
 | `dashboard` | Web interface, API and live block updates |
-| `peer-profiler` | Tracks connections, restores the manual selection and runs rotation |
+| `peer-profiler` | Tracks connections, restores the manual selection and runs Slot Fill |
 | `relay-profiler` | Receives ZMQ block events and records First and Eligible |
 | `stratum-race` | Maintains pool connections and times incoming mining jobs |
 
@@ -17,7 +17,7 @@ The four processes share a SQLite database in WAL mode, allowing readers to acce
 
 The dashboard's Storage panel shows how much space the data uses. Peer measurements and pool history can be cleared separately.
 
-Your saved manual selection survives either reset. Clearing peer measurements starts a fresh delivery record while keeping the peers you have chosen. Manual peers that are offline at that moment are kept as well and get a new waiting period, so the reset itself never parks them.
+Your saved manual selection survives either reset. Clearing peer measurements starts a fresh delivery record while keeping the peers you have chosen. Manual peers that are offline at that moment are kept as well and get a new waiting period, so the reset itself never frees a slot.
 
 ## Health and recovery
 
@@ -37,7 +37,7 @@ A pool that does not report the matching job within the race window receives a m
 
 ## Resource use
 
-Measured on my Umbrel in October 2026, with peer rotation and Stratum Race enabled and around 200 peers connected to Bitcoin Core: the four processes used about 310 MB of memory together. They used almost no CPU.
+Measured on my Umbrel in October 2026, with the peer rotation of that time and Stratum Race enabled and around 200 peers connected to Bitcoin Core: the four processes used about 310 MB of memory together. They used almost no CPU.
 
 Historical data is stored in SQLite, with disk usage shown in the dashboard.
 

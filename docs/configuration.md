@@ -2,13 +2,11 @@
 
 Bitcoin Lab is ready to use with its default settings. On Umbrel, the connection details for Bitcoin Core are supplied automatically.
 
-For the best results with peer rotation, set Bitcoin Core's outgoing connections to clearnet only. Tor and I2P peers occupy outbound slots but cannot be kept as manual peers by Bitcoin Lab, slowing the search for stronger candidates.
-
-On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**. Incoming Tor and I2P connections are fine.
+Slot Fill can add Tor and I2P peers if Core connects out over those networks. On Umbrel: **Bitcoin Node → Settings → Outgoing Peer Connections**.
 
 To customise the app, set environment variables in your Docker Compose configuration. The tables below list the available settings and their defaults.
 
-Where both a `BITCOIN_*` variable and an `APP_BITCOIN_*` equivalent exist, the `BITCOIN_*` value takes precedence. Peer rotation and Stratum Race are enabled through the dashboard.
+Where both a `BITCOIN_*` variable and an `APP_BITCOIN_*` equivalent exist, the `BITCOIN_*` value takes precedence. Slot Fill and Stratum Race are switched on in the dashboard.
 
 Apply shared settings consistently to the services that use them, then recreate the affected containers. See [docker-compose.dev.yml](../docker-compose.dev.yml) for a Compose example and [src/lib/config.js](../src/lib/config.js) for the configuration source.
 
@@ -38,14 +36,14 @@ Apply shared settings consistently to the services that use them, then recreate 
 
 On Umbrel, the dashboard is available at `<your-umbrel>:8790`. The default `8788` is its internal container port.
 
-## Peer measurement and rotation
+## Peer measurement and Slot Fill
 
 | Variable | Purpose | Default |
 |---|---|---|
 | `MAX_MANUAL_PEERS` | Maximum size of the saved manual selection; allowed range: 1–8 | `8` |
-| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Minimum Eligible count: within the last 500 blocks before an outbound peer can be dropped, over its lifetime before it can be promoted | `50` |
-| `NEW_MANUAL_PEER_GRACE_BLOCKS` | Grace against replacement by a stronger candidate, counted from entry into the manual selection | `50` |
-| `MANUAL_PER_REGION` | Manual peers one region (continent) holds while another region has a candidate | `1` |
+| `MIN_ELIGIBLE_FOR_JUDGEMENT` | Blocks an outbound peer must have been connected for to count as tested in the Outbound Peers line | `50` |
+| `NEW_MANUAL_PEER_GRACE_BLOCKS` | Blocks a new manual peer is safe from being replaced by a peer added by hand | `50` |
+| `MANUAL_PER_REGION` | Outbound connections, Core's own included, below which a region (continent, Tor, I2P) counts as missing and may be filled from Core's "new" table | `1` |
 | `RECENT_SCORE_WINDOW_BLOCKS` | Recent block window used for scoring; lifetime performance fills any missing observations | `500` |
 | `PEER_POLL_INTERVAL_MS` | Peer-profiler session poll interval | `15000` |
 
@@ -60,19 +58,7 @@ The peer-profiler interval controls connection bookkeeping. Block observations a
 | `OFFLINE_GRACE_HOURS` | Hours a manual peer that never delivered a block first may stay offline before it loses its slot | `1` |
 | `OFFLINE_GRACE_DELIVERED_HOURS` | The same for a manual peer that delivered at least one block first | `24` |
 
-A padlocked manual peer that Core has connected to at least once never loses its slot to being offline.
-
-| Lifetime First | Offline grace | Parked retention |
-|---|---:|---:|
-| 0.8% | 1 hour | 4 days |
-| 5% | 5 hours | 25 days |
-| 12% | 12 hours | 60 days |
-| 24% | 24 hours | 120 days |
-| 36% | 24 hours | 180 days |
-
-Probe intervals increase with repeated failures. With the defaults, the backoff ceiling is 12 hours for peers at 20% lifetime First or above, 30 hours at 10%, and about 46 hours at 1%. These are ceilings, not fixed intervals from the first probe; checks are scheduled during rotation passes.
-
-See [protected peers](protected-peers.md) and [parking](parking.md) for protection, parking and recovery rules.
+A padlocked manual peer that Core has connected to at least once never loses its slot to being offline. See [manual slots](manual-slots.md).
 
 ## Stratum Race
 
@@ -107,6 +93,7 @@ Blocks are never deleted. The 500-block scoring window controls the ranking, not
 |---|---|---|
 | `DOCKER_PROXY_MASKED_HOST` | The gateway address Docker substitutes for relayed inbound IPv6 peers | `10.21.0.1` |
 | `UMBREL_INTERNAL_NETWORK_CIDR` | Range treated as "another app on this Umbrel" rather than a peer | `10.21.0.0/16` |
+| `TRUSTED_PROXY_HOST` | Host whose requests may change things (disconnect, reset, switches), besides the Docker gateway; set by the store to the app's own proxy | - |
 
 The defaults match Umbrel's normal internal network. The first exists because
 Docker can only hand an inbound IPv6 connection to an IPv4-only container by
@@ -121,11 +108,15 @@ When you type in a bare IP, or when an inbound peer has to be checked for a
 reachable listening port, Bitcoin Lab tries `8333` and then `9333`. That list is
 in `src/lib/config.js` and is not an environment variable.
 
+## For a test copy
+
+`LAB_READ_ONLY=1` keeps a second copy of the app from changing Core's peers, and `PEERMAP_LINK_PORT` points its links at a test Peer Map. `PEERMAP_HEALTH_URL`, `SSE_MAX_AGE_MS` and `WRITE_SOURCE_DEBUG` are for development only.
+
 ## Changing defaults
 
-The rotation settings work together: observation thresholds, grace periods, swap margins and parking determine how quickly candidates are tried and how long proven peers are retained. The pages linked from the [README](../README.md#documentation) explain the choices behind the defaults.
+The pages linked from the [README](../README.md#documentation) explain the choices behind the defaults.
 
-Numeric settings are validated at startup. Invalid values stop the service with an error naming the setting. In particular, minimum grace and retention values must not exceed their maximums, and `RECENT_SCORE_WINDOW_BLOCKS` must be at least `MIN_ELIGIBLE_FOR_JUDGEMENT`.
+Numeric settings are validated at startup. Invalid values stop the service with an error naming the setting. In particular, `RECENT_SCORE_WINDOW_BLOCKS` must be at least `MIN_ELIGIBLE_FOR_JUDGEMENT`.
 
 ---
 
