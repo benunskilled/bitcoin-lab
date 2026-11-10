@@ -217,6 +217,16 @@ async function start(ranking, peers, chain, now = Date.now()) {
   const gaps = new Set(Object.keys(spread.REGION_NAMES).filter((r) => (counts[r] || 0) < spread.TARGET_PER_REGION));
   const ranked = spread.rankForGap(shuffle(book), trusted, coreRegions);
   const inGap = (c) => gaps.has(spread.placeOf(c).region);
+  // Where clearnet works, one Tor and one I2P connection are enough, Core's
+  // own counted (10.11.2026): an I2P or Tor peer may sit anywhere, and those
+  // networks are small, so a further one says less than a continent. A node
+  // on Tor alone takes all it can get there.
+  const clearnet = nets.has('ipv4') || nets.has('ipv6');
+  const capped = (c) => {
+    const { region } = spread.placeOf(c);
+    return clearnet && (region === 'TOR' || region === 'I2P') && (counts[region] || 0) >= 1;
+  };
+  for (let i = ranked.length - 1; i >= 0; i--) if (capped(ranked[i])) ranked.splice(i, 1);
   const tried = ranked.filter((c) => !c.fromNew);
   // A missing region "tried" has nobody from may look in "new" (addrbook.js).
   // Nobody the provider rule would let in, that is: a region whose only
@@ -235,7 +245,8 @@ async function start(ranking, peers, chain, now = Date.now()) {
     const what = spread.describe(c);
     const { region } = spread.placeOf(c);
     // Where it is shows under its address in the log; the note says why.
-    const why = inGap(c) ? `${spread.REGION_NAMES[region]} had ${counts[region] ? `only ${counts[region]}` : 'none'}` : 'free slot';
+    // How many connections its region had: none, or only as few as any.
+    const why = region ? `${spread.REGION_NAMES[region]} had ${counts[region] ? `only ${counts[region]}` : 'none'}` : 'free slot';
     // Written before the add: if the app stops between the two, the next pass
     // finds the trial and either its candidate (and judges it) or nothing.
     writeTrial({

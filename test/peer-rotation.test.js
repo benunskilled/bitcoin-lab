@@ -672,6 +672,45 @@ test('slot fill: Core\'s own outbound peers count too - a region they crowd wait
   assert.equal(fill.currentTrial().address, asia, 'Asia has one connection, Europe three of Core\'s own');
 });
 
+test('slot fill: with clearnet, no second I2P connection - Core\'s own counts - and the note says how few', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  at(seedLivePeer({ eligible: 144 }), 'AS');
+  seedLivePeer({ address: `${'k'.repeat(52)}.b32.i2p:0`, eligible: 144 });
+  inBook(`${'j'.repeat(52)}.b32.i2p`, null, { port: 0, network: 'i2p' });
+  const asia = inBook('198.18.0.80', 'AS');
+  const peers = setPeers([coreOut(), coreOut('ipv4', { network: 'i2p' })]);
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: ['ipv4', 'i2p'].map((name) => ({ name, reachable: true, proxy: '' })) }));
+
+  await step(peers, Date.now());
+
+  assert.equal(fill.currentTrial().address, asia, 'Asia and I2P have one connection each; I2P is full');
+  assert.equal(fill.currentTrial().note, 'Asia had only 1');
+});
+
+test('slot fill: with clearnet and an I2P connection already, an I2P candidate alone is not taken', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  seedLivePeer({ address: `${'k'.repeat(52)}.b32.i2p:0`, eligible: 144 });
+  inBook(`${'j'.repeat(52)}.b32.i2p`, null, { port: 0, network: 'i2p' });
+  const peers = setPeers([coreOut(), coreOut('ipv4', { network: 'i2p' })]);
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: ['ipv4', 'i2p'].map((name) => ({ name, reachable: true, proxy: '' })) }));
+
+  const result = await step(peers, Date.now());
+
+  assert.equal(result.started, 0);
+  assert.equal(fill.currentTrial(), null);
+});
+
+test('slot fill: a node on Tor alone takes Tor peers for every slot', async () => {
+  at(seedLivePeer({ address: `${'t'.repeat(56)}.onion:8333`, eligible: 144, first: 50, trusted: true }), null);
+  const tor = inBook(`${'u'.repeat(56)}.onion`, null, { network: 'onion' });
+  const peers = setPeers([coreOut('onion')]);
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: [{ name: 'onion', reachable: true, proxy: '' }] }));
+
+  await step(peers, Date.now());
+
+  assert.equal(fill.currentTrial().address, tor);
+});
+
 test('slot fill: no provider Core\'s own outbound peers already use', async () => {
   at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
   at(seedLivePeer({ eligible: 144 }), 'NA', 'op-shared');

@@ -8,7 +8,7 @@ Slot Fill looks every ten minutes. If a slot is free, it picks a candidate:
 
 - **The region with the fewest connections goes first.** The regions are the six continents, Tor and I2P. Core's connected outbound peers count, and so do your saved manual peers, offline ones included. Within a region, a country the manual peers do not have yet goes first.
 - **No provider your node already uses**, by Core's own outbound peers or a manual one, where the bundled table can tell the provider. Tor and I2P peers have none, so they never clash. Peers you add yourself may share one.
-- **Tor and I2P only if Core uses them**, meaning Core may connect over that network and holds an outbound connection over it right now. A node that uses only Tor gets only Tor peers, all eight if need be.
+- **Tor and I2P only if Core uses them**, meaning Core may connect over that network and holds an outbound connection over it right now. Where clearnet works, your node keeps at most one Tor and one I2P connection, Core's own counted. A node that uses only Tor gets only Tor peers, all eight if need be.
 - **From Core's address book.** First from the addresses Core has connected to before. If a region with no connection at all has none there that the provider rule lets in, from addresses other peers reported as seen within the last day. Without Core's `getrawaddrman`, Slot Fill picks no one. Banned addresses are skipped, and so is any address that failed a trial in the last week.
 
 ## How a candidate is tested
