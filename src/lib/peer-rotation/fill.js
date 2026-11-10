@@ -210,9 +210,12 @@ async function start(ranking, peers, chain, now = Date.now()) {
   const book = (await bookEntries(now))
     .filter((c) => nets.has(c.network) && !inUse.has(hostFromAddress(c.address)) && !banned(c.address) && !failed.has(c.address));
 
-  const counts = spread.regionCounts(trusted);
+  // Counted over all outbound connections, Core's own too (spread.js).
+  const coreRegions = spread.coreRegionsOf(ranking);
+  const coreKeys = spread.coreOperatorsOf(ranking);
+  const counts = spread.totalCounts(trusted, coreRegions);
   const gaps = new Set(Object.keys(spread.REGION_NAMES).filter((r) => (counts[r] || 0) < spread.TARGET_PER_REGION));
-  const ranked = spread.rankForGap(shuffle(book), trusted, spread.coreRegionsOf(ranking));
+  const ranked = spread.rankForGap(shuffle(book), trusted, coreRegions);
   const inGap = (c) => gaps.has(spread.placeOf(c).region);
   const tried = ranked.filter((c) => !c.fromNew);
   // A missing region "tried" has nobody from may look in "new" (addrbook.js).
@@ -226,7 +229,7 @@ async function start(ranking, peers, chain, now = Date.now()) {
 
   let attempts = 0;
   for (const c of ordered) {
-    if (!spread.admit(c, trusted, max)) continue;
+    if (!spread.admit(c, trusted, max, coreKeys)) continue;
     const what = spread.describe(c);
     const { region } = spread.placeOf(c);
     // Where it is shows under its address in the log; the note says why.

@@ -13,10 +13,13 @@
  * outbound peers over network groups, but addnode connections are exempt
  * from that.
  *
- * So the free slots are spread: one per operator, and a region with fewer
- * than TARGET_PER_REGION manual peers (the six continents, Tor and I2P) gets
- * the next free slot first. A slot no missing region can fill goes to anyone
- * the operator rule lets in. Nobody is ever moved out for the spread.
+ * So the free slots are spread, and counted over all of the node's outbound
+ * connections, Core's own and the manual ones (10.11.2026: a manual peer in
+ * Europe beside Core's five there added nothing). The region with the fewest
+ * of them (the six continents, Tor and I2P) gets the next free slot, and no
+ * operator Core or a manual peer already uses gets in again. A slot no
+ * missing region can fill goes to anyone the operator rule lets in. Nobody
+ * is ever moved out for the spread.
  *
  * Pure: plain rows in, an answer out. Region and operator come from
  * network.lookup; Tor and I2P are regions of their own with no operator, and
@@ -74,35 +77,42 @@ function countriesByRegion(peers) {
   return out;
 }
 
+// Outbound connections per region, Core's own and the manual ones together.
+function totalCounts(trusted, coreRegions) {
+  const counts = { ...coreRegions };
+  for (const [r, n] of Object.entries(regionCounts(trusted))) counts[r] = (counts[r] || 0) + n;
+  return counts;
+}
+
 /**
  * How good a newcomer would be for the spread, lower is better: a region with
- * fewer manual peers first, then a country that region does not have yet,
- * then a region Core's own outbound peers do not reach. Within that, the
+ * fewer outbound connections first, Core's and the manual ones counted
+ * together, then a country the manual peers do not have yet. Within that, the
  * order they came in (fill.js shuffles the address book) - the sort is
  * stable.
  */
 function rankForGap(candidates, trusted, coreRegions) {
-  const counts = regionCounts(trusted);
+  const counts = totalCounts(trusted, coreRegions);
   const held = countriesByRegion(trusted);
   const keyOf = (c) => {
     const { region, country } = placeOf(c);
-    const others = region ? coreRegions[region] || 0 : 0;
     const knownCountry = region && country && held[region] && held[region].has(country) ? 1 : 0;
-    return [region ? counts[region] || 0 : TARGET_PER_REGION, knownCountry, others > 0 ? 1 : 0];
+    return [region ? counts[region] || 0 : Infinity, knownCountry];
   };
   return candidates
     .map((c, i) => ({ c, k: keyOf(c), i }))
-    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2] || a.i - b.i)
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.i - b.i)
     .map((x) => x.c);
 }
 
 /**
  * Would this peer be let into a free manual slot? Only if one is free and its
- * operator is not in the set yet.
+ * operator is neither in the manual set nor among Core's own outbound peers
+ * (coreKeys, from coreOperatorsOf).
  */
-function admit(peer, trusted, maxSlots) {
+function admit(peer, trusted, maxSlots, coreKeys = new Set()) {
   const { key } = placeOf(peer);
-  if (key && trusted.some((p) => placeOf(p).key === key)) return false;
+  if (key && (coreKeys.has(key) || trusted.some((p) => placeOf(p).key === key))) return false;
   return trusted.length < maxSlots;
 }
 
@@ -113,9 +123,16 @@ function describe(peer) {
   return `${REGION_NAMES[region] || 'unknown region'}${where ? ` (${where})` : ''}`;
 }
 
+const coreOutbound = (ranking) => ranking.filter((p) => p.live && !p.trusted && p.direction === 'outbound');
+
 // How many of Core's own outbound peers (not the manual ones) sit in each region.
 function coreRegionsOf(ranking) {
-  return regionCounts(ranking.filter((p) => p.live && !p.trusted && p.direction === 'outbound'));
+  return regionCounts(coreOutbound(ranking));
+}
+
+// The operators Core's own outbound peers are with.
+function coreOperatorsOf(ranking) {
+  return new Set(coreOutbound(ranking).map((p) => placeOf(p).key).filter(Boolean));
 }
 
 /**
@@ -124,22 +141,20 @@ function coreRegionsOf(ranking) {
  * always work, but it took the weakest anywhere - often the one peer in
  * Africa or Oceania the slot fill had found). In order, among the peers that
  * may go at all: one from the newcomer's own region, so the spread stays as
- * it was; one from a region held twice, the fullest first; one from a region
- * Core's own peers reach anyway; any other; Tor and I2P last. Within a step,
- * the weakest (weakest()), as before.
+ * it was; one from a region the node reaches more than once, Core's own
+ * peers counted too, the fullest first; any other; Tor and I2P last. Within
+ * a step, the weakest (weakest()), as before.
  */
 function leastMissed(newcomer, evictable, trusted, ranking, weakest) {
   if (!evictable.length) return null;
   const mine = placeOf(newcomer).region;
-  const counts = regionCounts(trusted);
-  const core = coreRegionsOf(ranking);
+  const counts = totalCounts(trusted, coreRegionsOf(ranking));
   const step = (p) => {
     const { region } = placeOf(p);
     if (region && region === mine) return [0, 0];
     if (region && counts[region] > 1) return [1, -counts[region]];
-    if (region === 'TOR' || region === 'I2P') return [4, 0];
-    if (region && core[region]) return [2, 0];
-    return [3, 0];
+    if (region === 'TOR' || region === 'I2P') return [3, 0];
+    return [2, 0];
   };
   const best = evictable.map(step).reduce((a, b) => (b[0] < a[0] || (b[0] === a[0] && b[1] < a[1]) ? b : a));
   return weakest(evictable.filter((p) => {
@@ -149,5 +164,6 @@ function leastMissed(newcomer, evictable, trusted, ranking, weakest) {
 }
 
 module.exports = {
-  TARGET_PER_REGION, REGION_NAMES, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf, leastMissed,
+  TARGET_PER_REGION, REGION_NAMES, placeOf, regionCounts, totalCounts, rankForGap, admit, describe, coreRegionsOf,
+  coreOperatorsOf, leastMissed,
 };

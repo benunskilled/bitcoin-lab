@@ -661,6 +661,28 @@ test('slot fill: a missing region "tried" has nobody from is looked for in "new"
   assert.equal(fill.currentTrial().fromNew, true);
 });
 
+test('slot fill: Core\'s own outbound peers count too - a region they crowd waits behind a thin one', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'AS');
+  for (let i = 0; i < 3; i++) at(seedLivePeer({ eligible: 144 }), 'EU');
+  inBook('198.18.0.50', 'EU');
+  const asia = inBook('198.18.0.51', 'AS');
+
+  await step(setPeers([coreOut()]), Date.now());
+
+  assert.equal(fill.currentTrial().address, asia, 'Asia has one connection, Europe three of Core\'s own');
+});
+
+test('slot fill: no provider Core\'s own outbound peers already use', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  at(seedLivePeer({ eligible: 144 }), 'NA', 'op-shared');
+  inBook('198.18.0.60', 'OC', { operator: 'op-shared' });
+  const other = inBook('198.18.0.61', 'OC');
+
+  await step(setPeers([coreOut()]), Date.now());
+
+  assert.equal(fill.currentTrial().address, other);
+});
+
 test('slot fill: a region "tried" can fill does not look in "new"', async () => {
   at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
   const asia = inBook('198.18.0.30', 'AS');
