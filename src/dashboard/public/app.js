@@ -588,20 +588,6 @@ async function refreshStatus() {
   const parts = [s.network, `${s.live.total} peers connected`];
   el.textContent = parts.join(' · ');
   el.prepend(liveDot);
-  // How often a block could not be credited to one peer, in the line that
-  // already exists rather than a new one: Core's last_block has one-second
-  // resolution, and when the block before arrived only a moment earlier two
-  // peers match and neither is credited (relay-profiler.js). Counted rather
-  // than claimed, and its own element because it needs explaining.
-  if (s.unclearFirsts) {
-    const unclear = document.createElement('span');
-    unclear.className = 'status-ties';
-    unclear.textContent = ` · ${s.unclearFirsts.unclear.toLocaleString('en-US')} unclear`
-      + ` in ${s.unclearFirsts.races.toLocaleString('en-US')} ${s.unclearFirsts.races === 1 ? 'block' : 'blocks'}`;
-    unclear.title = 'The block before arrived only a moment earlier, often right after a restart,'
-      + " so who delivered which one can't be told apart. Neither peer gets the First.";
-    el.appendChild(unclear);
-  }
 
   setBlockHeight(s.blockHeight);
 

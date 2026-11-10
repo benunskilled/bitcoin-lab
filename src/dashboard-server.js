@@ -619,10 +619,6 @@ async function router(req, res, pathname, url) {
       // written into the page: a heading that states the wrong window is worse
       // than one that states none.
       recentScoreWindowBlocks: config.recentScoreWindowBlocks,
-      // How many recorded blocks could not be credited to one peer, stated
-      // rather than assumed. Counted once per block (cached); null on an
-      // install that has not seen a block yet.
-      unclearFirsts: queries.unclearFirsts(),
       // Four counts over the whole history, not the current snapshot: how many
       // outbound peers Core has handed this node, how many lasted long enough
       // to be judged, how many ever delivered, how many were kept. Cheap - one

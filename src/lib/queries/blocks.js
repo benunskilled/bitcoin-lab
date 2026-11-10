@@ -115,47 +115,6 @@ function stratumForBlock(blockHash) {
 }
 
 /**
- * How many blocks could not be credited to one peer.
- *
- * Core credits each block to exactly one connection (last_block, set only
- * when the block was new to it), but in whole seconds. When another block
- * arrives moments apart - on the node this was written for, each time the
- * previous block 1-2 s earlier - two peers match and nothing here can tell
- * which last_block belongs to which block.
- * Since this version neither is credited (relay-profiler.js); the block is
- * kept and counted here. Blocks recorded before first_count existed have no
- * count, so for those the doubled First rows are what says so.
- *
- * A property of the node rather than of the app: close to never on one that
- * runs steadily (3 of 4,994 blocks on the node this was written for, each
- * with another block 1-2 s away).
- *
- * Lifetime rather than a recent window, and null before the first block - a
- * fresh install should not show "0 in 0". Cached against the newest block,
- * because it is asked on every /api/status poll and only a block changes it.
- */
-let unclearCache = { raceId: null, value: null };
-
-function unclearFirsts() {
-  const newest = db.instance.prepare(`SELECT MAX(id) AS id FROM relay_race`).get().id;
-  if (newest == null) return null;
-  if (unclearCache.raceId === newest) return unclearCache.value;
-
-  const races = db.instance.prepare(`SELECT COUNT(*) AS n FROM relay_race`).get().n;
-  const unclear = db.instance
-    .prepare(
-      `SELECT COUNT(*) AS n FROM relay_race r
-        WHERE r.first_count > 1
-           OR (r.first_count IS NULL
-               AND (SELECT COUNT(*) FROM relay_observation o WHERE o.race_id = r.id AND o.first = 1) > 1)`,
-    )
-    .get().n;
-  const value = { races, unclear };
-  unclearCache = { raceId: newest, value };
-  return value;
-}
-
-/**
  * The route of the typical block: the median of every stop over the last
  * `limit` blocks, each counted from its own race's first job, the way Peer
  * Map draws a single block. One block's route scatters - a slow peer, a busy
@@ -416,5 +375,5 @@ const reconstructionWeek = (now) => reconstructionOver(RECON_WEEK_MS, now);
 
 module.exports = {
   reconstructionDay, reconstructionWeek, reconstructionLast,
-  latestBlock, blockDetail, routeMedian, deliveredEver, unclearFirsts, attributionHealth, ATTRIBUTION_WINDOW_MS,
+  latestBlock, blockDetail, routeMedian, deliveredEver, attributionHealth, ATTRIBUTION_WINDOW_MS,
 };

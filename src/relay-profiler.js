@@ -57,7 +57,7 @@ const FIRST_WINDOW_MS = 2500;
  * together slip past isCatchingUp - and one of the two last_blocks belongs to
  * that other block. Which one cannot be told from here, so neither
  * peer is credited: recordRace keeps the block, stores how many matched in
- * first_count, and the status line counts it as unclear.
+ * first_count, kept for diagnosis.
  *
  * It also barely happens. Measured on a listening node with ~200 peers, over
  * 1,487 recorded races: 1,486 had exactly one peer inside the window, one had
