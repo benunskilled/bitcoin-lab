@@ -1602,7 +1602,7 @@ let rotationToggleEpoch = 0;
 // innerHTML - into a class attribute AND the text - without escaping. Nothing
 // a Bitcoin peer controls can reach it today, which is exactly the kind of
 // reasoning that stops being true after a refactor.
-const ROTATION_ACTIONS = new Set(['promote', 'retire', 'manual', 'disconnect']);
+const ROTATION_ACTIONS = new Set(['promote', 'retire', 'manual', 'unmanual', 'disconnect']);
 function rotationActionClass(action) {
   return ROTATION_ACTIONS.has(action) ? `rotation-${action}` : 'offline';
 }
@@ -1613,6 +1613,7 @@ function rotationActionLabel(action) {
   // Offline past its grace: the slot is free for the next candidate.
   if (action === 'retire') return 'Removed';
   if (action === 'manual') return 'Added by hand';
+  if (action === 'unmanual') return 'Removed by hand';
   if (action === 'disconnect') return 'Disconnected by hand';
   return action;
 }

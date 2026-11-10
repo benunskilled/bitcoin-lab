@@ -454,6 +454,12 @@ test('a real trusted peer is still removable, and a missing address still says s
   });
   assert.equal(status, 200);
   assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer WHERE address = '203.0.113.77:8333'`).get().n, 0);
+  const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'unmanual' AND address = ?").get('203.0.113.77:8333');
+  assert.ok(row, 'a peer removed by hand is in the log');
+  assert.equal(row.note, 'no recent blocks');
+  db.instance.prepare("DELETE FROM rotation_log WHERE action = 'unmanual'").run();
+  await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address: '203.0.113.78:8333' }) });
+  assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'unmanual'").get().n, 0, 'not one that was never manual');
 
   const missing = await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({}) });
   assert.equal(missing.status, 400, 'left out is still 400 - a different mistake from sent wrong');

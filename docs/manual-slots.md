@@ -34,7 +34,7 @@ When Core or Bitcoin Lab restarts, Bitcoin Lab hands all saved manual peers back
 
 ## The log
 
-The Slot Fill log keeps the last 30 entries: a peer added or removed by Slot Fill, a peer added by hand and a peer disconnected by hand.
+The Slot Fill log keeps the last 30 entries: a peer added or removed by Slot Fill, and a peer added, removed or disconnected by hand.
 
 ---
 

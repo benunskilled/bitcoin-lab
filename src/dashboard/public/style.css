@@ -232,7 +232,7 @@ tr.weak td { color: var(--muted); }
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
 .pill.rotation-manual { background: rgba(57,135,229,.15); color: #6aa8f0; }
 .pill.rotation-retire { background: rgba(138,153,168,.15); color: var(--muted); }
-.pill.rotation-disconnect { background: rgba(138,153,168,.15); color: var(--muted); }
+.pill.rotation-disconnect, .pill.rotation-unmanual { background: rgba(138,153,168,.15); color: var(--muted); }
 
 /* The Add-a-Peer result line. "not reachable" is a perfectly good answer
    rather than an error - Test exists to produce it - so it is coloured as

@@ -766,7 +766,18 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
     const { address } = await readBody(req);
     if (!readAddress(res, address)) return true;
+    const wasManual = Boolean(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(address));
     await peerSync.removeTrustedPeer(address);
+    // In the log as the old rotation had it (10.11.2026): a slot freed by
+    // hand is what Slot Fill fills next, and the entry it writes then needs
+    // this one before it to make sense.
+    if (wasManual) {
+      try {
+        peerRotation.logAction({ action: 'unmanual', address, ...handRecord(address) });
+      } catch (err) {
+        logger.warn('rotation log entry for a removal failed', { address, error: err.message });
+      }
+    }
     return sendJson(res, 200, { ok: true });
   }
 
@@ -838,6 +849,28 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, { ok: true, enabled: peerRotation.isEnabled() });
   }
 
+  // What the log says about a peer let go by hand: its lifetime share stored,
+  // the recent window in the note - and, for a disconnect, which way the
+  // connection went, from its newest session: dropping a stranger that dialled
+  // in is a different decision from dropping one of Core's own outbound picks.
+  function handRecord(address, { way = false } = {}) {
+    const peer = db.instance
+      .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
+                  LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
+      .get(address);
+    const recent = peer && recentRelayStats().get(peer.id);
+    const session = way && peer && db.instance
+      .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
+      .get(peer.id);
+    const dir = session && /^(inbound|outbound)$/.test(session.direction) ? session.direction : null;
+    const record = recent && recent.eligible ? `${recent.first} of ${recent.eligible} recent blocks first` : 'no recent blocks';
+    return {
+      firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
+      eligible: peer ? peer.eligible : null,
+      note: [dir, record].filter(Boolean).join(' \u00b7 '),
+    };
+  }
+
   if (req.method === 'POST' && pathname === '/api/peers/disconnect') {
     const { address } = await readBody(req);
     if (!readAddress(res, address)) return true;
@@ -851,27 +884,7 @@ async function router(req, res, pathname, url) {
     // The peer is gone by now; a busy database must not turn that into an
     // error the user would retry.
     try {
-      // The lifetime share is stored with it; the note has the recent window.
-      const peer = db.instance
-        .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
-                    LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
-        .get(address);
-      const recent = peer && recentRelayStats().get(peer.id);
-      // Which way the connection went, from its newest session: dropping a
-      // stranger that dialled in is a different decision from dropping one of
-      // Core's own outbound picks, and the log could not tell them apart.
-      const session = peer && db.instance
-        .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
-        .get(peer.id);
-      const way = session && /^(inbound|outbound)$/.test(session.direction) ? session.direction : null;
-      const record = recent && recent.eligible ? `${recent.first} of ${recent.eligible} recent blocks first` : 'no recent blocks';
-      peerRotation.logAction({
-        action: 'disconnect',
-        address,
-        firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
-        eligible: peer ? peer.eligible : null,
-        note: [way, record].filter(Boolean).join(' · '),
-      });
+      peerRotation.logAction({ action: 'disconnect', address, ...handRecord(address, { way: true }) });
     } catch (err) {
       logger.warn('rotation log entry for a disconnect failed', { address, error: err.message });
     }
