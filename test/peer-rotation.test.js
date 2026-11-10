@@ -607,8 +607,10 @@ const logRows = () => db.instance.prepare('SELECT * FROM rotation_log ORDER BY i
 // around it.
 async function step(peers, now) {
   const chain = await rpc.getBlockchainInfo();
+  const before = fill.currentTrial();
   const settled = await fill.settle(peers, chain, now);
-  const started = settled === 'waiting' || settled === 'reverted' ? 0 : await fill.start(ranking(), peers, chain, now);
+  if (settled === 'reverted') peers = fill.withoutSession(peers, before.address);
+  const started = settled === 'waiting' ? 0 : await fill.start(ranking(), peers, chain, now);
   return { started: started ? 1 : 0, confirmed: settled === 'confirmed' ? 1 : 0, reverted: settled === 'reverted' ? 1 : 0 };
 }
 
@@ -761,7 +763,7 @@ test('slot fill: while Core has not connected yet, nothing else moves', async ()
   const t0 = Date.now();
   await step(setPeers([coreOut()]), t0);
 
-  const result = await step(setPeers([coreOut()]), t0 + 5 * MIN);
+  const result = await step(setPeers([coreOut()]), t0 + 4 * MIN);
 
   assert.deepEqual(result, { started: 0, confirmed: 0, reverted: 0 });
   assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2, 'one candidate at a time');
@@ -1185,4 +1187,170 @@ test('switched off while Core did not answer, the trial is settled on a later pa
   await peerRotation.tick();
   assert.equal(fill.currentTrial(), null);
   assert.ok(!isManual(asia));
+});
+
+// --- Deadlines by network, and the next candidate at once ---------------------
+
+test('slot fill: no connection to a clearnet candidate by 5 minutes - out, and the next goes in that pass', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const oceania = inBook('198.18.0.12', 'OC');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+  const first = fill.currentTrial().address;
+  const second = first === asia ? oceania : asia;
+
+  assert.equal((await step(setPeers([coreOut()]), t0 + 4 * MIN)).reverted, 0, 'still waiting at 4 minutes');
+  const result = await step(setPeers([coreOut()]), t0 + 5 * MIN);
+
+  assert.equal(result.reverted, 1);
+  assert.equal(result.started, 1, 'no ten-minute pause behind a candidate that did not answer');
+  assert.equal(fill.currentTrial().address, second);
+  assert.ok(!isManual(first));
+});
+
+test('slot fill: a Tor candidate gets 10 minutes to connect', async () => {
+  at(seedLivePeer({ address: `${'t'.repeat(56)}.onion:8333`, eligible: 144, first: 50, trusted: true }), null);
+  const tor = inBook(`${'u'.repeat(56)}.onion`, null, { network: 'onion' });
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: [{ name: 'onion', reachable: true, proxy: '' }] }));
+  const t0 = Date.now();
+  await step(setPeers([coreOut('onion')]), t0);
+
+  assert.equal((await step(setPeers([coreOut('onion')]), t0 + 9 * MIN)).reverted, 0);
+  assert.equal((await step(setPeers([coreOut('onion')]), t0 + 10 * MIN)).reverted, 1);
+  assert.ok(!isManual(tor));
+});
+
+test('slot fill: an I2P candidate gets 15 minutes to connect', async () => {
+  at(seedLivePeer({ address: `${'t'.repeat(52)}.b32.i2p:0`, eligible: 144, first: 50, trusted: true }), null);
+  const i2p = inBook(`${'v'.repeat(52)}.b32.i2p`, null, { network: 'i2p', port: 0 });
+  rpc.getNetworkInfo.mock.mockImplementation(async () => ({ networks: [{ name: 'i2p', reachable: true, proxy: '' }] }));
+  const t0 = Date.now();
+  await step(setPeers([coreOut('i2p')]), t0);
+  assert.equal(fill.currentTrial().address, i2p);
+
+  assert.equal((await step(setPeers([coreOut('i2p')]), t0 + 14 * MIN)).reverted, 0);
+  assert.equal((await step(setPeers([coreOut('i2p')]), t0 + 15 * MIN)).reverted, 1);
+});
+
+test('slot fill: connected but with no header height yet - no verdict for 30 minutes, and it keeps the slot once the height comes', async () => {
+  // A peer a block or two behind answers the first headers request with
+  // nothing, and Core shows -1 until that peer announces a block.
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+
+  assert.equal((await step(setPeers([coreOut(), manualSession(asia, { synced: -1 })]), t0 + 20 * MIN)).reverted, 0, 'not yet a verdict');
+  assert.ok(isManual(asia));
+  assert.equal((await step(setPeers([coreOut(), manualSession(asia, { synced: TIP + 1 })]), t0 + 25 * MIN)).confirmed, 1);
+});
+
+test('slot fill: still no header height after 30 minutes - out', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+
+  assert.equal((await step(setPeers([coreOut(), manualSession(asia, { synced: -1 })]), t0 + 30 * MIN)).reverted, 1);
+  assert.ok(!isManual(asia));
+});
+
+test('slot fill: a height that is not ours is out at 15 minutes, as before', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.10', 'AS');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+
+  assert.equal((await step(setPeers([coreOut(), manualSession(asia, { synced: TIP - 50 })]), t0 + 14 * MIN)).reverted, 0);
+  assert.equal((await step(setPeers([coreOut(), manualSession(asia, { synced: TIP - 50 })]), t0 + 15 * MIN)).reverted, 1);
+});
+
+// Moves the open trial back in time, as if it had been running that long.
+function ageTrial(ms) {
+  const row = db.instance.prepare(`SELECT value FROM meta WHERE key = 'slot_fill_trial'`).get();
+  const trial = JSON.parse(row.value);
+  trial.startedAt -= ms;
+  db.instance.prepare(`UPDATE meta SET value = ? WHERE key = 'slot_fill_trial'`).run(JSON.stringify(trial));
+}
+
+test('tick: a candidate taken out is followed by the next in the same pass', async () => {
+  peerRotation.setEnabled(true);
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  inBook('198.18.0.10', 'AS');
+  inBook('198.18.0.12', 'OC');
+  setPeers([coreOut()]);
+  await peerRotation.tick();
+  const first = fill.currentTrial().address;
+
+  ageTrial(6 * MIN);
+  const result = await peerRotation.tick();
+
+  assert.equal(result.reverted, 1);
+  assert.equal(result.started, 1);
+  assert.notEqual(fill.currentTrial().address, first);
+});
+
+test('tick: Core not answering right after a candidate went - the next pass starts the next one', async () => {
+  peerRotation.setEnabled(true);
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  inBook('198.18.0.10', 'AS');
+  inBook('198.18.0.12', 'OC');
+  setPeers([coreOut()]);
+  await peerRotation.tick();
+  ageTrial(6 * MIN);
+  let calls = 0;
+  rpc.getPeerInfo.mock.mockImplementation(async () => {
+    calls += 1;
+    if (calls > 1) throw new Error('connect ECONNREFUSED');
+    return [coreOut()];
+  });
+
+  const result = await peerRotation.tick();
+
+  assert.ok(calls >= 3, 'asked again after the candidate went (the old code stopped at two), and that failed');
+  assert.equal(result.reverted, 1);
+  assert.equal(result.started, 0);
+  assert.equal(fill.currentTrial(), null);
+});
+
+test('watchTrial: nothing without a trial, a verdict with one', async () => {
+  peerRotation.setEnabled(true);
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  inBook('198.18.0.10', 'AS');
+  setPeers([coreOut()]);
+  const calls = rpc.getPeerInfo.mock.callCount();
+
+  assert.equal(await peerRotation.watchTrial(), null);
+  assert.equal(rpc.getPeerInfo.mock.callCount(), calls, 'not even a getpeerinfo');
+
+  await peerRotation.tick();
+  ageTrial(6 * MIN);
+  const result = await peerRotation.watchTrial();
+
+  assert.equal(result.reverted, 1);
+});
+
+test('watchTrial: switched off, nothing happens', async () => {
+  peerRotation.setEnabled(false);
+  assert.equal(await peerRotation.watchTrial(), null);
+});
+
+test('tick: two passes at once - the second does nothing, so no second candidate goes in', async () => {
+  peerRotation.setEnabled(true);
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  inBook('198.18.0.10', 'AS');
+  inBook('198.18.0.12', 'OC');
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  rpc.getPeerInfo.mock.mockImplementation(async () => { await held; return [coreOut()]; });
+
+  const first = peerRotation.tick();
+  const second = await peerRotation.tick();
+  release();
+  const done = await first;
+
+  assert.deepEqual([second.started, second.reverted, second.confirmed], [0, 0, 0]);
+  assert.equal(done.started, 1);
+  assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer').get().n, 2, 'one candidate only');
 });

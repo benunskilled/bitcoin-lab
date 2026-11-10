@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Manual slot fill: one pass every ten minutes, and the toggle that decides
+ * Manual slot fill: one pass every ten minutes (every minute while a
+ * candidate is on trial), and the toggle that decides
  * whether any of it runs at all. (The directory keeps its old name,
  * peer-rotation, so every existing require keeps resolving; in the app it is
  * no longer a rotation. It fills free manual slots and spreads them, and
@@ -63,6 +64,32 @@ async function settleOnSwitchOff() {
   }
 }
 
+// One pass at a time: the ten-minute timer and the one-minute trial check
+// (watchTrial) both come here, and two passes at once could each put a
+// candidate on trial.
+let running = false;
+
+async function tick() {
+  if (running) return { enabled: isEnabled(), retired: 0, started: 0, confirmed: 0, reverted: 0 };
+  running = true;
+  try {
+    return await pass();
+  } finally {
+    running = false;
+  }
+}
+
+/**
+ * Every minute, from peer-profiler.js: only while a candidate is on trial, so
+ * a candidate Core cannot use is out at its own deadline, not at the next
+ * ten-minute pass, and the next one goes in at once. Without a trial, and
+ * switched off, it does nothing at all.
+ */
+async function watchTrial() {
+  if (!isEnabled() || !fill.currentTrial()) return null;
+  return tick();
+}
+
 /**
  * One pass - a complete no-op unless the toggle is on.
  *
@@ -76,7 +103,7 @@ async function settleOnSwitchOff() {
  * All read the same getpeerinfo, taken first. If Core does not answer,
  * nothing happens: every peer would look offline.
  */
-async function tick() {
+async function pass() {
   const idle = { enabled: false, retired: 0, started: 0, confirmed: 0, reverted: 0 };
   if (!isEnabled()) {
     // Switched off with a trial still open - Core did not answer at that
@@ -92,13 +119,24 @@ async function tick() {
     logger.debug('slot fill: Core not answering, skipping this pass', { error: err.message });
     return { ...idle, enabled: true };
   }
+  const trialBefore = fill.currentTrial();
   const settled = await fill.settle(peers, chain);
+  // A candidate taken out: the next one goes in this pass, on a fresh
+  // getpeerinfo without the one just dropped. If Core does not answer now,
+  // the next pass does it.
+  if (settled === 'reverted') {
+    try {
+      peers = fill.withoutSession(await rpc.getPeerInfo(), trialBefore.address);
+    } catch (err) {
+      logger.debug('slot fill: Core not answering after a candidate went, next pass', { error: err.message });
+      return { ...idle, enabled: true, reverted: 1 };
+    }
+  }
   const onTrial = fill.currentTrial();
   const ranking = queries.peerRanking();
   const retired = await retireOfflineManualPeers(ranking, onTrial && onTrial.address, peers);
-  // One move per pass: nothing new while a candidate is on trial, nor in the
-  // pass that just took one out.
-  let started = onTrial || settled === 'reverted'
+  // One move per pass: nothing new while a candidate is on trial.
+  let started = onTrial
     ? 0
     : await fill.start(retired > 0 ? queries.peerRanking() : ranking, peers, chain);
   // Switched off while this pass was adding: the switch-off could not see the
@@ -117,6 +155,7 @@ module.exports = {
   isEnabled,
   setEnabled,
   settleOnSwitchOff,
+  watchTrial,
   logAction,
   recentLog,
   retireOfflineManualPeers,

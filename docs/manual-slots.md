@@ -4,7 +4,7 @@ Core keeps up to eight manual connections on top of its own outbound peers. It n
 
 ## How a slot is filled
 
-Slot Fill looks every ten minutes. If a slot is free, it picks a candidate:
+Slot Fill looks every ten minutes, and every minute while a candidate is being tested. If a slot is free, it picks a candidate:
 
 - **The region with the fewest connections goes first.** The regions are the six continents, Tor and I2P. Core's connected outbound peers count, and so do your saved manual peers, offline ones included. Within a region, a country the manual peers do not have yet goes first.
 - **No provider your node already uses**, by Core's own outbound peers or a manual one, where the bundled table can tell the provider. Tor and I2P peers have none, so they never clash. Peers you add yourself may share one.
@@ -13,7 +13,7 @@ Slot Fill looks every ten minutes. If a slot is free, it picks a candidate:
 
 ## How a candidate is tested
 
-One candidate at a time. It takes the slot as "testing": Bitcoin Lab adds it with `addnode`, and Core has about 15 to 20 minutes to hold a connection to it. The peer has to offer blocks and segwit, and it has to have announced your chain's tip. If it does, it keeps the slot. If not, it is taken out and the next one is tried. An address Core has only heard of and cannot connect to at all is given up at the next look, after ten minutes.
+One candidate at a time. It takes the slot as "testing": Bitcoin Lab adds it with `addnode`, and Core has a few minutes to connect to it: 5 for a normal address, 10 for Tor, 15 for I2P. The peer has to offer blocks and segwit, and it has to have announced your chain's tip. If it does, it keeps the slot. If not, it is taken out and the next one is tried right away.
 
 Slot Fill never swaps a working manual peer for another, and it never touches Core's own connections.
 

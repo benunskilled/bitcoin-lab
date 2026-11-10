@@ -10,7 +10,7 @@
  * the set is missing gets it first (spread.js).
  *
  * One candidate at a time. It goes in with addnode, and the slot fill waits
- * for Core: within TRIAL_MS Core must hold a manual connection to it, to a
+ * for Core: within its time (NO_CONNECT_MS, TRIAL_MS, HEADERS_OPEN_MS) Core must hold a manual connection to it, to a
  * node that says it serves blocks and segwit and has announced our chain's
  * tip. Then it stays. If not, it is taken out again and the next one tried.
  * That is a check that Core reached a node on this chain, not that the node
@@ -32,18 +32,30 @@ const rpc = require('../rpc');
 const peerSync = require('../peer-sync');
 const logger = require('../logger').make('peer-rotation');
 const { logAction } = require('./log');
-const { addressKey, hostFromAddress } = require('../address');
+const { addressKey, hostFromAddress, unreachableNetwork } = require('../address');
 const spread = require('./spread');
 const { bookEntries, usableNetworks, bannedMatcher, servesBlocks } = require('./addrbook');
 
 const TRIAL_KEY = 'slot_fill_trial';
-// Long enough for Core to dial, through Tor or I2P too, and for the peer to
-// answer the headers Core asks every new peer for. Passes run every ten
-// minutes, so a failed candidate is out on the second one, ~20 minutes in.
+// Passes run every ten minutes; while a trial is open a check runs every
+// minute (peer-profiler.js), so these are the real waits.
+//
+// No connection at all by then: the candidate is out. Core dials an added
+// node within about a minute, and a clearnet address that does not answer is
+// settled in about 65 s (5 s to connect, 60 s for the handshake). Tor adds a
+// circuit (Winnow's census, 7-9 November 2026: 11.7 s median, 51 s the
+// longest success); I2P goes through SAM, whose budget is minutes, but the
+// slot fill only starts an I2P candidate once Core holds an I2P connection,
+// so the session is up.
+const NO_CONNECT_MS = { clearnet: 5 * 60 * 1000, Tor: 10 * 60 * 1000, I2P: 15 * 60 * 1000 };
+// Connected, but not on our tip: long enough for the peer to answer the
+// headers Core asks every new peer for.
 const TRIAL_MS = 15 * 60 * 1000;
-// A candidate from "new" with no connection at all by then is given up: Core
-// dials an added node within a minute or two.
-const NEW_NO_CONNECT_MS = 5 * 60 * 1000;
+// Connected, serves blocks, but Core has no header height for it yet
+// (synced_headers -1). A peer one or two blocks behind our tip stays there
+// until it announces a block, and the next one may be half an hour away:
+// that is no verdict, so it gets this long.
+const HEADERS_OPEN_MS = 30 * 60 * 1000;
 // An address-book address Core could not connect to is left alone this long.
 const FAILED_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 const TRIED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
@@ -98,6 +110,12 @@ function shuffle(list) {
   return a;
 }
 
+// getpeerinfo without the session of a candidate just taken out: Core drops
+// it a moment later, and until then it would count as a working connection.
+function withoutSession(peers, address) {
+  return peers.filter((p) => !(p.connection_type === 'manual' && keyOf(p.addr) === keyOf(address)));
+}
+
 // Core's session to a manual peer, if it has one.
 function manualSession(peers, address) {
   return peers.find((p) => p.connection_type === 'manual' && keyOf(p.addr) === keyOf(address)) || null;
@@ -119,6 +137,7 @@ function works(session, chain, since = null) {
 function whyNot(session) {
   if (!session) return 'Core could not connect';
   if (!servesBlocks(session.services)) return 'connected, but serves no blocks';
+  if (!(Number(session.synced_headers) >= 0)) return 'connected, but Core had no header height for it';
   return 'connected, but not on our chain tip';
 }
 
@@ -157,11 +176,15 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
     logger.info('slot fill: Core connected, the candidate keeps the slot', { address: trial.address });
     return 'confirmed';
   }
-  // An address from "new" Core could not even connect to by the next pass is
-  // out then: most of them never answer, and a quarter of an hour each would
-  // keep a missing region waiting for days.
-  const gaveUp = trial.fromNew && !session && now - trial.startedAt >= NEW_NO_CONNECT_MS;
-  if (!force && !gaveUp && now - trial.startedAt < TRIAL_MS) return 'waiting';
+  // How long the verdict waits depends on what Core has to show for it so
+  // far: no connection at all, a connection with no header height yet, or a
+  // height that is not ours.
+  const elapsed = now - trial.startedAt;
+  const headersOpen = Boolean(session) && servesBlocks(session.services) && !(Number(session.synced_headers) >= 0);
+  const limit = !session
+    ? NO_CONNECT_MS[unreachableNetwork(trial.address)] || NO_CONNECT_MS.clearnet
+    : headersOpen ? HEADERS_OPEN_MS : TRIAL_MS;
+  if (!force && elapsed < limit) return 'waiting';
 
   // Out of the set first, then the trial is closed: a crash in between leaves
   // a trial whose candidate is gone, which the next pass reads as 'left'.
@@ -283,4 +306,4 @@ async function abandon(address, now = Date.now()) {
   logger.info('slot fill: candidate taken out, switched off while adding', { address, at: now });
 }
 
-module.exports = { settle, start, abandon, currentTrial, works };
+module.exports = { settle, start, abandon, currentTrial, works, withoutSession };
