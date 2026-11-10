@@ -6,6 +6,7 @@ const config = require('./config');
 const queries = require('./queries');
 const { hostFromAddress, addressKey } = require('./address');
 const { evictableTrusted } = require('./peer-rotation/rules');
+const spread = require('./peer-rotation/spread');
 const logger = require('./logger').make('peer-sync');
 
 const keyOf = (address) => addressKey(address, config.bitcoin.network);
@@ -338,9 +339,16 @@ async function addTrustedPeer(address, label, options = {}) {
       // Only a peer the rotation itself could displace: not one with the
       // padlock, not one still inside its new-slot grace. Typing an address in
       // used to take the weakest of all eight, a protected one included - the
-      // one thing the padlock promises cannot happen.
-      toEvict = queries.weakestTrustedPeer(
-        evictableTrusted(queries.peerRanking().filter((p) => p.trusted)).filter((p) => p.address !== address),
+      // one thing the padlock promises cannot happen. Of those, the one the
+      // spread misses least (spread.leastMissed).
+      const ranking = queries.peerRanking();
+      const trusted = ranking.filter((p) => p.trusted);
+      toEvict = spread.leastMissed(
+        { address },
+        evictableTrusted(trusted).filter((p) => p.address !== address),
+        trusted,
+        ranking,
+        queries.weakestTrustedPeer,
       );
       if (!toEvict) {
         return {

@@ -9,6 +9,7 @@ const { isValidPort } = require('./validate');
 const { resolveHostPort, formatAddress, hostFromAddress } = require('./address');
 const logger = require('./logger').make('manual-peer');
 const { logAction } = require('./peer-rotation/log');
+const spread = require('./peer-rotation/spread');
 
 // The first four bytes of every P2P message, per chain. A node that is on
 // another chain answers with other bytes, which is as useless as no answer.
@@ -144,7 +145,9 @@ async function manualAddPeer(rawInput, label, { kept = false } = {}) {
       address: probed.address,
       replacedAddress: result.evicted?.address,
       replacedFirstPct: result.evicted?.firstPct,
-      note: result.evicted ? 'replaced the weakest' : null,
+      // Where the slot came from: the spread decides which peer goes
+      // (spread.leastMissed), so the region says more than "the weakest".
+      note: result.evicted ? `replaced one in ${spread.REGION_NAMES[spread.placeOf(result.evicted).region] || 'an unknown region'}` : null,
     });
   } catch (err) {
     logger.warn('rotation log entry for a manual add failed', { address: probed.address, error: err.message });

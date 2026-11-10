@@ -346,7 +346,7 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
     // And it is in the rotation log, so it does not vanish without a trace.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
     assert.equal(logged.replaced_address, '198.51.100.1:8333');
-    assert.equal(logged.note, 'replaced the weakest');
+    assert.equal(logged.note, 'replaced one in an unknown region', 'documentation addresses belong to no region');
   } finally {
     server.close();
   }

@@ -118,6 +118,36 @@ function coreRegionsOf(ranking) {
   return regionCounts(ranking.filter((p) => p.live && !p.trusted && p.direction === 'outbound'));
 }
 
+/**
+ * Which manual peer a newcomer added by hand pushes out when all eight are
+ * taken: the one the spread misses least (10.11.2026: "Add as Manual" must
+ * always work, but it took the weakest anywhere - often the one peer in
+ * Africa or Oceania the slot fill had found). In order, among the peers that
+ * may go at all: one from the newcomer's own region, so the spread stays as
+ * it was; one from a region held twice, the fullest first; one from a region
+ * Core's own peers reach anyway; any other; Tor and I2P last. Within a step,
+ * the weakest (weakest()), as before.
+ */
+function leastMissed(newcomer, evictable, trusted, ranking, weakest) {
+  if (!evictable.length) return null;
+  const mine = placeOf(newcomer).region;
+  const counts = regionCounts(trusted);
+  const core = coreRegionsOf(ranking);
+  const step = (p) => {
+    const { region } = placeOf(p);
+    if (region && region === mine) return [0, 0];
+    if (region && counts[region] > 1) return [1, -counts[region]];
+    if (region === 'TOR' || region === 'I2P') return [4, 0];
+    if (region && core[region]) return [2, 0];
+    return [3, 0];
+  };
+  const best = evictable.map(step).reduce((a, b) => (b[0] < a[0] || (b[0] === a[0] && b[1] < a[1]) ? b : a));
+  return weakest(evictable.filter((p) => {
+    const s = step(p);
+    return s[0] === best[0] && s[1] === best[1];
+  }));
+}
+
 module.exports = {
-  TARGET_PER_REGION, REGION_NAMES, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf,
+  TARGET_PER_REGION, REGION_NAMES, placeOf, regionCounts, rankForGap, admit, describe, coreRegionsOf, leastMissed,
 };
