@@ -401,7 +401,7 @@ test('a peer disconnected by hand is in the rotation log, with its recent record
     assert.equal(disconnect.mock.callCount(), 1);
     const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'disconnect' AND address = ?").get('203.0.113.88:8333');
     assert.ok(row, 'logged');
-    assert.equal(row.note, 'no recent blocks', '"by hand" is in the action\'s name');
+    assert.equal(row.note, null, 'no session, no direction; "by hand" is in the action\'s name');
   } finally {
     disconnect.mock.restore();
     db.instance.prepare("DELETE FROM rotation_log WHERE action = 'disconnect'").run();
@@ -421,7 +421,7 @@ test('a peer disconnected by hand says whether it had dialled in or was dialled'
       // eslint-disable-next-line no-await-in-loop
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
       const row = db.instance.prepare("SELECT note FROM rotation_log WHERE action = 'disconnect' AND address = ?").get(address);
-      assert.equal(row.note, `${direction} · no recent blocks`);
+      assert.equal(row.note, direction);
     }
   } finally {
     disconnect.mock.restore();
@@ -456,7 +456,7 @@ test('a real trusted peer is still removable, and a missing address still says s
   assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer WHERE address = '203.0.113.77:8333'`).get().n, 0);
   const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'unmanual' AND address = ?").get('203.0.113.77:8333');
   assert.ok(row, 'a peer removed by hand is in the log');
-  assert.equal(row.note, 'no recent blocks');
+  assert.equal(row.note, null, 'no note: the place is under the address');
   db.instance.prepare("DELETE FROM rotation_log WHERE action = 'unmanual'").run();
   await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address: '203.0.113.78:8333' }) });
   assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'unmanual'").get().n, 0, 'not one that was never manual');

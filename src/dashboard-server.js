@@ -32,7 +32,6 @@ const hashblock = require('./lib/hashblock-subscriber');
 const { validatePool } = require('./lib/validate');
 const { manualAddPeer, probePeer, hostFromAddress } = require('./lib/manual-peer');
 const peerRotation = require('./lib/peer-rotation');
-const { recentRelayStats } = require('./lib/queries/peer-ranking');
 const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
 const { makeWriteSource } = require('./lib/write-source');
@@ -773,6 +772,8 @@ async function router(req, res, pathname, url) {
     // this one before it to make sense.
     if (wasManual) {
       try {
+        // No note: where it was is under its address, and Slot Fill goes for
+        // spread, not for how often a peer was first.
         peerRotation.logAction({ action: 'unmanual', address, ...handRecord(address) });
       } catch (err) {
         logger.warn('rotation log entry for a removal failed', { address, error: err.message });
@@ -850,24 +851,23 @@ async function router(req, res, pathname, url) {
   }
 
   // What the log says about a peer let go by hand: its lifetime share stored,
-  // the recent window in the note - and, for a disconnect, which way the
-  // connection went, from its newest session: dropping a stranger that dialled
-  // in is a different decision from dropping one of Core's own outbound picks.
+  // and in the note, for a disconnect, which way the connection went, from its
+  // newest session: dropping a stranger that dialled in is a different
+  // decision from dropping one of Core's own outbound picks. How often it was
+  // first is no longer said (10.11.2026): Slot Fill goes for spread.
   function handRecord(address, { way = false } = {}) {
     const peer = db.instance
       .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
                   LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
       .get(address);
-    const recent = peer && recentRelayStats().get(peer.id);
     const session = way && peer && db.instance
       .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
       .get(peer.id);
     const dir = session && /^(inbound|outbound)$/.test(session.direction) ? session.direction : null;
-    const record = recent && recent.eligible ? `${recent.first} of ${recent.eligible} recent blocks first` : 'no recent blocks';
     return {
       firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
       eligible: peer ? peer.eligible : null,
-      note: [dir, record].filter(Boolean).join(' \u00b7 '),
+      note: dir,
     };
   }
 
