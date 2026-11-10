@@ -1900,6 +1900,9 @@ document.getElementById('rotation-log-toggle').addEventListener('click', (e) => 
 // unless the reader closed it (28.10.2026). Storage keeps its own <details>.
 const FOLD_KEY = 'lab.folded';
 const folded = (() => { try { return new Set(JSON.parse(localStorage.getItem(FOLD_KEY) || '[]')); } catch { return new Set(); } })();
+// The card was called Manual Slot Fill until 10.11.2026: folded under that
+// name, it stays folded under the new one.
+if (folded.delete('Manual Slot Fill')) folded.add('Slot Fill');
 for (const card of document.querySelectorAll('main > section.card')) {
   const title = card.querySelector(':scope > h2');
   if (!title) continue;
