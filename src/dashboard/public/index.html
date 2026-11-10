@@ -90,7 +90,7 @@
         <p><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
         <details class="how">
           <summary>Why</summary>
-          <p>The slot fill keeps one Tor and one I2P peer among the manual peers, and Core needs those networks
+          <p>Slot Fill keeps one Tor and one I2P peer among the manual peers, and Core needs those networks
           switched on to reach them. Tor and I2P peers are seldom first; their paths are slower, and that is expected.</p>
         </details>
       </div>
@@ -131,8 +131,8 @@
         finding anyone new.
       -->
       <p class="panel-note">
-        <strong>Add &amp; Keep</strong> makes a peer manual and protects it from the slot fill; the lock
-        below undoes that. <strong>Caution:</strong> with all eight locked, the slot fill can't add anyone.
+        <strong>Add &amp; Keep</strong> makes a peer manual and locks it, so it keeps its slot even while
+        offline. The lock below undoes that. <strong>Caution:</strong> with all eight locked, Slot Fill can't add anyone.
       </p>
       <form id="manual-add-form" class="inline-form">
         <input
@@ -172,7 +172,7 @@
     </section>
 
     <section class="card panel">
-      <h2>Manual Slot Fill <span class="hint fold-sum" id="rotation-sum"></span></h2>
+      <h2>Slot Fill <span class="hint fold-sum" id="rotation-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
@@ -308,7 +308,7 @@
 
       <div class="reset-group">
         <h3>Peer measurement data <span id="reset-peers-size" class="hint"></span></h3>
-        <p class="hint">Block races, peer sessions, First % and the slot fill log. Your manual
+        <p class="hint">Block races, peer sessions, First % and the Slot Fill log. Your manual
           peers are kept — only their record starts again.</p>
         <button type="button" id="reset-peers" class="secondary">Reset peer data…</button>
         <div id="reset-peers-confirm" class="reset-confirm" hidden>

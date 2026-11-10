@@ -2222,8 +2222,8 @@ document.body.addEventListener('click', async (e) => {
       await api('/api/peers/keep', { method: 'POST', body: JSON.stringify({ address, kept }) });
       showToast(
         kept
-          ? `${address} is kept - the rotation will leave it alone.`
-          : `${address} is back in the rotation and can be replaced by a better peer.`,
+          ? `${address} is locked: it keeps its slot, even offline.`
+          : `${address} is unlocked: it gives up its slot if it stays offline.`,
         'success',
       );
     }
@@ -2303,12 +2303,12 @@ document.body.addEventListener('change', async (e) => {
       const result = await api('/api/rotation/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
       rotationToggleEpoch += 1;
       if (e.target.isConnected) e.target.checked = Boolean(result.enabled);
-      showToast(result.enabled ? 'Slot fill turned on.' : 'Slot fill turned off.', 'success');
+      showToast(result.enabled ? 'Slot Fill turned on.' : 'Slot Fill turned off.', 'success');
       refreshRotation();
     } catch (err) {
       rotationToggleEpoch += 1;
       if (e.target.isConnected) e.target.checked = !enabled;
-      showToast(`Could not change peer rotation: ${err.message}`, 'error');
+      showToast(`Could not change Slot Fill: ${err.message}`, 'error');
     }
     return;
   }
@@ -2591,7 +2591,7 @@ startEventStream();
   document.body.appendChild(bar);
   const byHeading = (text) => [...document.querySelectorAll('main .card h2')]
     .find((h) => h.textContent.trim().startsWith(text))?.closest('.card');
-  const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Slot Fill', 'Manual Slot Fill'],
+  const targets = [['\u2191 Top', null], ['Peers', 'Live Peer Ranking'], ['Slot Fill', 'Slot Fill'],
     ['Stratum', 'Stratum Race'], ['Traffic', 'Traffic']];
   // Traffic rather than Storage (28.10.2026): Storage is rarely needed and
   // sits right under Traffic, at the end of the page.
