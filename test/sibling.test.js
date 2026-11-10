@@ -93,7 +93,7 @@ test("Peer Map's word on every peer is read without waiting", async () => {
       { addr: '198.51.100.1:8333', kind: 'Disguised', tell: 'no wtxidrelay' },
       { addr: '198.51.100.2:8333', kind: 'Pool node', pool: 'AtlasPool' },
       { addr: '198.51.100.3:8333', kind: 'Node (Core)' },
-      { addr: '198.51.100.4:8333', kind: 'Wallet', label: 'Probably Wasabi Wallet' },
+      { addr: '198.51.100.4:8333', kind: 'Wallet', label: 'Probably Wasabi Wallet', name: 'Wasabi', no_relay: true },
       { addr: '198.51.100.5:8333', kind: 'Disguised', tell: "on 0xB10C's list", linking_lion: true },
       { addr: '198.51.100.6:8333', kind: 'Node (Knots)', fork: 'BIP110 fork', label: 7 },
       { addr: 7, kind: 'Wallet' },
@@ -110,7 +110,7 @@ test("Peer Map's word on every peer is read without waiting", async () => {
   assert.deepEqual(marks.get('198.51.100.1:8333'), { kind: 'Disguised', why: 'no wtxidrelay' });
   assert.deepEqual(marks.get('198.51.100.2:8333'), { kind: 'Pool node', pool: 'AtlasPool' });
   assert.deepEqual(marks.get('198.51.100.3:8333'), { kind: 'Node (Core)' });
-  assert.deepEqual(marks.get('198.51.100.4:8333'), { kind: 'Wallet', label: 'Probably Wasabi Wallet' });
+  assert.deepEqual(marks.get('198.51.100.4:8333'), { kind: 'Wallet', label: 'Probably Wasabi Wallet', name: 'Wasabi', noRelay: true });
   assert.deepEqual(marks.get('198.51.100.5:8333'), { kind: 'Disguised', why: "on 0xB10C's list", lion: true });
   assert.deepEqual(marks.get('198.51.100.6:8333'), { kind: 'Node (Knots)', fork: 'BIP110 fork' }, 'a label that is no string is left out');
   assert.equal(peerCalls, 1, 'within a minute Peer Map is asked once');

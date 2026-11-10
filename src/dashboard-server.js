@@ -661,6 +661,8 @@ async function router(req, res, pathname, url) {
         if (m.pool) row.mapPool = m.pool;
         if (m.label) row.mapLabel = m.label;
         if (m.fork) row.mapFork = m.fork;
+        if (m.name) row.mapName = m.name;
+        if (m.noRelay) row.mapNoRelay = true;
         if (m.lion) row.mapLion = true;
       }
     }

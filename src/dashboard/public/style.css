@@ -612,7 +612,7 @@ th.col-actions { padding-left: 20px; }
   background: rgba(247, 147, 26, .22);
   transition: background 1.2s ease;
 }
-tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: #56d364; }
+tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a.peer-jump { color: #56d364; }
 .table-wrap table tbody tr.row-first-block:hover { background: rgba(247, 147, 26, .3); }
 .table-wrap table tbody tr.row-first-block:hover td { background: none; }
 
@@ -708,6 +708,9 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* The raw user agent, on an opened card only (withClientLine). */
 .addr-client .ua-raw { display: none; }
 tr.open .addr-client .ua-raw { display: block; white-space: normal; overflow-wrap: anywhere; }
+/* On a touch screen the way over to Peer Map, inside the opened card. */
+.map-open { display: none; }
+tr.open .map-open { display: inline-block; max-width: 100%; box-sizing: border-box; margin-top: 8px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border); color: var(--text); font-size: 13px; text-decoration: none; white-space: nowrap; }
 /* Opened, the line is whole: the name and its reasons, however long. */
 .table-wrap[data-drops] tr.open .addr-client { white-space: normal; overflow: visible; }
 .addr-place { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

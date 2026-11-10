@@ -82,6 +82,8 @@ function fmtDuration(ms) {
   const m = Math.floor((s % 3600) / 60);
   if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
+  // Seconds below a minute, as Peer Map writes it: "41s", not "0m".
+  if (m === 0) return `${s}s`;
   return `${m}m`;
 }
 
@@ -89,13 +91,14 @@ function fmtPct(p) {
   return p == null ? '-' : `${p.toFixed(1)}%`;
 }
 
-// Disk used by the measurement data. One decimal below a gigabyte and two
-// above it, so the number stays readable as the file grows past the point
-// where anyone would care about the megabytes.
+// Disk used by the measurement data, and traffic. One decimal below a
+// gigabyte and two above it, so the number stays readable as the file grows
+// past the point where anyone would care about the megabytes. Steps of 1000,
+// as Peer Map counts them, and the number never apart from its unit.
 function fmtBytes(bytes) {
-  const mb = bytes / (1024 * 1024);
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(2)} GB`;
+  const mb = bytes / 1e6;
+  if (mb < 1000) return `${mb.toFixed(1)}\u00a0MB`;
+  return `${(mb / 1000).toFixed(2)}\u00a0GB`;
 }
 
 // The colour says what kind of connection this is, and nothing else. Manual,
@@ -151,7 +154,7 @@ const KIND_RULES = [
   [/Bitcoin ABC|BUCash|Bitcoin SV|BCHUnlimited|Bitcoin XT|Classic:|\(EB[0-9]|SuperBitcoin|iriumd|vds[_ ]|^\/Aurum:|\/Purity:|^\/dexcash-nodes:/i, 'a client of another chain', 'whole'],
   // Scanners run as a service and scanners run by universities - the second
   // kind announces itself with its department's domain.
-  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:/i, 'a research scanner'],
+  [/kit\.edu|dsn\.tm|dsn\.kastel|\.ac\.|uni-|^\/btcwire:[^/]*\/Satoshi:|^\/rske-research:|^\/acsrg-research:|^\/dataforge-observer:|^\/connector\/$/i, 'a research scanner'],
   // Crawlers, seeders and node counters, including the ones that only say
   // "scan", "seeder", "census" or "monitor".
   [/bitnodes|bluematt-tokio-client|metrika|nodemap|crawl|scan|seeder|census|monitor|observatory|sonar|scout|nebula|watch|listener|argus|readonly|bitdash|logosnaut|dnsseed|survey|lionseed|gnoban|^\/p2p-observer:|^\/p2p-extractor:|^\/bip324-probe:|^\/topology-probe:|^\/p2p-probe:|^\/probe:|^\/btc-peers:|^\/bip110-observer:/i, 'a network crawler'],
@@ -751,6 +754,14 @@ function scrollToFocusOnce() {
   if (!FOCUS_ADDRESS || focusDone) return;
   if (!document.querySelector('tr.row-focus')) return;
   focusDone = true;
+  // A card the reader folded is opened for this visit, not for good: the
+  // peer asked for is in it, and a reload keeps it folded as before.
+  const shut = document.querySelector('tr.row-focus').closest('section.card.folded');
+  if (shut) {
+    shut.classList.remove('folded');
+    shut.querySelector(':scope > h2')?.setAttribute('aria-expanded', 'true');
+    fitTables();
+  }
   const until = Date.now() + FOCUS_HOLD_MS;
   let readerMoved = false;
   const listening = new AbortController();
@@ -836,8 +847,10 @@ function actionsCell(p, { lock = '' } = {}) {
   const remove = `<button class="secondary danger action-slot" data-action="untrust" data-address="${escapeHtml(p.address)}">Remove</button>`;
   if (p.trusted) return (lock ? `<span class="action-slot lock-slot">${lock}</span>` : placeholder) + remove;
   // A peer that can never deliver a block first ("never first") would only
-  // hold a manual slot the rotation then has to free again.
-  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork || (neverFirstReason(p) && !p.first))
+  // hold a manual slot the rotation then has to free again; a disguised one
+  // is not to be trusted with it.
+  const disguised = p.mapKind === 'Disguised' || p.mapLion || kindRuleIndex(p.client) === MISSPELT_RULE;
+  const primary = ((p.sourceObscured || p.localUmbrelPeer || p.privateNetwork || disguised || (neverFirstReason(p) && !p.first))
       ? placeholder
       : `<button class="secondary action-slot" data-action="add-manual" data-address="${escapeHtml(p.address)}">Add as Manual</button>`);
 
@@ -903,7 +916,13 @@ function clientName(p) {
     return { name: p.mapLabel || own };
   }
   if (p.mapKind === 'No user agent') return { name: `no user agent${p.mapWhy || p.mapLabel ? ` \u00b7 ${(p.mapWhy || p.mapLabel).toLowerCase()}` : ''}` };
-  if (p.mapKind) return { name: p.mapLabel || p.mapWhy || own };
+  if (p.mapKind) {
+    // The name where the label does not carry it: "Brno University of
+    // Technology", not "Probably a university"; "KIT network monitoring".
+    const named = p.mapName && !(p.mapLabel || '').toLowerCase().includes(p.mapName.toLowerCase());
+    const name = (named ? p.mapName : p.mapLabel) || p.mapWhy || own;
+    return { name: p.mapFork ? `${name} \u00b7 ${p.mapFork}` : name };
+  }
   // No word from Peer Map (not installed, or the peer is newer than its
   // last answer): what the name alone gives away.
   const i = kindRuleIndex(ua);
@@ -982,7 +1001,10 @@ function firstPctCell(p) {
   // The lifetime rate only on hover, once there is more lifetime than window:
   // a second number in every cell was noise in a table sorted by the first.
   const lifetime = windowed && p.eligible > p.recentEligible;
-  const title = lifetime ? `Lifetime: ${fmtPct(p.firstPct)} (${p.first} of ${p.eligible} blocks first)` : '';
+  // Without a block in the window the cell holds the lifetime rate, under a
+  // heading that says "last N": the tooltip says which it is.
+  const title = lifetime ? `Lifetime: ${fmtPct(p.firstPct)} (${p.first} of ${p.eligible} blocks first)`
+    : !windowed && p.eligible > 0 ? `Lifetime: not connected for any of the last ${RECENT_WINDOW_BLOCKS || 'recent'} blocks` : '';
   return `<td${title ? ` title="${escapeHtml(title)}"` : ''}><span class="pct">${fmtPct(pct)}</span>&nbsp;<span class="cnt">${counts}</span>${hbMark(p)}</td>`;
 }
 
@@ -1156,7 +1178,11 @@ function withClientLine(cell, p) {
   // Broken only after a slash where it is too long: "/bitcoinj:0.14.5/" and
   // "Bitcoin Wallet:5.43/", not "…0.9." and "99/".
   const raw = p.client && clientName(p).name !== bareAgent(p.client) ? `<span class="ua-raw">${escapeHtml(p.client).replace(/\//g, '/<wbr>')}</span>` : '';
-  return cell.replace(/<\/td>$/, () => `<small class="addr-client">${clientHtml(p)}${raw}</small></td>`);
+  // On a touch screen a tap on the address opens the card, as in Peer Map,
+  // and the way over is said out loud inside it.
+  const over = TOUCH_ONLY && cell.includes('class="peer-jump"')
+    ? `<a class="map-open" href="${escapeHtml(peerMapURL(p.address))}" target="${PEER_MAP_TARGET}" title="Open this peer in Peer Map">Peer Map \u2197</a>` : '';
+  return cell.replace(/<\/td>$/, () => `<small class="addr-client">${clientHtml(p)}${raw}</small>${over}</td>`);
 }
 
 // Flags as Peer Map draws them: regional-indicator letters from the country
@@ -1222,7 +1248,7 @@ function addressCell(p) {
   // other question. Without it, a plain cell - no dead links.
   if (PEER_MAP_INSTALLED) {
     const safe = escapeHtml(p.address);
-    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="${PEER_MAP_TARGET}" data-tip="Show this peer in Peer Map" title="Show this peer in Peer Map">${safe}</a></td>`;
+    return `<td class="cell-truncate" data-full="${safe}"><a class="peer-jump" href="${escapeHtml(peerMapURL(p.address))}" target="${PEER_MAP_TARGET}" data-tip="Open this peer in Peer Map" title="Open this peer in Peer Map">${safe}</a></td>`;
   }
   return truncatedCell(p.address);
 }
@@ -1279,6 +1305,9 @@ window.addEventListener('scroll', () => { scrolledAt = Date.now(); settle(); }, 
 
 function interactionInProgress(selector) {
   if (actionsInFlight > 0 || folding > 0 || pressing() || moving()) return true;
+  // Text being selected - an address to copy - is not redrawn from under the
+  // reader, as in Peer Map. The sweep below lets it through in the end.
+  if (String(window.getSelection && window.getSelection()).length) return true;
   // Keyboard focus only. A mouse click leaves the focus on the button in
   // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
@@ -1328,8 +1357,12 @@ document.addEventListener('focusout', () => {
 // dimmed. Peer Map marks the same peers. The explanation lives in the
 // tooltip, not in the table: a dashboard is not the place for a paragraph.
 function neverFirstReason(p) {
-  return cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null)
-    || (otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null);
+  const chain = otherChainShown(p) ? `it is on a chain of its own (${otherChainShown(p)}), not yours` : null;
+  const own = cannotRelayReason(p.client) || (p.offersNothing ? 'it offers no services' : null);
+  // Peer Map's word where it has one: a "wallet" that offers blocks is a
+  // disguise that may well pass them on, whatever its name says.
+  if (p.mapKind) return p.mapNoRelay ? own || 'its software passes no blocks on' : chain;
+  return own || chain;
 }
 const neverFirstTitle = (reason) => `Connected and counted, but ${reason} - it does not pass blocks on, so it can never deliver one first.`;
 // ⚡ in the First % cell: one of the (at most three) peers Core lets send a new
@@ -1384,7 +1417,11 @@ function toggleRow(tr) {
 }
 document.addEventListener('click', (e) => {
   const tr = e.target.closest && e.target.closest('tr.can-act');
-  if (!tr || e.target.closest('button, a, input, label, select')) return;
+  // The address is too small a target for a finger: on a touch screen it
+  // opens the card like a tap anywhere else (Peer Map does the same).
+  const onAddress = TOUCH_ONLY && e.target.closest('a.peer-jump');
+  if (tr && onAddress) e.preventDefault();
+  else if (!tr || e.target.closest('button, a, input, label, select')) return;
   // A drag to select an address is not a tap.
   if (String(window.getSelection && window.getSelection()).length) return;
   toggleRow(tr);
@@ -1668,6 +1705,11 @@ function renderPools(pools) {
   // a poll landing on a just-clicked one puts it straight back.
   if (deferRender('pools', '#pool-table', () => renderPools(pools))) return;
   const tbody = document.querySelector('#pool-table tbody');
+  if (!pools.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="hint">No pools yet.</td></tr>';
+    foldSums();
+    return;
+  }
   tbody.innerHTML = pools.map((p) => `
     <tr data-key="pool:${p.id}" tabindex="0" class="can-act${p.enabled ? '' : ' pool-off'}">
       <td><b>${escapeHtml(p.label)}</b>${p.wonLastRace ? ' <span class="trophy" title="Won the most recent race">🏆</span>' : ''}${p.enabled ? '' : ' <span class="off-tag">Off</span>'}</td>
@@ -1872,7 +1914,9 @@ for (const card of document.querySelectorAll('main > section.card')) {
   };
   const flip = (e) => {
     if (e.target.closest('button, a, input')) return;
-    const opening = folded.has(id);
+    // What is on screen: a card opened for a peer link is open, whatever the
+    // stored state says.
+    const opening = card.classList.contains('folded');
     foldInPlace({ anchor: title, box: card, open: opening, set: (open) => {
       if (open) folded.delete(id); else folded.add(id);
       show();
