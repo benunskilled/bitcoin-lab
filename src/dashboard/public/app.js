@@ -2027,6 +2027,7 @@ document.getElementById('manual-add-form').addEventListener('submit', async (e) 
     manualAddResult(result.warning ? `added ${result.address} - ${result.warning}` : `added ${result.address}`, 'ok');
     input.value = '';
     refreshPeers();
+    refreshRotation();
   } catch (err) {
     manualAddResult(err.message, 'error');
   } finally {
@@ -2236,7 +2237,12 @@ document.body.addEventListener('click', async (e) => {
       showToast('Pool removed.', 'success');
     }
 
-    if (PEER_ACTIONS.has(action)) refreshPeers();
+    // The Slot Fill log notes a hand-made change at once; without this it would
+    // wait for the slow two-minute round.
+    if (PEER_ACTIONS.has(action)) {
+      refreshPeers();
+      refreshRotation();
+    }
     if (POOL_ACTIONS.has(action)) refreshPools();
   } catch (err) {
     showToast(
