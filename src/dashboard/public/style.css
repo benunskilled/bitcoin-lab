@@ -201,9 +201,9 @@ tr:hover td { background: #17202a; }
    says "never first" (firstPctCell). */
 tr.weak td { color: var(--muted); }
 .never { display: inline-block; vertical-align: middle; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
-/* Before the client name: Disguised in Peer Map's red (red is kept for that
-   there too - orange is Bitcoin's and means something good here), a pool's
-   name plain (kindTag). */
+/* Before the client name: Disguised or LinkingLion in Peer Map's red (red is
+   kept for that there too - orange is Bitcoin's and means something good
+   here) (clientName). */
 .kind-tag { color: var(--muted); }
 .kind-tag.disg { color: var(--bad); }
 
@@ -383,6 +383,10 @@ td.row-actions > * + * { margin-left: 6px; }
   box-sizing: border-box;
 }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
+/* An empty slot has no line of text, so it reserved the padding alone: a row
+   with nothing to do (a local Umbrel app) was lower than the rest. A space
+   gives it the button's line. */
+span.action-slot:empty::before { content: "\00a0"; }
 /* The first slot holds "Remove" in one row and "Add as Manual" in the next,
    so it is as wide as the longer one - otherwise Disconnect beside it jumps
    from row to row. In the Manual table it holds the lock, at its right edge,
@@ -700,6 +704,11 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    (app.js, withClientLine), and the two buttons one above the other - the
    red one below, where it is in every row. */
 .addr-client { display: none; }
+/* The raw user agent, on an opened card only (withClientLine). */
+.addr-client .ua-raw { display: none; }
+tr.open .addr-client .ua-raw { display: block; white-space: normal; word-break: break-all; }
+/* Opened, the line is whole: the name and its reasons, however long. */
+.table-wrap[data-drops] tr.open .addr-client { white-space: normal; overflow: visible; }
 .addr-place { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .addr-place .flag { margin-right: 6px; }
 .manual-spread { margin: -4px 0 10px; }
@@ -746,6 +755,14 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* The empty slot keeps a table's columns in line; on a card it would only push
    the buttons apart. Buttons a little tighter, so two fit beside the type. */
 .cards.cards table.peer-table td.row-actions > span.action-slot:not(.lock-slot) { display: none; }
+/* Every peer card one height (09.11.2026): the first line one line-height
+   whether it is a link, "Tor peer" or a local app's name, which keeps to one
+   line here like an address; the ⚡ beside a First % no taller than the
+   digits. */
+.cards.cards table.peer-table td.hint[data-col="col-address"] { white-space: nowrap; }
+.cards.cards table.peer-table td[data-col="col-address"] { line-height: 18px; }
+.cards.cards table.peer-table td[data-col="col-address"] small { line-height: 16px; }
+.cards.cards table.peer-table td[data-col="col-pct"] .hb { line-height: 1; }
 .cards.cards table.peer-table td.row-actions > .action-slot { min-width: 0; padding: 5px 6px; }
 /* Two buttons beside BLOCK RELAY on a 390 px phone: the last pixels come from
    a narrower gap and a tighter pill, not from smaller text. */
@@ -761,9 +778,11 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    buttons no longer push first % left and cut the address short. */
 .cards.cards table.peer-table td.row-actions { grid-column: 1 / -1; justify-content: flex-end; }
 /* On the narrowest phones two buttons do not fit beside the type: they get
-   the second row to themselves, still ending at the right. */
+   the second row to themselves, still ending at the right - on an opened
+   card, where they show. A closed card kept the empty row, and was taller
+   than the rest. */
 @container cards (max-width: 289px) {
-  .cards.cards table.peer-table tr:has(td.row-actions > button + button) td.row-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
+  .cards.cards table.peer-table tr.open:has(td.row-actions > button + button) td.row-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
   .cards.cards table.peer-table td[data-col="col-pct"] { min-width: 96px; }
 }
 /* First % is the point of the card: when its cell gets too narrow, the count

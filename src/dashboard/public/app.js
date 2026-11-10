@@ -384,7 +384,7 @@ function restoreReloadY() {
 // counts as wider, so it measures from scratch.
 const fitState = { width: -Infinity, level: 0, cards: false };
 let fitTimer = null;
-const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); fitPct(); notePlace(); }, 50); };
+const scheduleFit = () => { clearTimeout(fitTimer); fitTimer = setTimeout(() => { fitTables(); fitSeconds(); fitPct(); notePlace(); }, 50); };
 // On a phone card, First % with ⚡ and 📡 must stay one line: a card taller
 // than the others moves every card below it. Where the line does not fit, the
 // count (312/500) goes in that card alone - the share and the marks stay, and
@@ -395,6 +395,31 @@ const textWidth = (() => {
   const ctx = document.createElement('canvas').getContext('2d');
   return (el, text) => { ctx.font = getComputedStyle(el).font; return ctx.measureText(text).width; };
 })();
+// Each second part only where it fits whole in its cell or line; cut short,
+// it said less than the first alone (09.11.2026). The client cell is cut to
+// its column, so the longer text never widens it. Measured, not tried: the
+// page watches every change to keep the reader's place and fits again on
+// one, so a text put in to try was a loop that never ended. Written only when
+// the answer changes.
+function fitSeconds() {
+  for (const e of document.querySelectorAll('.cname[data-full]')) {
+    const box = e.closest('small, td');
+    if (!box || !box.offsetWidth) continue;
+    const sep = e.previousElementSibling && e.previousElementSibling.querySelector('.sep');
+    // Where the name starts in its box, and how far the box reaches: a cut
+    // box does not report how wide its content is.
+    const cs = getComputedStyle(box);
+    const start = e.getBoundingClientRect().left - box.getBoundingClientRect().left - box.clientLeft - parseFloat(cs.paddingLeft)
+      + (sep && sep.hidden ? textWidth(sep, sep.textContent) : 0);
+    const room = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const fits = (t) => start + textWidth(e, t) <= room + 1;
+    // An opened card's line wraps: everything, whole.
+    const next = box.closest('tr.open') || fits(e.dataset.full) ? e.dataset.full : fits(e.dataset.one) || !e.dataset.word ? e.dataset.one : '';
+    if (e.textContent !== next) e.textContent = next;
+    if (sep && sep.hidden !== !next) sep.hidden = !next;
+  }
+}
+
 function fitPct() {
   for (const td of document.querySelectorAll('.cards table.peer-table td[data-col="col-pct"]')) {
     const marks = [...td.querySelectorAll('.hb')];
@@ -490,11 +515,13 @@ new MutationObserver((list) => {
   // Not when fitTables has just kept the reader's place itself: that move is
   // meant, and putting the old position back would undo it.
   const anchored = fitTables();
+  fitSeconds();
   fitPct();
   // The old position only where the page still reaches it: after "Show top 10
   // only" it no longer does, and forcing it landed the reader at the bottom.
   const reachable = y <= document.documentElement.scrollHeight - window.innerHeight;
-  if (!anchored && !keepPlace() && y - window.scrollY > 100 && reachable) window.scrollTo(0, y);
+  // A fold keeps the reader's place itself, by what was tapped (foldInPlace).
+  if (!folding && !anchored && !keepPlace() && y - window.scrollY > 100 && reachable) window.scrollTo(0, y);
   lastScrollY = window.scrollY;
   notePlace();
 }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'hidden'] });
@@ -828,34 +855,77 @@ function actionsCell(p, { lock = '' } = {}) {
   return `${primary}${disconnect}`;
 }
 
-// A word in front of the client for the two kinds that change what to do
-// with a peer: one whose name is not what it runs (Disguised, red as in Peer
-// Map - it may still deliver, the First % beside it says whether), and a
-// mining pool's node, which hears of new blocks early. Every other kind is
-// already said by "never first", and a plain node needs no word at all.
-// Peer Map's answer comes first: it goes by what the peer does. Without it,
-// only what the name gives away.
-function kindTag(p) {
-  if (p.mapKind === 'Disguised') {
-    return { text: 'Disguised', cls: ' disg', title: `Peer Map: ${p.mapWhy || 'not the software its name says'}` };
-  }
-  if (p.mapKind === 'Pool node') {
-    return { text: p.mapPool || 'Pool node', cls: '', title: p.mapPool ? `Peer Map: a node of ${p.mapPool}` : "Peer Map: a mining pool's node" };
-  }
-  const i = kindRuleIndex(p.client);
-  if (i === MISSPELT_RULE) return { text: 'Disguised', cls: ' disg', title: "Bitcoin Core's name, misspelt" };
-  if (i === POOL_RULE) return { text: 'Pool node', cls: '', title: 'Its name says it belongs to a mining pool' };
-  return null;
-}
-function kindTagHtml(p) {
-  const t = kindTag(p);
-  return t ? `<span class="kind-tag${t.cls}" title="${escapeHtml(t.title)}">${escapeHtml(t.text)} · </span>` : '';
+// Who a peer is, readably (09.11.2026): a raw user agent, cut short, named
+// nobody - "/dsn.tm.kit.edu/bitcoin:0.…" - and 22 wallets that call
+// themselves /Satoshi:…/ read as Core. Peer Map's word comes first, as it
+// goes by what the peer does; without it, the user agent shortened. The raw
+// agent stays on hover and on an opened card.
+//
+// Its parts: a red word in front for a disguise (Disguised, LinkingLion -
+// red as in Peer Map; it may still deliver, the First % beside it says
+// whether), then the name.
+
+// "/Satoshi:28.0.0(FutureBit-Apollo-Node)/" -> "Core 28.0.0",
+// "/Satoshi:29.2.0/Knots:20260507/" -> "Knots 29.2.0",
+// "/electrs:0.11.1/" -> "electrs 0.11.1"; anything else without its slashes.
+function shortClient(ua) {
+  const m = /^\/Satoshi:([0-9][0-9.]*)(?:\([^)]*\))?\/(?:([A-Za-z][\w ]*):[^/]*\/)?/.exec(ua);
+  if (m) return `${m[2] ? m[2].replace(/^LibreRelay$/, 'Libre Relay') : 'Core'} ${m[1]}`;
+  return ua.replace(/^\/|\/$/g, '').split('/').map((part) => part.replace(':', ' ')).join(' / ');
 }
 
+// No agent stored: either the peer sent an empty one, or - for its first
+// seconds, before it has answered a ping - it has not said anything yet.
+function ownName(p) {
+  if (p.client) return shortClient(p.client);
+  if (!p.live) return '-';
+  return p.minPingMs == null && (p.currentSessionMs ?? 0) < 60000 ? 'connecting\u2026' : 'no user agent';
+}
+
+function clientName(p) {
+  const ua = p.client;
+  const own = ownName(p);
+  if (p.localUmbrelPeer) return { name: ua ? own : p.localAppName || own };
+  if (p.mapLion) return { word: 'LinkingLion', bad: true, name: p.mapWhy || 'listed address range' };
+  if (p.mapKind === 'Disguised') return { word: 'Disguised', bad: true, name: p.mapWhy || own };
+  if (p.mapKind === 'Pool node') {
+    const label = p.mapLabel || 'pool node';
+    if (!p.mapPool) return { name: p.mapLabel || 'Pool node' };
+    return { name: label.includes(p.mapPool) ? label : `${p.mapPool} \u00b7 ${label.charAt(0).toLowerCase()}${label.slice(1)}` };
+  }
+  if (p.mapKind && p.mapKind.startsWith('Node')) {
+    if (p.mapFork) return { name: `${own} \u00b7 ${p.mapFork}` };
+    return { name: p.mapLabel || own };
+  }
+  if (p.mapKind === 'No user agent') return { name: `no user agent${p.mapWhy || p.mapLabel ? ` \u00b7 ${(p.mapWhy || p.mapLabel).toLowerCase()}` : ''}` };
+  if (p.mapKind) return { name: p.mapLabel || p.mapWhy || own };
+  // No word from Peer Map (not installed, or the peer is newer than its
+  // last answer): what the name alone gives away.
+  const i = kindRuleIndex(ua);
+  if (i === MISSPELT_RULE) return { word: 'Disguised', bad: true, name: 'misspelt name' };
+  if (i === POOL_RULE) return { name: `Pool node \u00b7 ${own}` };
+  return { name: own };
+}
+
+// A second part (" · ") stays only where it fits whole, as in Peer Map, and
+// after a red word the reason only where it fits at all - "Disguised" alone
+// says more than "Disguised · offers no s…". fitSeconds decides.
+function clientHtml(p) {
+  const c = clientName(p);
+  const parts = c.name.split(' \u00b7 ');
+  // Peer Map's "Probably …" names can go without the word where they would
+  // be cut: "Wasabi or Ginger" rather than "Probably Wasabi or Gi…".
+  const one = parts.length > 1 ? parts[0] : c.name.replace(/^Probably /, '');
+  const fit = one !== c.name || c.word
+    ? ` data-full="${escapeHtml(c.name)}" data-one="${escapeHtml(one)}"${c.word ? ' data-word="1"' : ''}` : '';
+  return (c.word ? `<span class="kind-tag${c.bad ? ' disg' : ''}">${escapeHtml(c.word)}<span class="sep"> \u00b7 </span></span>` : '')
+    + `<span class="cname"${fit}>${escapeHtml(c.name)}</span>`;
+}
+
+// The raw agent on hover: always, not only when the name is cut.
 function clientCell(p) {
-  const tag = kindTagHtml(p);
-  const cell = truncatedCell(p.client || '-', 'client');
-  return tag ? cell.replace(/<td[^>]*>/, (td) => td + tag) : cell;
+  const title = p.client ? ` title="${escapeHtml(p.client)}"` : '';
+  return `<td class="cell-truncate client"${title}>${clientHtml(p)}</td>`;
 }
 
 // Session column: current connected duration when live, otherwise how long
@@ -938,6 +1008,80 @@ function glide() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 }
 
+// Folding in place (10.11.2026): what was tapped stays where it is on the
+// screen. What opens rolls out downwards and what closes rolls up, gently,
+// and the page never jumps - not to bring something into view, not because
+// the page got shorter at its end. Every fold goes through here: a card, a
+// peer's card, "Show all", a "How it works", so they all behave alike.
+//
+//   anchor  what stays put (what was tapped, or what is above the change)
+//   box     what grows or shrinks
+//   set     puts the page in the open (true) or closed (false) state
+const FOLD_MS = 300;
+let folding = 0;
+// Room below the page's end while something shrinks there: a page that got
+// shorter under the reader would otherwise pull everything down with it. It
+// goes as soon as the reader scrolls up far enough not to need it.
+let runway = 0;
+function setRunway(px) {
+  runway = Math.max(0, Math.ceil(px));
+  document.body.style.paddingBottom = runway ? `${runway}px` : '';
+}
+window.addEventListener('scroll', () => {
+  if (!runway || folding) return;
+  const spare = document.documentElement.scrollHeight - (window.scrollY + window.innerHeight);
+  if (spare > 0) setRunway(runway - spare);
+}, { passive: true });
+
+function foldInPlace({ anchor, box, set, open }) {
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches || !box || !box.animate;
+  const top0 = anchor.getBoundingClientRect().top;
+  // To where, not by how much: Safari reports a scroll a frame late, and
+  // moving by the difference moved twice and swung back and forth.
+  const pin = () => {
+    const want = anchor.getBoundingClientRect().top + window.scrollY - top0;
+    if (Math.abs(window.scrollY - want) >= 0.5) window.scrollTo(0, want);
+  };
+  folding += 1;
+  // Room at the end for as much as the box could lose, lent before anything
+  // is measured: measuring a page that got shorter is already enough for the
+  // browser to pull everything down. When the fold is over, only what the
+  // reader still needs stays.
+  const lent = runway;
+  const h0 = box ? box.getBoundingClientRect().height : 0;
+  if (box) setRunway(lent + h0);
+  const giveBack = () => {
+    const end = document.documentElement.scrollHeight - runway;
+    setRunway(Math.max(lent, window.scrollY + window.innerHeight - end));
+  };
+  // The place-keeping of a refresh waits a frame more: the last changes of a
+  // fold reach it after the fold has pinned the anchor, and it would move the
+  // page by the top of the window instead.
+  const done = () => { pin(); giveBack(); pin(); requestAnimationFrame(() => { pin(); folding -= 1; notePlace(); }); };
+  // Fitted before it is measured: re-rendered rows are cards only once
+  // fitTables has run, and the end of the roll would be off by that.
+  const settle = (state) => { set(state); fitTables(); fitSeconds(); fitPct(); };
+  settle(open);
+  const h1 = box ? box.getBoundingClientRect().height : 0;
+  // A whole list of peers is tens of thousands of pixels: rolled in a third
+  // of a second that rushes past at a screen per frame. That opens and shuts
+  // in place at once, the rows fading in.
+  const huge = Math.abs(h1 - h0) > window.innerHeight * 1.5;
+  if (huge && open && !still && box.animate) box.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' });
+  if (still || huge || Math.abs(h1 - h0) < 2) { pin(); done(); return; }
+  // Closing rolls up what is still there: back to open for the animation,
+  // closed at its end.
+  if (!open) settle(true);
+  const anim = box.animate([{ height: `${h0}px`, overflow: 'hidden' }, { height: `${h1}px`, overflow: 'hidden' }],
+    { duration: FOLD_MS, easing: open ? 'cubic-bezier(.2,.7,.3,1)' : 'cubic-bezier(.5,0,.3,1)' });
+  let frame = requestAnimationFrame(function follow() { pin(); frame = requestAnimationFrame(follow); });
+  anim.onfinish = anim.oncancel = () => {
+    cancelAnimationFrame(frame);
+    if (!open) settle(false);
+    done();
+  };
+}
+
 // A peer that was not there at the last refresh lights up once, so what
 // changed since the last look is seen without searching. Not on the first
 // load: then everything would be new.
@@ -988,8 +1132,10 @@ async function refreshPeers() {
 // table has given up the Client column, and on the phone cards (style.css,
 // .addr-client) - so the name stays on screen to the end.
 function withClientLine(cell, p) {
-  if (!p.client) return cell;
-  return cell.replace(/<\/td>$/, () => `<small class="addr-client">${kindTagHtml(p)}${escapeHtml(p.client)}</small></td>`);
+  // Never left out: a card without it was a line shorter than the rest. An
+  // opened card shows the raw agent under it, where nothing can be hovered.
+  const raw = p.client ? `<span class="ua-raw">${escapeHtml(p.client)}</span>` : '';
+  return cell.replace(/<\/td>$/, () => `<small class="addr-client">${clientHtml(p)}${raw}</small></td>`);
 }
 
 // Flags as Peer Map draws them: regional-indicator letters from the country
@@ -1037,9 +1183,11 @@ function addressCell(p) {
   // directly. The address is genuinely accurate here (unlike sourceObscured
   // above), so it's shown in the tooltip for anyone curious, but the label
   // itself is far more useful than a bare internal Docker IP.
+  // Where it comes from, as an address says it: which app is the client line
+  // below, and UMBREL APP the pill - said three times before (09.11.2026).
   if (p.localUmbrelPeer) {
-    const label = p.localAppName ? `Local Umbrel app: ${p.localAppName}` : 'Local Umbrel app';
-    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - another app container on this Umbrel connecting to Bitcoin Core's P2P port directly, not an external peer.">${escapeHtml(label)}</td>`;
+    const app = p.localAppName ? ` (${p.localAppName})` : '';
+    return `<td class="cell-truncate hint" title="${escapeHtml(p.address)} - another app container${escapeHtml(app)} on this Umbrel connecting to Bitcoin Core's P2P port directly, not an external peer.">this Umbrel</td>`;
   }
   // A Tor / I2P / CJDNS peer that dialled in reaches Core through this
   // Umbrel's own proxy container, so the address Core reports belongs to that
@@ -1206,11 +1354,12 @@ function markOpenRow() {
     tr.classList.toggle('open', open);
     tr.setAttribute('aria-expanded', String(open));
   }
+  // An opened card's client line wraps and has room for every reason again.
+  fitSeconds();
 }
 function toggleRow(tr) {
-  openRow = rowId(tr) === openRow ? null : rowId(tr);
-  markOpenRow();
-  if (tr.classList.contains('open')) glideIntoView(tr);
+  const id = rowId(tr);
+  foldInPlace({ anchor: tr, box: tr, open: openRow !== id, set: (open) => { openRow = open ? id : null; markOpenRow(); } });
 }
 document.addEventListener('click', (e) => {
   const tr = e.target.closest && e.target.closest('tr.can-act');
@@ -1526,6 +1675,13 @@ for (const box of document.querySelectorAll('details.key, details.how')) {
   box.addEventListener('click', (e) => {
     if (!box.open || e.target.closest('summary, a, button, input')) return;
     if (String(window.getSelection()).length > 0) return;
+    // Its title on screen: it rolls up into it, in place. Scrolled away: shut
+    // at once, and the title comes back to the top of the screen.
+    const summary = box.querySelector(':scope > summary');
+    if (summary.getBoundingClientRect().top >= 0) {
+      foldInPlace({ anchor: summary, box, open: false, set: (open) => { box.open = open; } });
+      return;
+    }
     box.open = false;
     const top = box.getBoundingClientRect().top;
     if (top < 0) window.scrollBy(0, top - 8);
@@ -1668,16 +1824,13 @@ function reportRefreshHealth(errors) {
 }
 
 // A client-side slice of the log already in hand, as for the live peers.
-document.getElementById('rotation-log-toggle').addEventListener('click', () => {
-  const collapsing = showAllLog;
-  showAllLog = !showAllLog;
-  if (lastRotationLog) renderRotationLog(lastRotationLog);
-  // Closing takes up to 26 rows away; a reader who scrolled down through them
-  // is put back at the log rather than somewhere below it.
-  const table = document.getElementById('rotation-log-table');
-  if (collapsing && table && table.getBoundingClientRect().top < 0) {
-    table.scrollIntoView({ block: 'start', behavior: glide() });
-  }
+document.getElementById('rotation-log-toggle').addEventListener('click', (e) => {
+  const opening = !showAllLog;
+  const wrap = document.getElementById('rotation-log-table').closest('.table-wrap');
+  foldInPlace({ anchor: opening ? wrap : e.currentTarget, box: wrap, open: opening, set: (all) => {
+    showAllLog = all;
+    if (lastRotationLog) renderRotationLog(lastRotationLog);
+  } });
 });
 
 // Every card folds to its title on a tap and stays so on this device: open
@@ -1698,9 +1851,11 @@ for (const card of document.querySelectorAll('main > section.card')) {
   };
   const flip = (e) => {
     if (e.target.closest('button, a, input')) return;
-    if (folded.has(id)) folded.delete(id); else folded.add(id);
+    foldInPlace({ anchor: title, box: card, open: folded.has(id), set: (open) => {
+      if (open) folded.delete(id); else folded.add(id);
+      show();
+    } });
     try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch { /* private window */ }
-    show();
     if (!folded.has(id)) window.dispatchEvent(new Event('resize')); // the traffic chart measures its width
   };
   title.addEventListener('click', flip);
@@ -1730,32 +1885,27 @@ function liveStickOn() {
     && card.getBoundingClientRect().bottom > 140);
 }
 window.addEventListener('scroll', liveStickOn, { passive: true });
+// From the bar at the top there is no button under the finger to keep: the
+// list closes, and the card's title comes back to the top of the screen.
 document.getElementById('live-stick-back').addEventListener('click', () => {
-  document.getElementById('live-peer-limit-toggle').click();
+  showAllLivePeers = false;
+  if (lastPeerRanking) renderPeerTables(lastPeerRanking, { force: true });
+  const card = document.getElementById('live-peer-card');
+  if (card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: 'start', behavior: glide() });
 });
 
-document.getElementById('live-peer-limit-toggle').addEventListener('click', () => {
-  const collapsing = showAllLivePeers;
-  showAllLivePeers = !showAllLivePeers;
-  // Purely a client-side slice of data already in hand - and forced, because
-  // this is the user acting, not a poll arriving.
-  if (lastPeerRanking) renderPeerTables(lastPeerRanking, { force: true });
-  else refreshPeers();
-
-  // Collapsing removes however many rows were on screen - potentially
-  // thousands of pixels of them - and the browser keeps the scroll offset it
-  // had, clamping it to the now much shorter page. The reader clicked "show
-  // top 10" and landed somewhere near the bottom of the document with the
-  // peer table nowhere in sight: the table looked like it had disappeared
-  // rather than shrunk. Put the card back where it was before expanding.
-  //
-  // Only when the card has actually scrolled off the top - if it is already
-  // in view, moving the page underneath someone is its own kind of rude.
-  if (!collapsing) return;
-  const card = document.getElementById('live-peer-card');
-  if (card && card.getBoundingClientRect().top < 0) {
-    card.scrollIntoView({ block: 'start', behavior: glide() });
-  }
+// Opening, what is above stays and the rest rolls out below it; closing, the
+// button stays under the finger and the list rolls up into it.
+document.getElementById('live-peer-limit-toggle').addEventListener('click', (e) => {
+  const opening = !showAllLivePeers;
+  const wrap = document.querySelector('#live-peer-card .table-wrap');
+  foldInPlace({ anchor: opening ? wrap : e.currentTarget, box: wrap, open: opening, set: (all) => {
+    showAllLivePeers = all;
+    // Purely a client-side slice of data already in hand - and forced, because
+    // this is the user acting, not a poll arriving.
+    if (lastPeerRanking) renderPeerTables(lastPeerRanking, { force: true });
+  } });
+  if (!lastPeerRanking) refreshPeers();
 });
 
 // Add and Test share the same input and the same result line, and both take
@@ -2059,8 +2209,8 @@ document.body.addEventListener('change', async (e) => {
     const enabled = e.target.checked;
     try {
       const result = await api('/api/stratum/toggle', { method: 'POST', body: JSON.stringify({ enabled }) });
-      applyStratumEnabled(Boolean(result.enabled));
-      if (result.enabled) glideIntoView(document.getElementById('stratum-body'), e.target);
+      const body = document.getElementById('stratum-body');
+      foldInPlace({ anchor: e.target, box: body.closest('section') || body, open: Boolean(result.enabled), set: (on) => applyStratumEnabled(on) });
       showToast(
         result.enabled
           ? 'Stratum Race turned on. Pool connections open within half a minute.'
@@ -2293,16 +2443,6 @@ async function refreshStorage() {
   set('reset-pools-detail', `${s.poolHistory.rows.toLocaleString('en-US')} rows, ${fmtBytes(s.poolHistory.bytes)}, will be deleted.`);
 }
 
-// Something a tap just opened below the screen's edge is brought up, gently
-// and only as far as needed - never so far that keep (what was tapped) leaves
-// the top. Peer Map does the same for a peer's panel.
-function glideIntoView(el, keep = el) {
-  if (!el || el.hidden) return;
-  const bottom = el.getBoundingClientRect().bottom;
-  const up = Math.min(bottom + 12 - window.innerHeight, keep.getBoundingClientRect().top - 8);
-  if (up > 0) window.scrollBy({ top: up, behavior: glide() });
-}
-
 // Two steps rather than a browser confirm(): the warning can then say what is
 // actually about to go, in rows and megabytes, instead of asking whether the
 // user is sure about something unspecified.
@@ -2313,7 +2453,7 @@ function wireReset(scope) {
   const no = document.getElementById(`reset-${scope}-no`);
   if (!ask || !panel || !yes || !no) return;
 
-  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; glideIntoView(panel); });
+  ask.addEventListener('click', () => { panel.hidden = false; ask.hidden = true; });
   no.addEventListener('click', () => { panel.hidden = true; ask.hidden = false; });
   yes.addEventListener('click', async () => {
     yes.disabled = true;
@@ -2339,12 +2479,17 @@ function wireReset(scope) {
   });
 }
 
+// Every <details> folds in place too: its summary stays, its text rolls out
+// below and back up.
+document.addEventListener('click', (e) => {
+  const summary = e.target.closest && e.target.closest('details > summary');
+  if (!summary || e.target.closest('a, button, input')) return;
+  e.preventDefault();
+  const details = summary.parentElement;
+  foldInPlace({ anchor: summary, box: details, open: !details.open, set: (open) => { details.open = open; } });
+});
 document.getElementById('storage-card').addEventListener('toggle', (e) => {
-  if (e.target.open) {
-    // The card is the last on the page: what it opens is below the edge.
-    glideIntoView(e.target, e.target.querySelector('summary'));
-    refreshStorage().then(() => glideIntoView(e.target, e.target.querySelector('summary')));
-  }
+  if (e.target.open) refreshStorage();
 });
 wireReset('peers');
 wireReset('pools');

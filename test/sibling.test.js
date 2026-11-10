@@ -83,7 +83,7 @@ test('a miss is asked again after thirty seconds, a hit only after five minutes'
   await new Promise((r) => srv.close(r));
 });
 
-test("Peer Map's marks are read without waiting, and only the two the ranking shows", async () => {
+test("Peer Map's word on every peer is read without waiting", async () => {
   let peerCalls = 0;
   const srv = http.createServer((req, res) => {
     if (req.url === '/api/health') { res.writeHead(200); return res.end('ok\n'); }
@@ -93,7 +93,10 @@ test("Peer Map's marks are read without waiting, and only the two the ranking sh
       { addr: '198.51.100.1:8333', kind: 'Disguised', tell: 'no wtxidrelay' },
       { addr: '198.51.100.2:8333', kind: 'Pool node', pool: 'AtlasPool' },
       { addr: '198.51.100.3:8333', kind: 'Node (Core)' },
-      { addr: '198.51.100.4:8333', kind: 'Wallet' },
+      { addr: '198.51.100.4:8333', kind: 'Wallet', label: 'Probably Wasabi Wallet' },
+      { addr: '198.51.100.5:8333', kind: 'Disguised', tell: 'listed address range', linking_lion: true },
+      { addr: '198.51.100.6:8333', kind: 'Node (Knots)', fork: 'BIP110 fork', label: 7 },
+      { addr: 7, kind: 'Wallet' },
     ] }));
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
@@ -103,9 +106,13 @@ test("Peer Map's marks are read without waiting, and only the two the ranking sh
   assert.equal(sibling.peerKinds().size, 0, 'the first call starts the fetch and does not wait for it');
   for (let i = 0; i < 50 && sibling.peerKinds().size === 0; i += 1) await new Promise((r) => setTimeout(r, 10));
   const marks = sibling.peerKinds();
-  assert.deepEqual([...marks.keys()].sort(), ['198.51.100.1:8333', '198.51.100.2:8333']);
+  assert.equal(marks.size, 6, 'every peer with an address, not one without');
   assert.deepEqual(marks.get('198.51.100.1:8333'), { kind: 'Disguised', why: 'no wtxidrelay' });
   assert.deepEqual(marks.get('198.51.100.2:8333'), { kind: 'Pool node', pool: 'AtlasPool' });
+  assert.deepEqual(marks.get('198.51.100.3:8333'), { kind: 'Node (Core)' });
+  assert.deepEqual(marks.get('198.51.100.4:8333'), { kind: 'Wallet', label: 'Probably Wasabi Wallet' });
+  assert.deepEqual(marks.get('198.51.100.5:8333'), { kind: 'Disguised', why: 'listed address range', lion: true });
+  assert.deepEqual(marks.get('198.51.100.6:8333'), { kind: 'Node (Knots)', fork: 'BIP110 fork' }, 'a label that is no string is left out');
   assert.equal(peerCalls, 1, 'within a minute Peer Map is asked once');
 
   await new Promise((r) => srv.close(r));

@@ -126,15 +126,22 @@ function fetchKinds() {
   });
 }
 
-// Only the two kinds the ranking marks; everything else Peer Map says stays
-// in Peer Map, one click away on the address.
+// What the ranking needs to name a peer readably (09.11.2026: a raw user
+// agent, cut short, named nobody, and 22 wallets read as Core): its kind, the
+// name Peer Map gives it, why a disguise is one, whose pool, another chain.
+// Only what is set; strings are Peer Map's and capped, shown escaped.
 function kindsOf(body) {
   const out = new Map();
   for (const p of (body && Array.isArray(body.peers)) ? body.peers : []) {
-    if (!p || typeof p.addr !== 'string') continue;
+    if (!p || typeof p.addr !== 'string' || typeof p.kind !== 'string') continue;
     const str = (v) => (typeof v === 'string' ? v.slice(0, 200) : '');
-    if (p.kind === 'Disguised') out.set(p.addr, { kind: 'Disguised', why: str(p.tell) });
-    else if (p.kind === 'Pool node') out.set(p.addr, { kind: 'Pool node', pool: str(p.pool) });
+    const m = { kind: str(p.kind) };
+    if (str(p.tell)) m.why = str(p.tell);
+    if (str(p.pool)) m.pool = str(p.pool);
+    if (str(p.label)) m.label = str(p.label);
+    if (str(p.fork)) m.fork = str(p.fork);
+    if (p.linking_lion === true) m.lion = true;
+    out.set(p.addr, m);
   }
   return out;
 }
