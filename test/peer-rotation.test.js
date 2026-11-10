@@ -683,6 +683,16 @@ test('slot fill: no provider Core\'s own outbound peers already use', async () =
   assert.equal(fill.currentTrial().address, other);
 });
 
+test('slot fill: a region whose tried candidates all share a provider in use still looks in "new"', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU', 'op-busy');
+  inBook('198.18.0.70', 'AF', { operator: 'op-busy' });
+  const africa = inNew('198.18.0.71', 'AF');
+
+  await step(setPeers([coreOut()]), Date.now());
+
+  assert.equal(fill.currentTrial().address, africa);
+});
+
 test('slot fill: a region "tried" can fill does not look in "new"', async () => {
   at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
   const asia = inBook('198.18.0.30', 'AS');

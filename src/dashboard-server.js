@@ -798,14 +798,14 @@ async function router(req, res, pathname, url) {
     // because an inbound peer is observed on its source port, not the one it
     // listens on (see manual-peer.js).
     //
-    // Unstarred, unlike the typed-in box above. This peer is in the ranking
-    // because the app measured it, so promoting it by hand is the same call
-    // the rotation makes on merit - and the peers this button sits next to
-    // are the pool the rotation promotes FROM.
+    // Locked, like the typed-in box above (10.11.2026): a peer added by hand
+    // is a choice, and it stays until it is removed or unlocked. Slot Fill no
+    // longer promotes on merit, so there is nothing for the lock to keep away
+    // here but the offline rule and the next peer added by hand.
     const { address, label } = await readBody(req);
     if (!readAddress(res, address)) return true;
     const host = queries.dialledBefore(address) ? address : hostFromAddress(address);
-    const result = await manualAddPeer(host,typeof label === 'string' ? label.slice(0, 64) : undefined);
+    const result = await manualAddPeer(host, typeof label === 'string' ? label.slice(0, 64) : undefined, { kept: true });
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 

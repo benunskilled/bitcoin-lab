@@ -4,21 +4,17 @@
 
 Every new block reaches your node through one of your peers. Bitcoin Lab notes for every block who was first and ranks your peers by it.
 
-Core has eight manual slots it never fills on its own, so on a default node they sit empty. Slot Fill uses them. It takes peers from Core's own address book and puts them where your node has the fewest connections: other regions and other providers, as far as your node's networks allow. It goes for spread, not speed, so your node reaches parts of the network its own peers may miss. Core's own connections are left alone. It is off by default.
+Turn on Slot Fill and your node gets up to eight extra outgoing connections, to peers in places its own connections don't reach. It works without an open port, and Core keeps managing its regular peers. It is off on a fresh install.
 
 Stratum Race times how fast your own pool turns a new block into fresh work, side by side with public solo pools. No miner needed, just a pool app on your Umbrel.
 
 ![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=4)
 
-## Why spread
-
-Core spreads its outbound peers over different networks, and with asmap over different providers, but it does not look at where in the world they are. Whole regions can be missing from your node's connections. Slot Fill gives the manual slots to the regions with the fewest connections, Core's own counted too, and never to a provider your node already uses.
-
 ## How Slot Fill works
 
-If a manual slot is free, or its peer stays offline for a while, Slot Fill fills it again. It picks a peer from your node's address book, from the region where your node has the fewest connections and from a provider it does not use yet. Core tests it first. Working peers and Core's own connections are never touched.
+Core spreads its regular peers over networks, and with asmap over providers, but not over the world. Slot Fill does: a free slot goes to the region where your node has the fewest connections, and to a provider it does not use yet, where it can tell. It picks the peer from Core's address book, and Core tries the connection. A peer that passes keeps its slot. Working peers and Core's own connections are never touched.
 
-The padlock keeps a peer even when it goes offline. If you like, add the fast ones from the ranking yourself. [The details: times, tests, the padlock and restarts.](docs/manual-slots.md)
+The padlock keeps a peer even when it goes offline. If you like, add the fast ones from the ranking yourself. [Details](docs/manual-slots.md)
 
 ## Reading the ranking
 
@@ -26,7 +22,7 @@ The padlock keeps a peer even when it goes offline. If you like, add the fast on
 
 ## Who mined it, and your traffic
 
-Under the newest block, Bitcoin Lab names the pool that mined it, from a bundled pool list ([bitcoin-data/mining-pools](https://github.com/bitcoin-data/mining-pools), MIT). No outside service is asked.
+Under the newest block, Bitcoin Lab names the pool that mined it when it can tell, from a bundled pool list ([bitcoin-data/mining-pools](https://github.com/bitcoin-data/mining-pools), MIT). No outside service is asked.
 
 A traffic panel shows how much your node sent and received, per day and over the last week and month, from Core's own counters.
 
@@ -34,7 +30,7 @@ A traffic panel shows how much your node sent and received, per day and over the
 
 Switch on Stratum Race and add your own pool. If GoBrrr, Bassin, Public Pool, DATUM or Pogolo runs on your Umbrel, Bitcoin Lab offers to add it for you. Eight public solo pools race alongside. No miner needed: install a pool app on your Umbrel and race your own node against the solo pools.
 
-For every new block, the first pool to send fresh work sets the reference time and the others are timed against it. You see who wins, how far behind the rest are, and whether your own pool gets faster as you tune your setup. Bitcoin Lab only listens: it never submits shares, so no mining work goes to any pool. Stratum Race is off by default.
+For every new block, the first pool to send fresh work sets the reference time and the others are timed against it. You see who wins, how far behind the rest are, and whether your own pool gets faster as you tune your setup. Bitcoin Lab connects like a miner but never submits shares, so no mining work goes to any pool. Stratum Race is off by default.
 
 ## Install
 
@@ -44,7 +40,7 @@ For every new block, the first pool to send fresh work sets the reference time a
 
 Tested with Bitcoin Core 32.1.
 
-Bitcoin Lab talks to Core through RPC and ZMQ. It changes live connections and the `addnode` list, nothing else: it never touches `bitcoin.conf`, wallets, keys or block files. Remove the app and Core runs on as before.
+Bitcoin Lab talks to Core through RPC and ZMQ. It changes live connections and the `addnode` list, nothing else: it never touches `bitcoin.conf`, wallets, keys or block files. Remove the app, and after its next restart Core runs as before: the manual peers live only in Core's memory.
 
 ## See the other half with Peer Map
 

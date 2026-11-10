@@ -73,7 +73,7 @@ The default authorisation address is a public burn address used to subscribe to 
 
 TCP keepalive helps detect broken connections. The socket inactivity timeout provides a separate fallback for a connection that remains silent.
 
-Stratum Race is controlled from the dashboard. While it is off, no pool connection is open.
+Stratum Race is controlled from the dashboard. Switched off, its pool connections close within half a minute.
 
 ## Peer history retention
 
@@ -85,7 +85,7 @@ Stratum Race is controlled from the dashboard. While it is off, no pool connecti
 
 Peers that delivered a block first, outbound peers, and manual peers keep their delivery and session history. Inactive peers that never appeared in a block observation go after 14 days; inbound peers that appeared at blocks but never delivered one first go, with their observations, after 30 days. No other peer's record changes when they go.
 
-Blocks are never deleted. The 500-block scoring window controls the ranking, not data retention. You can clear peer measurements from the dashboard's Storage panel while keeping your manual selection.
+Retention never deletes blocks. The 500-block scoring window controls the ranking, not data retention. You can clear peer measurements from the dashboard's Storage panel while keeping your manual selection.
 
 ## Docker and Umbrel networking
 

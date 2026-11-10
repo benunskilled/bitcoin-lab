@@ -2201,8 +2201,8 @@ document.body.addEventListener('click', async (e) => {
       justGone.delete(result.address);
       showToast(
         result.warning
-          ? `Added as manual peer: ${result.address} - ${result.warning}`
-          : `Added as manual peer: ${result.address}. It now shows in the Manual Peers panel below.`,
+          ? `Added and locked as manual peer: ${result.address} - ${result.warning}`
+          : `Added and locked as manual peer: ${result.address}. It now shows in the Manual Peers panel below.`,
         'success',
       );
     }

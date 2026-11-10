@@ -219,7 +219,9 @@ async function start(ranking, peers, chain, now = Date.now()) {
   const inGap = (c) => gaps.has(spread.placeOf(c).region);
   const tried = ranked.filter((c) => !c.fromNew);
   // A missing region "tried" has nobody from may look in "new" (addrbook.js).
-  const triedGaps = new Set(tried.filter(inGap).map((c) => spread.placeOf(c).region));
+  // Nobody the provider rule would let in, that is: a region whose only
+  // tried candidates are with providers already in use is still missing.
+  const triedGaps = new Set(tried.filter((c) => inGap(c) && spread.admit(c, trusted, max, coreKeys)).map((c) => spread.placeOf(c).region));
   const stand = ranked.filter((c) => c.fromNew && inGap(c) && !triedGaps.has(spread.placeOf(c).region));
   // The missing regions first, from "tried", then from "new" where "tried"
   // has none; once none of them can be filled - a node that reaches only
