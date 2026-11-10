@@ -11,6 +11,14 @@
  * gets into "tried" when Core itself has made an outbound connection to it,
  * so gossip alone cannot put one there.
  *
+ * The "new" table only stands in for a region "tried" has nobody from
+ * (10.11.2026): on a young node "tried" is small, and on a real one it held 9
+ * addresses in Africa against 763 in "new". From "new" only what was passed
+ * on in the last day, which is likelier to still be there; Core's trial
+ * weeds out the rest (fill.js), and the spread lets no more than one peer per
+ * region and provider in, so a flood of planted addresses wins one slot at
+ * most.
+ *
  * getrawaddrman is a hidden RPC and may change. When it does not answer, the
  * slot fill waits - it does not fall back to getnodeaddresses, which mixes
  * both tables, because that would quietly lower the bar a candidate has to
@@ -32,6 +40,8 @@ const BOOK_TTL_MS = 6 * 60 * 60 * 1000;
 // Core's whole address book came to 13.8 MB on a real node (November 2026).
 const BOOK_MAX_BYTES = 64 * 1024 * 1024;
 const NETWORKS = ['ipv4', 'ipv6', 'onion', 'i2p'];
+// How recently an address in "new" must have been passed on to be a candidate.
+const NEW_FRESH_S = 24 * 60 * 60;
 
 let book = null;
 
@@ -55,9 +65,14 @@ async function bookEntries(now = Date.now()) {
     logger.warn('slot fill: getrawaddrman gave no tried table, nothing to fill from');
     return [];
   }
+  const usable = (e) => servesBlocks(e.services) && NETWORKS.includes(e.network);
   const entries = Object.values(raw.tried)
-    .filter((e) => servesBlocks(e.services) && NETWORKS.includes(e.network))
+    .filter(usable)
     .map((e) => ({ address: formatAddress(e.address, e.port), network: e.network }));
+  const fresh = Math.floor(now / 1000) - NEW_FRESH_S;
+  for (const e of Object.values(raw.new && typeof raw.new === 'object' ? raw.new : {})) {
+    if (usable(e) && Number(e.time) >= fresh) entries.push({ address: formatAddress(e.address, e.port), network: e.network, fromNew: true });
+  }
   // An empty answer is most likely Core not being up yet: ask again next
   // tick rather than living on nothing for six hours.
   book = entries.length ? { at: now, entries } : null;

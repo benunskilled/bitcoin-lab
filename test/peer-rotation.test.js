@@ -35,7 +35,15 @@ const { LOG_ENTRIES } = require('../src/lib/peer-rotation/log');
 const PLACES = new Map();
 // Core's "tried" table, as getrawaddrman returns it, and its bans.
 let BOOK = {};
+let NEWBOOK = {};
 let BANNED = [];
+// An address Core has only heard of ("new"), passed on `ago` seconds back.
+function inNew(host, region, ago = 3600) {
+  const address = `${host}:8333`;
+  NEWBOOK[`${Object.keys(NEWBOOK).length}`] = { address: host, port: 8333, network: 'ipv4', services: 1033, time: Math.floor(Date.now() / 1000) - ago };
+  if (region) at(address, region);
+  return address;
+}
 function inBook(host, region, { port = 8333, network: net = 'ipv4', operator, country } = {}) {
   const address = `${host}:${port}`;
   BOOK[`${Object.keys(BOOK).length}`] = { address: host, port, network: net, services: 1033, time: 0 };
@@ -63,7 +71,7 @@ test.beforeEach(() => {
   mock.method(network, 'lookup', (address) => PLACES.get(address) || { asn: 0, operator: '', country: '', region: '' });
   // Core's address book is empty unless a test fills it.
   mock.method(rpc, 'call', async (method) => {
-    if (method === 'getrawaddrman') return { new: {}, tried: BOOK };
+    if (method === 'getrawaddrman') return { new: NEWBOOK, tried: BOOK };
     if (method === 'listbanned') return BANNED;
     throw new Error(`no ${method} in tests`);
   });
@@ -90,6 +98,7 @@ test.afterEach(() => {
   racePool.length = 0;
   PLACES.clear();
   BOOK = {};
+  NEWBOOK = {};
   BANNED = [];
   require('../src/lib/peer-rotation/addrbook').resetForTests();
   db.instance.exec(`DELETE FROM slot_fill_tried;
@@ -637,6 +646,41 @@ test('slot fill: once Core holds a working connection the candidate keeps the sl
   const [row] = logRows();
   assert.equal(row.action, 'promote');
   assert.equal(row.note, 'Asia had none', 'where it is shows under the address; the note says why');
+});
+
+test('slot fill: a missing region "tried" has nobody from is looked for in "new", fresh addresses only', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  inBook('198.18.0.20', 'EU');
+  inNew('198.18.0.21', 'AF', 3 * 86400);
+  const africa = inNew('198.18.0.22', 'AF');
+  inNew('198.18.0.23', 'EU');
+
+  await step(setPeers([coreOut()]), Date.now());
+
+  assert.equal(fill.currentTrial().address, africa, 'the fresh one, not the one passed on three days ago, and before a region already held');
+  assert.equal(fill.currentTrial().fromNew, true);
+});
+
+test('slot fill: a region "tried" can fill does not look in "new"', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const asia = inBook('198.18.0.30', 'AS');
+  inNew('198.18.0.31', 'AS');
+
+  await step(setPeers([coreOut()]), Date.now());
+
+  assert.equal(fill.currentTrial().address, asia);
+});
+
+test('slot fill: an address from "new" Core cannot reach is given up at the next pass', async () => {
+  at(seedLivePeer({ eligible: 144, first: 50, trusted: true }), 'EU');
+  const africa = inNew('198.18.0.40', 'AF');
+  const t0 = Date.now();
+  await step(setPeers([coreOut()]), t0);
+
+  const result = await step(setPeers([coreOut()]), t0 + 10 * MIN);
+
+  assert.equal(result.reverted, 1, 'out after one pass, not after a quarter of an hour');
+  assert.ok(!isManual(africa));
 });
 
 test('slot fill: while Core has not connected yet, nothing else moves', async () => {

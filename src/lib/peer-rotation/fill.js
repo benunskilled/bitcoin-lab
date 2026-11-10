@@ -41,6 +41,9 @@ const TRIAL_KEY = 'slot_fill_trial';
 // answer the headers Core asks every new peer for. Passes run every ten
 // minutes, so a failed candidate is out on the second one, ~20 minutes in.
 const TRIAL_MS = 15 * 60 * 1000;
+// A candidate from "new" with no connection at all by then is given up: Core
+// dials an added node within a minute or two.
+const NEW_NO_CONNECT_MS = 5 * 60 * 1000;
 // An address-book address Core could not connect to is left alone this long.
 const FAILED_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 const TRIED_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
@@ -154,7 +157,11 @@ async function settle(peers, chain, now = Date.now(), { force = false } = {}) {
     logger.info('slot fill: Core connected, the candidate keeps the slot', { address: trial.address });
     return 'confirmed';
   }
-  if (!force && now - trial.startedAt < TRIAL_MS) return 'waiting';
+  // An address from "new" Core could not even connect to by the next pass is
+  // out then: most of them never answer, and a quarter of an hour each would
+  // keep a missing region waiting for days.
+  const gaveUp = trial.fromNew && !session && now - trial.startedAt >= NEW_NO_CONNECT_MS;
+  if (!force && !gaveUp && now - trial.startedAt < TRIAL_MS) return 'waiting';
 
   // Out of the set first, then the trial is closed: a crash in between leaves
   // a trial whose candidate is gone, which the next pass reads as 'left'.
@@ -207,10 +214,15 @@ async function start(ranking, peers, chain, now = Date.now()) {
   const gaps = new Set(Object.keys(spread.REGION_NAMES).filter((r) => (counts[r] || 0) < spread.TARGET_PER_REGION));
   const ranked = spread.rankForGap(shuffle(book), trusted, spread.coreRegionsOf(ranking));
   const inGap = (c) => gaps.has(spread.placeOf(c).region);
-  // The missing regions first; once none of them can be filled - a node that
-  // reaches only Tor, say - anyone the spread lets in, so that no slot stays
+  const tried = ranked.filter((c) => !c.fromNew);
+  // A missing region "tried" has nobody from may look in "new" (addrbook.js).
+  const triedGaps = new Set(tried.filter(inGap).map((c) => spread.placeOf(c).region));
+  const stand = ranked.filter((c) => c.fromNew && inGap(c) && !triedGaps.has(spread.placeOf(c).region));
+  // The missing regions first, from "tried", then from "new" where "tried"
+  // has none; once none of them can be filled - a node that reaches only
+  // Tor, say - anyone the spread lets in from "tried", so that no slot stays
   // empty for want of a perfect candidate.
-  const ordered = [...ranked.filter(inGap), ...ranked.filter((c) => !inGap(c))];
+  const ordered = [...tried.filter(inGap), ...stand, ...tried.filter((c) => !inGap(c))];
 
   let attempts = 0;
   for (const c of ordered) {
@@ -227,6 +239,7 @@ async function start(ranking, peers, chain, now = Date.now()) {
       tip: Number(chain.headers ?? chain.blocks),
       what,
       note: why,
+      ...(c.fromNew ? { fromNew: true } : {}),
     });
     const result = await peerSync.addTrustedPeer(c.address, `slot fill: ${what}`, { neverDisconnect: true });
     if (result.ok) {
