@@ -546,6 +546,12 @@ th.col-actions { padding-left: 20px; }
   color: var(--text);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
 }
+/* A phone is narrower than the toast: right-aligned at 420 px it began left
+   of the screen and the start of its message was cut off (10.11.2026). */
+@media (max-width: 480px) {
+  .action-toast { left: 16px; right: 16px; max-width: none; }
+}
+.action-toast { overflow-wrap: anywhere; }
 .action-toast.pending { color: var(--muted); border-color: var(--border); }
 .action-toast.success { border-color: var(--good); color: var(--good); }
 .action-toast.error { border-color: var(--bad); color: var(--bad); }
