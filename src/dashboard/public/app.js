@@ -871,6 +871,11 @@ function actionsCell(p, { lock = '' } = {}) {
 function shortClient(ua) {
   const m = /^\/Satoshi:([0-9][0-9.]*)(?:\([^)]*\))?\/(?:([A-Za-z][\w ]*):[^/]*\/)?/.exec(ua);
   if (m) return `${m[2] ? m[2].replace(/^LibreRelay$/, 'Libre Relay') : 'Core'} ${m[1]}`;
+  return bareAgent(ua);
+}
+// The agent as it is, only without its slashes: what a client nobody has
+// named yet is called.
+function bareAgent(ua) {
   return ua.replace(/^\/|\/$/g, '').split('/').map((part) => part.replace(':', ' ')).join(' / ');
 }
 
@@ -886,7 +891,7 @@ function clientName(p) {
   const ua = p.client;
   const own = ownName(p);
   if (p.localUmbrelPeer) return { name: ua ? own : p.localAppName || own };
-  if (p.mapLion) return { word: 'LinkingLion', bad: true, name: p.mapWhy || 'listed address range' };
+  if (p.mapLion) return { word: 'LinkingLion', bad: true, name: p.mapWhy || "on 0xB10C's list" };
   if (p.mapKind === 'Disguised') return { word: 'Disguised', bad: true, name: p.mapWhy || own };
   if (p.mapKind === 'Pool node') {
     const label = p.mapLabel || 'pool node';
@@ -910,6 +915,8 @@ function clientName(p) {
 // A second part (" · ") stays only where it fits whole, as in Peer Map, and
 // after a red word the reason only where it fits at all - "Disguised" alone
 // says more than "Disguised · offers no s…". fitSeconds decides.
+// LinkingLion is 0xB10C's name and list: the word leads there.
+const LION_PAGE = 'https://b10c.me/observations/06-linkinglion/';
 function clientHtml(p) {
   const c = clientName(p);
   const parts = c.name.split(' \u00b7 ');
@@ -918,7 +925,10 @@ function clientHtml(p) {
   const one = parts.length > 1 ? parts[0] : c.name.replace(/^Probably /, '');
   const fit = one !== c.name || c.word
     ? ` data-full="${escapeHtml(c.name)}" data-one="${escapeHtml(one)}"${c.word ? ' data-word="1"' : ''}` : '';
-  return (c.word ? `<span class="kind-tag${c.bad ? ' disg' : ''}">${escapeHtml(c.word)}<span class="sep"> \u00b7 </span></span>` : '')
+  const word = c.word === 'LinkingLion'
+    ? `<a class="lion-link" href="${LION_PAGE}" target="_blank" rel="noopener noreferrer" title="Tracked by 0xB10C">${c.word}</a>`
+    : escapeHtml(c.word || '');
+  return (c.word ? `<span class="kind-tag${c.bad ? ' disg' : ''}">${word}<span class="sep"> \u00b7 </span></span>` : '')
     + `<span class="cname"${fit}>${escapeHtml(c.name)}</span>`;
 }
 
@@ -1141,8 +1151,11 @@ async function refreshPeers() {
 // .addr-client) - so the name stays on screen to the end.
 function withClientLine(cell, p) {
   // Never left out: a card without it was a line shorter than the rest. An
-  // opened card shows the raw agent under it, where nothing can be hovered.
-  const raw = p.client ? `<span class="ua-raw">${escapeHtml(p.client)}</span>` : '';
+  // opened card shows the raw agent under it, where nothing can be hovered -
+  // unless the name is that agent already, only without its slashes.
+  // Broken only after a slash where it is too long: "/bitcoinj:0.14.5/" and
+  // "Bitcoin Wallet:5.43/", not "…0.9." and "99/".
+  const raw = p.client && clientName(p).name !== bareAgent(p.client) ? `<span class="ua-raw">${escapeHtml(p.client).replace(/\//g, '/<wbr>')}</span>` : '';
   return cell.replace(/<\/td>$/, () => `<small class="addr-client">${clientHtml(p)}${raw}</small></td>`);
 }
 

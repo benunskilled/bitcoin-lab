@@ -206,6 +206,7 @@ tr.weak td { color: var(--muted); }
    here) (clientName). */
 .kind-tag { color: var(--muted); }
 .kind-tag.disg { color: var(--bad); }
+.lion-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 
 .pill {
   display: inline-block;
@@ -706,7 +707,7 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .addr-client { display: none; }
 /* The raw user agent, on an opened card only (withClientLine). */
 .addr-client .ua-raw { display: none; }
-tr.open .addr-client .ua-raw { display: block; white-space: normal; word-break: break-all; }
+tr.open .addr-client .ua-raw { display: block; white-space: normal; overflow-wrap: anywhere; }
 /* Opened, the line is whole: the name and its reasons, however long. */
 .table-wrap[data-drops] tr.open .addr-client { white-space: normal; overflow: visible; }
 .addr-place { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
