@@ -966,7 +966,7 @@ function firstPctCell(p) {
   // 0.0% - unless it did deliver one after all (software that names itself a
   // wallet and relays anyway): then its number, as for every other peer.
   const never = neverFirstReason(p);
-  if (never && !p.first) return `<td title="${escapeHtml(neverFirstTitle(never))}"><span class="never">never first</span>${hbMark(p)}</td>`;
+  if (never && !p.first) return `<td title="${escapeHtml(neverFirstTitle(never))}"><span class="never">⊘ never first</span>${hbMark(p)}</td>`;
   const windowed = p.recentEligible > 0;
   const pct = windowed ? (100 * p.recentFirst) / p.recentEligible : p.firstPct;
   const counts = windowed ? `${p.recentFirst}/${p.recentEligible}` : `${p.first}/${p.eligible}`;
