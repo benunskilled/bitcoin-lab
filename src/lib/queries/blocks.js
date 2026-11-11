@@ -7,7 +7,7 @@ const prevhash = require('../prevhash');
 const RACE_COLUMNS = `id, block_hash AS blockHash, block_height AS blockHeight, detected_at AS detectedAt,
   pool_name AS poolName, pool_tag AS poolTag, pool_source AS poolSource,
   template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs,
-  recon, recon_missing_bytes AS reconMissingBytes, block_size AS blockSize`;
+  recon, recon_missing_bytes AS reconMissingBytes, block_size AS blockSize, first_hb AS firstHb`;
 
 // The peers credited with First for one block, with their trusted label.
 function firstPeersOf(raceId) {
@@ -138,23 +138,38 @@ function median(xs) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+/**
+ * How many pings the hop from the delivering peer into Core takes, from
+ * BIP152's intended protocol flow: a high-bandwidth peer sends the block
+ * unasked (half a ping), any other announces it and is asked for it (a ping
+ * and a half); asking for missing transactions adds one more ping. These
+ * are minimums - waiting at the peer and the transfer itself come on top.
+ * Not known whether the peer was high-bandwidth: one ping, the middle.
+ * Peer Map counts a single block the same way (hopPings in its app.js).
+ */
+function hopPings(firstHb, recon) {
+  const base = firstHb === 1 ? 0.5 : firstHb === 0 ? 1.5 : 1;
+  return base + (recon === 'asked' ? 1 : 0);
+}
+
 function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
   // The newest block is written in steps - template time and the stratum race
   // land after the block itself - so the key follows those too, or the
   // newest block stayed out of the median until the next one came.
   const head = db.instance
-    .prepare(`SELECT id, template_ms IS NOT NULL AS t, first_ping_ms IS NOT NULL AS p,
+    .prepare(`SELECT id, template_ms IS NOT NULL AS t, first_ping_ms IS NOT NULL AS p, recon AS r,
                      (SELECT MAX(rowid) FROM stratum_observation) AS obs
                 FROM relay_race ORDER BY id DESC LIMIT 1`)
     .get();
   if (!head) return null;
-  const key = `${head.id}:${head.t}:${head.p}:${head.obs}:${limit}`;
+  const key = `${head.id}:${head.t}:${head.p}:${head.r}:${head.obs}:${limit}`;
   if (routeCache.key === key) return routeCache.value;
 
   const races = db.instance
     .prepare(
       `SELECT block_hash AS blockHash, detected_at AS detectedAt,
-              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs
+              template_ms AS templateMs, template_tx AS templateTx, first_ping_ms AS firstPingMs,
+              first_hb AS firstHb, recon
          FROM relay_race ORDER BY id DESC LIMIT ?`,
     )
     .all(limit);
@@ -170,7 +185,7 @@ function routeMedian(limit = ROUTE_MEDIAN_BLOCKS) {
     if (!race || !race.createdAt) continue;
     const c = r.detectedAt - race.createdAt;
     core.push(c);
-    if (r.firstPingMs != null) peer.push(c - r.firstPingMs);
+    if (r.firstPingMs != null) peer.push(c - r.firstPingMs * hopPings(r.firstHb, r.recon));
     if (r.templateMs != null) template.push(c + r.templateMs);
     if (r.templateTx != null) tx.push(r.templateTx);
     for (const e of race.entries) {
@@ -375,5 +390,5 @@ const reconstructionWeek = (now) => reconstructionOver(RECON_WEEK_MS, now);
 
 module.exports = {
   reconstructionDay, reconstructionWeek, reconstructionLast,
-  latestBlock, blockDetail, routeMedian, deliveredEver, attributionHealth, ATTRIBUTION_WINDOW_MS,
+  latestBlock, blockDetail, routeMedian, hopPings, deliveredEver, attributionHealth, ATTRIBUTION_WINDOW_MS,
 };

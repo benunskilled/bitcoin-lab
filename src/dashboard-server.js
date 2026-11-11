@@ -692,6 +692,10 @@ async function router(req, res, pathname, url) {
       // takes longer than the next.
       templateTx: race.templateTx ?? null,
       firstPingMs: race.firstPingMs ?? null,
+      // Whether that peer was one of Core's high-bandwidth peers just before
+      // the block (1/0): half a ping into Core or a ping and a half
+      // (queries.hopPings). null on older blocks and where not known.
+      firstHb: race.firstHb ?? null,
       // How Core rebuilt it from the compact block: 'mempool' (nothing
       // missing), 'asked' (it asked a peer for missing transactions;
       // reconMissingBytes is what came back), 'full' (downloaded whole) or

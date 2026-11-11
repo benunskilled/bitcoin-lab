@@ -118,12 +118,33 @@ function firstPeerPingMs(peers, detectedAtMs) {
   return best;
 }
 
+/**
+ * Whether the delivering peer was one of Core's high-bandwidth peers before
+ * this block: 1 or 0, null when not known. Not from the snapshot that
+ * credited it - Core makes the deliverer high-bandwidth as soon as the block
+ * is valid, before that snapshot - but from the peer-profiler's last poll,
+ * at most a poll interval (15 s) old. Read before anything else here writes.
+ */
+function firstPeerWasHb(peers, detectedAtMs) {
+  const first = peers.filter((p) => isFirstPeer(p, detectedAtMs));
+  if (first.length !== 1) return null;
+  const row = db.instance
+    .prepare(
+      `SELECT ps.hb_to AS hbTo FROM peer_session ps JOIN peer p ON p.id = ps.peer_id
+        WHERE p.address = ? AND ps.ended_at IS NULL
+        ORDER BY ps.started_at DESC LIMIT 1`,
+    )
+    .get(first[0].addr);
+  return row && row.hbTo != null ? row.hbTo : null;
+}
+
 function recordRace({ blockHash, detectedAtMs, peers }) {
   const database = db.instance;
+  const firstHb = firstPeerWasHb(peers, detectedAtMs);
 
   const insertRace = database.prepare(
-    `INSERT OR IGNORE INTO relay_race (block_hash, block_height, detected_at, first_count, nearest_delta_ms, first_ping_ms)
-     VALUES (?, NULL, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO relay_race (block_hash, block_height, detected_at, first_count, nearest_delta_ms, first_ping_ms, first_hb)
+     VALUES (?, NULL, ?, ?, ?, ?, ?)`,
   );
   const insertObservation = database.prepare(
     `INSERT OR IGNORE INTO relay_observation (race_id, peer_id, eligible, first) VALUES (?, ?, 1, ?)`,
@@ -142,6 +163,7 @@ function recordRace({ blockHash, detectedAtMs, peers }) {
       firstCount,
       nearestDeltaMs === null ? null : Math.round(nearestDeltaMs),
       unclear ? null : firstPeerPingMs(peers, detectedAtMs),
+      unclear ? null : firstHb,
     );
     if (info.changes === 0) {
       // Already recorded (duplicate ZMQ delivery / reconnect replay) - skip.
@@ -515,5 +537,5 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
-  recordRace, handleHashBlock, main, reconstructionOf, takeStartSnapshot, attributePool, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, FIRST_WINDOW_MS,
+  recordRace, handleHashBlock, main, reconstructionOf, takeStartSnapshot, attributePool, isFirstPeer, isCatchingUp, nearestLastBlockDeltaMs, firstPeerPingMs, firstPeerWasHb, FIRST_WINDOW_MS,
 };

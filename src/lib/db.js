@@ -702,6 +702,20 @@ function runMigrations() {
       if (!existing.has('block_size')) db.prepare(`ALTER TABLE relay_race ADD COLUMN block_size INTEGER`).run();
     });
 
+    // Whether the peer that delivered the block was one of Core's
+    // high-bandwidth peers just before it: such a peer sends a new block
+    // without being asked, half a ping; any other announces it first, a
+    // ping and a half. Read from the last poll, because Core makes the
+    // deliverer high-bandwidth the moment the block is valid
+    // (MaybeSetPeerAsAnnouncingHeaderAndIDs) - after it, every deliverer
+    // looks like one. NULL on older blocks and where it was not known.
+    migrate('relay_race_first_hb_v2_5_0', 'recorded whether the delivering peer was a high-bandwidth peer', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      if (!existing.has('first_hb')) db.prepare(`ALTER TABLE relay_race ADD COLUMN first_hb INTEGER`).run();
+    });
+
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
