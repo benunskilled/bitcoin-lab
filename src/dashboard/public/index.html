@@ -52,6 +52,7 @@
           <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
           <li><b class="key-new">orange row</b> Delivered the newest block first</li>
           <li><b class="key-green">green address</b> Has delivered a block first</li>
+          <li><b class="key-grey">grey address<span class="never">never first</span></b> Passes no blocks on, e.g. a wallet</li>
         </ul>
       </details>
       <div class="stick" id="live-stick" hidden><div><span>Live Peer Ranking<span id="live-stick-count"></span></span><button type="button" class="secondary" id="live-stick-back">Top 10</button></div></div>
@@ -84,7 +85,7 @@
         Core can only reach them with those networks switched on. Said here
         because this is the table where it shows.
       -->
-      <p class="panel-note"><strong>Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</strong></p>
+      <p class="panel-note">Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>

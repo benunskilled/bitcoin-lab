@@ -1032,6 +1032,8 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 .key .hb { font-size: 13px; }
 .key .key-new { padding: 1px 8px; border-radius: 6px; background: rgba(247, 147, 26, .22); }
 .key .key-green { color: #56d364; }
+.key .key-grey { color: var(--muted); }
+.key .key-grey .never { display: block; width: max-content; margin-top: 1px; }
 @media (max-width: 600px) { .key { display: block; } }
 /* Below 360 px four numbers do not fit a pool card: the average goes, the
    last block stays (04.11.2026). */
