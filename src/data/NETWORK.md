@@ -1,7 +1,7 @@
 # network.bin
 
 Which operator (AS number and name) and which country an IP address belongs
-to, and the region - the continent - that country is on. The peer rotation
+to, and the region - the continent - that country is on. Slot Fill
 spreads the manual peers over operators and regions with it
 (`src/lib/peer-rotation/spread.js`), and the dashboard shows it under each
 manual peer.
@@ -37,4 +37,4 @@ checks the table against.
 
 IPv6 is keyed on the upper 64 bits; where two networks share one `/64`, only
 one of them survives the build. Tor, I2P and CJDNS addresses have no operator
-or country; the rotation treats Tor and I2P as regions of their own.
+or country; Slot Fill treats Tor and I2P as regions of their own.
