@@ -62,6 +62,9 @@ Where each tag comes from:
   Kazakhstan branch): the list has only "F2Pool", and the match is exact.
   Both pay 546 sat to 1K6KoYC69NnafWJ7YgtrpwJxBLiijWqwa6 like F2Pool's other
   blocks (971868, 883290), and mempool.space names them F2Pool.
+- MARA Pool, "Sv2/MARA": block 975369 (11 November 2026) says "Sv2/MARA" followed by
+  two US flags, the style of MARA's "MARA Made in USA" tag; its payout address
+  32i1m6gNcSHwiPX9nfTNXVjme9j5DU8y5g is in no list, so only the tag is taken.
 - NiceHash, bc1q85z0lxe86pkcg2fmppfnykat2375s0pnxjx9sc: block 932129 pays its
   whole reward there and says "/NiceHashMining/" in its coinbase; 971652 and
   971719 pay the same address with no text.
