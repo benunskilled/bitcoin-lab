@@ -1,10 +1,10 @@
-# Why rotation never promotes inbound peers
+# Why Slot Fill never picks inbound peers
 
-A strong inbound peer has already opened a connection that works well for your node. Adding that host as a manual peer means opening an outgoing connection to its listening port. It does not preserve the original session.
+Slot Fill takes its candidates from Core's address book, never from the peers that connected to you. An inbound peer dialled in from a temporary port. Making it a manual peer means a new outgoing connection to its listening port, if it has one, and not the session that worked.
 
-On my node, a peer delivered blocks first through its inbound connection, using a temporary source port. A manual connection to the same host on port 8333 or 9333 never delivered first, even while both connections were active.
+On my node, a peer delivered blocks first through its inbound connection. A manual connection to the same host on port 8333 or 9333 never delivered first, even while both were up.
 
-That experience shaped the rule: rotation measures inbound peers but never promotes or replaces them. The one exception: if a host is already one of your manual peers, rotation drops its extra inbound session, so that peer's record is not split between two connections. You can still add one manually if you choose.
+Inbound peers are still ranked, and you can add one by hand.
 
 ---
 

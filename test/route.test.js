@@ -74,6 +74,45 @@ test('recording a block keeps the delivering peer\'s ping with it', () => {
   assert.equal(row.p, 98);
 });
 
+// ---- was the delivering peer high-bandwidth before the block? -------------
+
+function sessionWithHb(addr, hbTo) {
+  const peer = db.getOrCreatePeer(addr);
+  db.instance.prepare('DELETE FROM peer_session WHERE peer_id = ?').run(peer.id);
+  db.instance
+    .prepare(`INSERT INTO peer_session (peer_id, core_peer_id, direction, connection_type, network, subver, started_at, hb_to)
+              VALUES (?, 1, 'outbound', 'outbound-full-relay', 'ipv4', '/Satoshi:32.1.0/', 0, ?)`)
+    .run(peer.id, hbTo);
+}
+
+test('the last poll says whether the deliverer was high-bandwidth, not the snapshot after the block', () => {
+  const at = 1_700_000_000_000;
+  sessionWithHb('4.4.4.4:8333', 0);
+  // Core has already made it high-bandwidth by the time of this snapshot.
+  const id = relay.recordRace({
+    blockHash: 'cd'.repeat(32),
+    detectedAtMs: at,
+    peers: [{ addr: '4.4.4.4:8333', last_block: at / 1000, minping: 0.02, bip152_hb_to: true }],
+  });
+  assert.equal(db.instance.prepare('SELECT first_hb AS h FROM relay_race WHERE id = ?').get(id).h, 0);
+  sessionWithHb('4.4.4.4:8333', 1);
+  assert.equal(relay.firstPeerWasHb([{ addr: '4.4.4.4:8333', last_block: at / 1000 }], at), 1);
+});
+
+test('no stored session, no answer - rather than a guess', () => {
+  const at = 1_700_000_000_000;
+  assert.equal(relay.firstPeerWasHb([{ addr: '9.9.9.9:8333', last_block: at / 1000 }], at), null);
+});
+
+test('the hop into Core counts pings as BIP152 does', () => {
+  assert.equal(blocks.hopPings(1, 'mempool'), 0.5);
+  assert.equal(blocks.hopPings(1, 'asked'), 1.5);
+  assert.equal(blocks.hopPings(0, 'mempool'), 1.5);
+  assert.equal(blocks.hopPings(0, 'asked'), 2.5);
+  assert.equal(blocks.hopPings(null, null), 1);
+  assert.equal(blocks.hopPings(null, 'asked'), 2);
+});
+
 // ---- timing a reply without keeping it ------------------------------------
 
 test('a large reply is timed to its last byte and not kept', async () => {

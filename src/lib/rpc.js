@@ -32,7 +32,8 @@ const agent = new http.Agent({ keepAlive: true, maxSockets: 4, keepAliveMsecs: 3
 // ceiling, an endpoint that streams something unbounded is a process that
 // grows until it dies, and the cause is invisible. getpeerinfo on a node with
 // two hundred peers is a few hundred kilobytes, so 16 MB is far past anything
-// legitimate.
+// legitimate - with one exception, which passes its own maxBytes: Core's whole
+// address book (getrawaddrman) came to 13.8 MB on a real node in November 2026.
 const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 
 /**
@@ -126,7 +127,7 @@ function request(method, params, timeoutMs) {
   };
 }
 
-function call(method, params = [], { timeoutMs = 10000 } = {}) {
+function call(method, params = [], { timeoutMs = 10000, maxBytes = MAX_RESPONSE_BYTES } = {}) {
   return new Promise((resolve, reject) => {
     const sentAtMs = Date.now();
     const { body, options } = request(method, params, timeoutMs);
@@ -145,11 +146,11 @@ function call(method, params = [], { timeoutMs = 10000 } = {}) {
         res.on('data', (chunk) => {
           if (aborted) return;
           bytes += Buffer.byteLength(chunk, 'utf8');
-          if (bytes > MAX_RESPONSE_BYTES) {
+          if (bytes > maxBytes) {
             aborted = true;
             raw = '';
             res.destroy();
-            reject(new Error(`RPC ${method}: response exceeded ${MAX_RESPONSE_BYTES} bytes`));
+            reject(new Error(`RPC ${method}: response exceeded ${maxBytes} bytes`));
             return;
           }
           raw += chunk;

@@ -32,7 +32,6 @@ const hashblock = require('./lib/hashblock-subscriber');
 const { validatePool } = require('./lib/validate');
 const { manualAddPeer, probePeer, hostFromAddress } = require('./lib/manual-peer');
 const peerRotation = require('./lib/peer-rotation');
-const { recentRelayStats } = require('./lib/queries/peer-ranking');
 const stratumRace = require('./lib/stratum-race-toggle');
 const logger = require('./lib/logger').make('dashboard');
 const { makeWriteSource } = require('./lib/write-source');
@@ -247,7 +246,7 @@ function refuseWrite(req) {
   return hosts.includes(originHost) ? null : [403, 'cross-site requests are not accepted'];
 }
 
-function serveStatic(req, res, pathname) {
+function serveStatic(res, pathname) {
   const rel = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!filePath.startsWith(PUBLIC_DIR)) {
@@ -337,7 +336,7 @@ function sseBroadcast(event, payload) {
   }
 }
 
-function broadcastLatestBlock({ force = false } = {}) {
+function broadcastLatestBlock() {
   let race;
   try {
     race = queries.latestBlock();
@@ -347,7 +346,7 @@ function broadcastLatestBlock({ force = false } = {}) {
   }
   if (!race) return;
   const key = `${race.id}:${race.poolSource || ''}`;
-  if (!force && key === lastBroadcastKey) return;
+  if (key === lastBroadcastKey) return;
   lastBroadcastKey = key;
   sseBroadcast('block', race);
 }
@@ -620,16 +619,6 @@ async function router(req, res, pathname, url) {
       // written into the page: a heading that states the wrong window is worse
       // than one that states none.
       recentScoreWindowBlocks: config.recentScoreWindowBlocks,
-      // How many recorded blocks could not be credited to one peer, stated
-      // rather than assumed. Counted once per block (cached); null on an
-      // install that has not seen a block yet.
-      unclearFirsts: queries.unclearFirsts(),
-      // Four counts over the whole history, not the current snapshot: how many
-      // outbound peers Core has handed this node, how many lasted long enough
-      // to be judged, how many ever delivered, how many were kept. Cheap - one
-      // aggregate over a table that already exists, plus a COUNT of a table
-      // with one row per promoted IP.
-      outboundFunnel: queries.outboundFunnel(),
       // Whether the pool race is running at all. The page needs it before it
       // renders anything of that card: switched off there is nothing to show
       // and, more to the point, nothing being measured, so a table of
@@ -659,6 +648,11 @@ async function router(req, res, pathname, url) {
         row.mapKind = m.kind;
         if (m.why) row.mapWhy = m.why;
         if (m.pool) row.mapPool = m.pool;
+        if (m.label) row.mapLabel = m.label;
+        if (m.fork) row.mapFork = m.fork;
+        if (m.name) row.mapName = m.name;
+        if (m.noRelay) row.mapNoRelay = true;
+        if (m.lion) row.mapLion = true;
       }
     }
     return sendJson(res, 200, rows);
@@ -698,6 +692,10 @@ async function router(req, res, pathname, url) {
       // takes longer than the next.
       templateTx: race.templateTx ?? null,
       firstPingMs: race.firstPingMs ?? null,
+      // Whether that peer was one of Core's high-bandwidth peers just before
+      // the block (1/0): half a ping into Core or a ping and a half
+      // (queries.hopPings). null on older blocks and where not known.
+      firstHb: race.firstHb ?? null,
       // How Core rebuilt it from the compact block: 'mempool' (nothing
       // missing), 'asked' (it asked a peer for missing transactions;
       // reconMissingBytes is what came back), 'full' (downloaded whole) or
@@ -761,7 +759,20 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/untrust') {
     const { address } = await readBody(req);
     if (!readAddress(res, address)) return true;
+    const wasManual = Boolean(db.instance.prepare('SELECT 1 FROM trusted_peer WHERE address = ?').get(address));
     await peerSync.removeTrustedPeer(address);
+    // In the log as the old rotation had it (10.11.2026): a slot freed by
+    // hand is what Slot Fill fills next, and the entry it writes then needs
+    // this one before it to make sense.
+    if (wasManual) {
+      try {
+        // No note: where it was is under its address, and Slot Fill goes for
+        // spread, not for how often a peer was first.
+        peerRotation.logAction({ action: 'unmanual', address, ...handRecord(address) });
+      } catch (err) {
+        logger.warn('rotation log entry for a removal failed', { address, error: err.message });
+      }
+    }
     return sendJson(res, 200, { ok: true });
   }
 
@@ -774,7 +785,7 @@ async function router(req, res, pathname, url) {
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
-  // Reachability only - the same TCP handshake the add path runs first, with
+  // Reachability only - the same version probe the add path runs first, with
   // nothing after it. "Is this peer even reachable?" is a question worth being
   // able to ask on its own: the answer decides whether adding it is worth a
   // manual slot at all, and asking it should not cost one.
@@ -787,18 +798,20 @@ async function router(req, res, pathname, url) {
   if (req.method === 'POST' && pathname === '/api/peers/add-manual') {
     // Same probe-then-persist flow as /api/peers/manual-add, but starting
     // from an existing peer row's address (live or not) instead of raw user
-    // input - we always re-derive the bare host and re-probe 8333/9333
-    // ourselves rather than trust whatever port that peer happened to be
-    // observed on (see manual-peer.js for why that matters for inbound peers).
+    // input. An address this node dialled keeps its port: Core reached the
+    // peer there, and 8333/9333 may be closed or another node on the same IP.
+    // Any other address is cut to the bare host and 8333/9333 are probed,
+    // because an inbound peer is observed on its source port, not the one it
+    // listens on (see manual-peer.js).
     //
-    // Unstarred, unlike the typed-in box above. This peer is in the ranking
-    // because the app measured it, so promoting it by hand is the same call
-    // the rotation makes on merit - and the peers this button sits next to
-    // are the pool the rotation promotes FROM.
+    // Locked, like the typed-in box above (10.11.2026): a peer added by hand
+    // is a choice, and it stays until it is removed or unlocked. Slot Fill no
+    // longer promotes on merit, so there is nothing for the lock to keep away
+    // here but the offline rule and the next peer added by hand.
     const { address, label } = await readBody(req);
     if (!readAddress(res, address)) return true;
-    const host = hostFromAddress(address);
-    const result = await manualAddPeer(host, typeof label === 'string' ? label.slice(0, 64) : undefined);
+    const host = queries.dialledBefore(address) ? address : hostFromAddress(address);
+    const result = await manualAddPeer(host, typeof label === 'string' ? label.slice(0, 64) : undefined, { kept: true });
     return sendJson(res, result.ok ? 200 : 422, result);
   }
 
@@ -819,10 +832,6 @@ async function router(req, res, pathname, url) {
     return sendJson(res, 200, {
       enabled: peerRotation.isEnabled(),
       log: peerRotation.recentLog(),
-      // Manual peers that lost their slot to a long absence and are being
-      // re-tested. Shown so "where did my peer go?" has a visible answer on
-      // the same screen that took it away.
-      parked: peerRotation.parkedPeers(),
     });
   }
 
@@ -831,7 +840,29 @@ async function router(req, res, pathname, url) {
     // Only a real boolean, as on the pool route: Boolean("false") is true.
     if (typeof enabled !== 'boolean') return sendJson(res, 400, { error: 'enabled must be true or false' });
     peerRotation.setEnabled(enabled);
+    if (!enabled) await peerRotation.settleOnSwitchOff();
     return sendJson(res, 200, { ok: true, enabled: peerRotation.isEnabled() });
+  }
+
+  // What the log says about a peer let go by hand: its lifetime share stored,
+  // and in the note, for a disconnect, which way the connection went, from its
+  // newest session: dropping a stranger that dialled in is a different
+  // decision from dropping one of Core's own outbound picks. How often it was
+  // first is no longer said (10.11.2026): Slot Fill goes for spread.
+  function handRecord(address, { way = false } = {}) {
+    const peer = db.instance
+      .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
+                  LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
+      .get(address);
+    const session = way && peer && db.instance
+      .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
+      .get(peer.id);
+    const dir = session && /^(inbound|outbound)$/.test(session.direction) ? session.direction : null;
+    return {
+      firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
+      eligible: peer ? peer.eligible : null,
+      note: dir,
+    };
   }
 
   if (req.method === 'POST' && pathname === '/api/peers/disconnect') {
@@ -847,27 +878,7 @@ async function router(req, res, pathname, url) {
     // The peer is gone by now; a busy database must not turn that into an
     // error the user would retry.
     try {
-      // The column is the lifetime share, as for every other line; the note
-      // has the recent window, as a kick's does.
-      const peer = db.instance
-        .prepare(`SELECT p.id, s.first, s.eligible FROM peer p
-                    LEFT JOIN peer_relay_stats s ON s.peer_id = p.id WHERE p.address = ?`)
-        .get(address);
-      const recent = peer && recentRelayStats().get(peer.id);
-      // Which way the connection went, from its newest session: dropping a
-      // stranger that dialled in is a different decision from dropping one of
-      // Core's own outbound picks, and the log could not tell them apart.
-      const session = peer && db.instance
-        .prepare(`SELECT direction FROM peer_session WHERE peer_id = ? ORDER BY started_at DESC LIMIT 1`)
-        .get(peer.id);
-      const way = session && /^(inbound|outbound)$/.test(session.direction) ? ` · ${session.direction}` : '';
-      peerRotation.logAction({
-        action: 'disconnect',
-        address,
-        firstPct: peer && peer.eligible ? (100 * peer.first) / peer.eligible : null,
-        eligible: peer ? peer.eligible : null,
-        note: `by hand${way} · ${recent ? recent.first : 0}/${recent ? recent.eligible : 0} recent blocks first`,
-      });
+      peerRotation.logAction({ action: 'disconnect', address, ...handRecord(address, { way: true }) });
     } catch (err) {
       logger.warn('rotation log entry for a disconnect failed', { address, error: err.message });
     }
@@ -1013,7 +1024,7 @@ const server = http.createServer(async (req, res) => {
       if (handled === null) sendJson(res, 404, { error: 'not found' });
       return;
     }
-    serveStatic(req, res, pathname);
+    serveStatic(res, pathname);
   } catch (err) {
     // A malformed request body is the caller's mistake, not ours - answering
     // 500 "internal error" sends whoever is debugging it looking in the wrong

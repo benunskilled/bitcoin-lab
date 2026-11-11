@@ -105,17 +105,11 @@ module.exports = {
   // still frees that one on the offline grace below.
   newManualGraceBlocks: Number(pick(process.env.NEW_MANUAL_PEER_GRACE_BLOCKS, '50')),
 
-  // How much better a challenger must be, in points of the peer score (see
-  // score.js - a Wilson lower bound in percent, not the raw First %), before
-  // taking a manual slot away from someone is worth the churn.
-  // "Strictly better" was too weak: 0.6% displacing 0.4% costs a disconnect and
-  // an addnode for a difference of one block in five hundred.
-  //
-  // Deliberately small. The interesting differences at the bottom of a curated
-  // set are fractions of a point - 1.1 / 1.0 / 0.6 / 0.4 on a real node - and a
-  // large threshold would freeze the rotation exactly where it still has work
-  // to do.
-  minSwapMarginPct: Number(pick(process.env.MIN_SWAP_MARGIN_PCT, '0.2')),
+  // How many manual peers one region (a continent) should hold while another
+  // region has a candidate - see peer-rotation/spread.js. One: six regions
+  // for the slots, and a region with no candidate lends its slot until one
+  // turns up.
+  manualPerRegion: Number(pick(process.env.MANUAL_PER_REGION, '1')),
 
   // How many of the most recent blocks count as "lately" for the peer score
   // (see score.js). Once a peer has been eligible for this many, its score is
@@ -133,57 +127,11 @@ module.exports = {
   // comment in score.js for how it failed the exact case it was added for.
   recentScoreWindowBlocks: Number(pick(process.env.RECENT_SCORE_WINDOW_BLOCKS, '500')),
 
-  // How long a manual peer may stay offline before the rotation loop gives its
-  // slot to someone else.
-  //
-  // These numbers are short on purpose, and they are only defensible because
-  // of the parking below. Losing a manual slot is not losing the peer: the
-  // address is kept, re-probed, and takes its slot straight back the moment it
-  // answers. So the grace period does not have to be long enough to cover
-  // "might come back eventually" - parking covers that, better. It only has to
-  // be long enough to ride out the things that resolve themselves: the peer's
-  // node restarting, a brief network blip, a router reboot. An hour covers all
-  // of those. Beyond that, an empty slot is just an empty slot, and a live
-  // candidate could be using it.
-  //
-  // It is still scaled by record, because a retired peer has to beat the
-  // current weakest to get back in and a mid-table peer might not manage it -
-  // so a better peer gets more room before it has to fight for its place:
-  // grace = clamp(firstPct * offlineGraceHoursPerPct, min, max). 0.8% -> 1h
-  // (the floor), 5% -> 5h, 12% -> 12h, 24% and up -> the 24h ceiling. A peer
-  // with no track record yet gets the floor.
-  offlineGraceMinHours: Number(pick(process.env.OFFLINE_GRACE_MIN_HOURS, '1')),
-  offlineGraceMaxHours: Number(pick(process.env.OFFLINE_GRACE_MAX_HOURS, '24')),
-  offlineGraceHoursPerPct: Number(pick(process.env.OFFLINE_GRACE_HOURS_PER_PCT, '1')),
-
-  // Retired manual peers are kept in parked_peer and re-probed a few at a time
-  // on each rotation tick (a TCP handshake each, so this stays a handful of
-  // sockets per ten minutes, not a scan). Repeated failures back the interval
-  // off so a permanently dead address costs almost nothing to keep around.
-  parkedPeerProbesPerTick: Number(pick(process.env.PARKED_PEER_PROBES_PER_TICK, '3')),
-  parkedPeerMinProbeIntervalMinutes: Number(pick(process.env.PARKED_PEER_MIN_PROBE_INTERVAL_MINUTES, '30')),
-
-  // The ceiling the backoff climbs to, and it is not the same for everyone:
-  // how good a peer was decides how long we keep bothering, and for how many
-  // days at all. A peer that delivered 30% of your blocks first is worth
-  // knocking on twice a day for months; one at 0.8% is not worth a knock
-  // every twelve hours for a month, because even if it does come back it is
-  // barely better than whatever Core would have handed you anyway.
-  //
-  // Interval ceiling: full speed (parkedPeerMaxProbeIntervalHours) from
-  // parkedPeerFullSpeedPct upwards, sliding linearly to the slow ceiling as
-  // the record approaches zero. 40% -> every 12h, 10% -> ~30h, 1% -> ~46h.
-  parkedPeerMaxProbeIntervalHours: Number(pick(process.env.PARKED_PEER_MAX_PROBE_INTERVAL_HOURS, '12')),
-  parkedPeerSlowProbeIntervalHours: Number(pick(process.env.PARKED_PEER_SLOW_PROBE_INTERVAL_HOURS, '48')),
-  parkedPeerFullSpeedPct: Number(pick(process.env.PARKED_PEER_FULL_SPEED_PCT, '20')),
-
-  // Retention: days = clamp(firstPct * daysPerPct, min, max). 0.8% -> 4 days,
-  // 5% -> 25 days, 36% and up -> the six-month ceiling. Same shape as the
-  // offline grace above, for the same reason - a peer's own record is the
-  // only honest answer to "how long is this worth remembering?".
-  parkedPeerRetentionDaysPerPct: Number(pick(process.env.PARKED_PEER_RETENTION_DAYS_PER_PCT, '5')),
-  parkedPeerMinRetentionDays: Number(pick(process.env.PARKED_PEER_MIN_RETENTION_DAYS, '2')),
-  parkedPeerMaxRetentionDays: Number(pick(process.env.PARKED_PEER_MAX_RETENTION_DAYS, '180')),
+  // How long a manual peer may stay offline before the slot fill gives its
+  // slot to someone else (peer-rotation/rules.js, offlineGraceMs): an hour for
+  // a peer that has never delivered a block first, a day for one that has.
+  offlineGraceHours: Number(pick(process.env.OFFLINE_GRACE_HOURS, '1')),
+  offlineGraceDeliveredHours: Number(pick(process.env.OFFLINE_GRACE_DELIVERED_HOURS, '24')),
 
   // How long a relay race stays "open" for late stratum-style bookkeeping
   // is not needed here (relay races resolve synchronously on ZMQ), but the
@@ -290,7 +238,7 @@ module.exports = {
   // get a much shorter window.
   feelerPeerRetentionDays: Number(pick(process.env.FEELER_PEER_RETENTION_DAYS, '14')),
   // A peer that was around for blocks but never delivered one first, is not
-  // manual or parked, and has not been seen for this long: its rows only take
+  // manual, and has not been seen for this long: its rows only take
   // space. Most inbound connections end up here - one row each, kept forever,
   // was the bulk of the database on a node with an open port. Removing them
   // changes nobody else's record: they never took a first from anyone.
@@ -298,13 +246,6 @@ module.exports = {
   // How often gathered traffic is written: hourly, 24 small writes a day.
   // A crash loses at most this much traffic, and nothing else.
   trafficFlushMs: Number(pick(process.env.TRAFFIC_FLUSH_MS, '3600000')),
-
-  // How many rotation-log entries exist at all. Not a retention window: the
-  // table is trimmed to this on every write, so what is stored is exactly what
-  // the dashboard can show. Nothing is kept that is not shown.
-  // A thousand: two months or so at 15-20 kicks a day, and the runs of empty
-  // kicks show as one line each, so even all of it reads as a short history.
-  rotationLogEntries: Number(pick(process.env.ROTATION_LOG_ENTRIES, '1000')),
 
   logLevel: pick(process.env.LOG_LEVEL, 'info'),
 };

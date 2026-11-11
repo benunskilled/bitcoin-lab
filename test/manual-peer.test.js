@@ -17,7 +17,7 @@ process.env.LOG_LEVEL = 'error';
 
 const db = require('../src/lib/db');
 const rpc = require('../src/lib/rpc');
-const { manualAddPeer, probePeer, resolveHostPort, formatAddress } = require('../src/lib/manual-peer');
+const { manualAddPeer, probePeer, resolveHostPort, formatAddress, versionMessage, MAGIC } = require('../src/lib/manual-peer');
 const config = require('../src/lib/config');
 
 test.before(() => {
@@ -35,12 +35,18 @@ test.afterEach(() => {
   db.instance.exec('DELETE FROM trusted_peer; DELETE FROM parked_peer; DELETE FROM rotation_log;');
 });
 
-// A real local listener so manualAddPeer's TCP probe succeeds without
-// touching the network - explicit ":port" input skips the 8333/9333 scan
-// and probes exactly this address.
-function withListeningPort() {
+// A real local listener that answers a version message with one of its own,
+// as a node does, so the probe succeeds without touching the network -
+// explicit ":port" input skips the 8333/9333 scan and probes exactly this
+// address. `reply` swaps what it answers with.
+const fakeNode = (reply = () => versionMessage(MAGIC.mainnet)) => (socket) => {
+  socket.once('data', () => socket.write(reply()));
+  socket.on('error', () => {});
+};
+
+function withListeningPort(handler = fakeNode()) {
   return new Promise((resolve) => {
-    const server = net.createServer(() => {});
+    const server = net.createServer(handler);
     server.listen(0, '127.0.0.1', () => {
       resolve({ server, port: server.address().port });
     });
@@ -151,7 +157,7 @@ test('formatAddress brackets an IPv6 addr the same way Core itself does, leaves 
 });
 
 test('Add as Manual accepts bracketed IPv6 input end-to-end (previously rejected outright)', async (t) => {
-  const server = net.createServer(() => {});
+  const server = net.createServer(fakeNode());
   try {
     await new Promise((resolve, reject) => {
       server.on('error', reject);
@@ -260,7 +266,35 @@ test('Test says so plainly when nothing is listening on the port given', async (
   const port = await closedPort();
   const result = await probePeer(`127.0.0.1:${port}`);
   assert.equal(result.ok, false);
-  assert.match(result.error, /not reachable/);
+  assert.match(result.error, /no Bitcoin node answering/);
+});
+
+// Found by an outside review: an open port used to be enough, so a web server
+// on 8333 passed as a node and could take a manual slot.
+test('an open port that does not answer as a Bitcoin node is not a node', async () => {
+  const cases = {
+    'a web server': () => Buffer.from('HTTP/1.1 400 Bad Request\r\n\r\n'),
+    'a node on another chain': () => versionMessage(MAGIC.testnet4),
+  };
+  for (const [what, reply] of Object.entries(cases)) {
+    // eslint-disable-next-line no-await-in-loop
+    const { server, port } = await withListeningPort(fakeNode(reply));
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const result = await probePeer(`127.0.0.1:${port}`);
+      assert.equal(result.ok, false, what);
+      assert.match(result.error, /no Bitcoin node answering/);
+    } finally {
+      server.close();
+    }
+  }
+  // Silent after connect: the timeout, not the open port, decides.
+  const { server, port } = await withListeningPort(() => {});
+  try {
+    assert.equal(await require('../src/lib/manual-peer').probePort('127.0.0.1', port, 300), false);
+  } finally {
+    server.close();
+  }
 });
 
 // --- The eight-slot cap -----------------------------------------------------
@@ -307,14 +341,12 @@ test('adding a peer at capacity frees exactly one slot, and names what it droppe
     // The weakest one, by record - not the oldest, not an arbitrary one.
     assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM trusted_peer WHERE address = ?').get('198.51.100.1:8333').n, 0);
     assert.match(result.warning, /198\.51\.100\.1:8333/, 'the user has to be told which peer paid for this');
-    // Still connected, so not parked: it keeps being measured as an ordinary
-    // peer, as after a swap by the rotation, and the user is told so.
-    assert.equal(db.instance.prepare('SELECT COUNT(*) AS n FROM parked_peer WHERE address = ?').get('198.51.100.1:8333').n, 0);
-    assert.match(result.warning, /win a slot again as an ordinary peer/);
+    // Still connected: it keeps its record, and the user is told so.
+    assert.match(result.warning, /It keeps its record\./);
     // And it is in the rotation log, so it does not vanish without a trace.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
     assert.equal(logged.replaced_address, '198.51.100.1:8333');
-    assert.equal(logged.note, 'added by hand, replaced the weakest');
+    assert.equal(logged.note, 'replaced one in an unknown region', 'documentation addresses belong to no region');
   } finally {
     server.close();
   }
@@ -437,7 +469,7 @@ test('the button beside a peer adds it unstarred - the rotation keeps its pool',
     // Logged even with a slot free: a hand-made choice stands beside the
     // rotation's own.
     const logged = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'manual' AND address = ?").get(address);
-    assert.equal(logged.note, 'added by hand');
+    assert.equal(logged.note, null, '"by hand" is in the action\'s name');
     assert.equal(logged.replaced_address, null);
   } finally {
     server.close();

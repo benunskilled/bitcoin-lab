@@ -43,6 +43,21 @@
     -->
     <section class="card" id="live-peer-card">
       <h2>Live Peer Ranking <span id="live-peer-count" class="hint"></span></h2>
+      <!-- On a phone nothing can be hovered, so the marks are said here,
+           folded. A wide screen says them on hover. -->
+      <details class="key">
+        <summary>What the marks mean</summary>
+        <ul>
+          <li><b class="hb">⚡</b> May send you new blocks without being asked</li>
+          <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
+          <li><b class="key-new">orange row</b> Delivered the newest block first</li>
+          <li><b class="key-green">green address</b> Has delivered a block first</li>
+          <li><b class="key-grey">grey address<span class="never">⊘ never first</span></b> Passes no blocks on, e.g. a wallet</li>
+          <li><b><span class="kind-tag disg">Disguised</span></b> Probably not the software it says it is</li>
+          <li><b><span class="kind-tag disg">LinkingLion</span></b> On 0xB10C's list of spy nodes</li>
+          <li><b>🔒</b> Keeps its slot, even while offline</li>
+        </ul>
+      </details>
       <div class="stick" id="live-stick" hidden><div><span>Live Peer Ranking<span id="live-stick-count"></span></span><button type="button" class="secondary" id="live-stick-back">Top 10</button></div></div>
       <div class="table-wrap">
         <table id="peer-table" class="peer-table">
@@ -51,7 +66,7 @@
               <th class="col-address">Address</th>
               <th class="col-client" data-drop="4">Client</th>
               <th class="col-status">Type</th>
-              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
+              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. Peers with few blocks rank lower.">First %</th>
               <th class="col-ping" data-drop="3">Ping</th>
               <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
@@ -64,36 +79,16 @@
       <div class="inline-form">
         <button type="button" id="live-peer-limit-toggle" class="link" hidden></button>
       </div>
-      <!-- On a phone nothing can be hovered, so the marks are said here,
-           folded. A wide screen says them on hover. -->
-      <details class="key">
-        <summary>What the marks mean</summary>
-        <ul>
-          <li><b class="hb">⚡</b> May send you new blocks without being asked</li>
-          <li><b class="hb">📡</b> Gets new blocks from you without asking</li>
-          <li><b class="key-new">orange row</b> Delivered the newest block first</li>
-          <li><b class="key-green">green address</b> Has delivered a block first</li>
-        </ul>
-      </details>
     </section>
 
     <section class="card panel">
-      <h2>Outbound Peers <span id="outbound-funnel" class="hint"></span></h2>
+      <h2>Outbound Peers</h2>
       <!--
-        The single setting that most affects whether any of this measures what
-        it claims to. Over Tor the numbers are circuit latency, not peer
-        latency, and a .onion peer can never become manual at all - the port
-        probe has no address to dial. Said here rather than in the README
+        Slot Fill can keep a Tor and an I2P peer among the manual peers, and
+        Core can only reach them with those networks switched on. Said here
         because this is the table where it shows.
       -->
-      <div class="panel-note" id="outbound-note">
-        <p><strong>For the sharpest ranking, set Bitcoin Core's outgoing connections to clearnet only.</strong></p>
-        <details class="how">
-          <summary>Why</summary>
-          <p>A Tor or I2P peer is in practice never first, and cannot be made manual - there is no address this
-          app can dial back. As inbound connections they are fine.</p>
-        </details>
-      </div>
+      <p class="panel-note">Letting Bitcoin Core connect out over Tor and I2P as well as clearnet spreads your node's paths further.</p>
       <div class="table-wrap">
         <table id="outbound-peer-table" class="peer-table">
           <thead>
@@ -101,7 +96,29 @@
               <th class="col-address">Address</th>
               <th class="col-client" data-drop="4">Client</th>
               <th class="col-status">Type</th>
-              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
+              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. Peers with few blocks rank lower.">First %</th>
+              <th class="col-ping" data-drop="3">Ping</th>
+              <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
+              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h2>Manual Peers <span id="manual-slots" class="hint"></span></h2>
+      <p id="manual-spread" class="hint manual-spread" hidden></p>
+      <div class="table-wrap">
+        <table id="manual-peer-table" class="peer-table">
+          <thead>
+            <tr>
+              <th class="col-address">Address</th>
+              <th class="col-client" data-drop="4">Client</th>
+              <th class="col-status">Type</th>
+              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. Peers with few blocks rank lower.">First %</th>
               <th class="col-ping" data-drop="3">Ping</th>
               <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
               <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
@@ -114,8 +131,9 @@
     </section>
 
     <!--
-      Its own section, sitting directly above the panel it writes into. It used
-      to live inside Live Peer Ranking, where it looked like a filter for that
+      Its own section, right under the panel it writes into, next to Slot Fill:
+      the two ways a peer gets into the manual slots. It used to live inside
+      Live Peer Ranking, where it looked like a filter for that
       table rather than what it is: the way you add a peer you found somewhere
       else entirely.
 
@@ -124,15 +142,9 @@
     -->
     <section class="card">
       <h2>Add a Peer</h2>
-      <!--
-        The caution is not decoration: with the lock set by default on every
-        hand-added peer, all eight being protected is the likely end state
-        rather than an oddity, and it is the moment the loop quietly stops
-        finding anyone new.
-      -->
       <p class="panel-note">
-        <strong>Add &amp; Keep</strong> makes a peer manual and protects it from the rotation; the lock
-        below undoes that. <strong>Caution:</strong> with all eight locked, the rotation can't promote anyone.
+        <strong>Add &amp; Keep</strong> makes a peer manual and locks it, so it keeps its slot even while
+        offline. The lock above undoes that.
       </p>
       <form id="manual-add-form" class="inline-form">
         <input
@@ -150,32 +162,11 @@
     </section>
 
     <section class="card panel">
-      <h2>Manual Peers <span id="manual-slots" class="hint"></span></h2>
-      <div class="table-wrap">
-        <table id="manual-peer-table" class="peer-table">
-          <thead>
-            <tr>
-              <th class="col-address">Address</th>
-              <th class="col-client" data-drop="4">Client</th>
-              <th class="col-status">Type</th>
-              <th class="col-pct js-first-pct-head" title="Share of the blocks in the window this peer delivered first. The ranking sorts by it.">First %</th>
-              <th class="col-ping" data-drop="3">Ping</th>
-              <th class="col-session" data-drop="2" title="Current session length while connected; time since it dropped while offline">Session</th>
-              <th class="col-sessions" data-drop="1" title="Sessions">Sess.</th>
-              <th class="col-actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="card panel">
-      <h2>Peer Rotation <span class="hint fold-sum" id="rotation-sum"></span></h2>
+      <h2>Slot Fill <span class="hint fold-sum" id="rotation-sum"></span></h2>
       <div class="inline-form">
         <label class="switch-label" for="rotation-toggle">
           <input type="checkbox" id="rotation-toggle" />
-          Automatically rotate outbound peers (recommended)
+          Fill manual slots automatically (recommended)
         </label>
       </div>
       <!--
@@ -185,33 +176,18 @@
         what the switch does and what it costs you.
       -->
       <div class="rotation-hint">
-        <p>Promotes the best deliverers to manual and drops outbound peers that deliver nothing first in 50 blocks.</p>
+        <p>Fills free manual slots where your node has the fewest connections: other regions, other providers.</p>
         <details class="how">
           <summary>How it works</summary>
           <ul>
-            <li>Checks every ~10 minutes, at most one promotion per pass: into a free slot or in place of a weaker manual peer.</li>
-            <li>Drops an outbound peer that was connected for 50 of the last 500 blocks without delivering one first; Core picks a new one.</li>
-            <li>Frees the slot of a manual peer that went offline. The better its record, the longer it may stay away.</li>
+            <li>When a manual slot is free, it goes to a peer from a missing region, taken from Core's address book.</li>
+            <li>Core tests it. If Core can't connect, the next one is tried.</li>
+            <li>A manual peer that is offline for an hour frees its slot. One that ever delivered a block first gets a day.</li>
+            <li>Working peers and Core's own connections are never touched.</li>
           </ul>
-          <p>New slot holders are safe for 50 blocks. Peers that lose their slot while offline are parked below and come back when they answer.</p>
         </details>
       </div>
-      <div id="parked-peers" class="parked-peers" hidden>
-        <h3>Parked</h3>
-        <div class="table-wrap">
-          <table id="parked-peer-table" class="peer-table">
-            <thead>
-              <tr>
-                <th class="col-address">Address</th>
-                <th class="col-pct">First %</th>
-                <th>Parked</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <h3>Rotation log <span id="rotation-log-count" class="hint"></span></h3>
+      <h3>Log</h3>
       <div class="table-wrap">
         <table id="rotation-log-table" class="rotation-log-table">
           <thead>
@@ -219,14 +195,15 @@
               <th class="col-time">When</th>
               <th class="col-rot-action">Action</th>
               <th class="col-address">Address</th>
-              <th class="col-pct" title="Of all the blocks this peer saw, the share it delivered first, at the time of the action. Why it was acted on is in the note.">First % (lifetime)</th>
               <th>Note</th>
             </tr>
           </thead>
-          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="5"><i></i><i></i></td></tr></tbody>
+          <tbody><tr class="skeleton" aria-hidden="true"><td colspan="4"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="4"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="4"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="4"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
-      <button type="button" id="rotation-log-limit-toggle" class="link" hidden></button>
+      <div class="inline-form">
+        <button type="button" id="rotation-log-toggle" class="link" hidden></button>
+      </div>
     </section>
 
     <section class="card">
@@ -253,7 +230,7 @@
         <button type="button" data-action="add-found-pools">Add to Stratum Race</button>
         <button type="button" class="secondary" data-action="dismiss-found-pools">No thanks</button>
       </div>
-      <div class="inline-form" id="pool-quickfill">
+      <div class="inline-form">
         <span class="hint">Local Umbrel pool:</span>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="gobrrr">GoBrrr</button>
         <button type="button" class="secondary" data-action="fill-pool-template" data-template="bassin">Bassin</button>
@@ -311,7 +288,7 @@
       <h2>Traffic <span class="hint fold-sum" id="traffic-sum"></span></h2>
       <div id="traffic-totals" class="traffic-totals"></div>
       <div id="traffic-chart" class="traffic-chart" role="img" aria-label="Traffic per day, last 30 days"></div>
-      <p class="hint" id="traffic-note">Updated hourly from Core's byte counters.</p>
+      <p class="hint">Updated hourly from Core's byte counters.</p>
     </section>
 
     <!-- Closed by default and last on the page: nothing here is part of daily
@@ -321,8 +298,8 @@
 
       <div class="reset-group">
         <h3>Peer measurement data <span id="reset-peers-size" class="hint"></span></h3>
-        <p class="hint">Block races, peer sessions, First %, the rotation log and the parked
-          peers. Your manual peers are kept — only their record starts again.</p>
+        <p class="hint">Block races, peer sessions, First % and the Slot Fill log. Your manual
+          peers are kept — only their record starts again.</p>
         <button type="button" id="reset-peers" class="secondary">Reset peer data…</button>
         <div id="reset-peers-confirm" class="reset-confirm" hidden>
           <p class="warn">This cannot be undone. <span id="reset-peers-detail"></span></p>
@@ -344,6 +321,12 @@
       </div>
     </details>
   </main>
+
+  <!-- CC BY 4.0 asks for this: the country and provider of each manual peer
+       come from DB-IP's Lite databases (src/data/NETWORK.md). -->
+  <footer class="foot">
+    <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">IP to ASN and country by DB-IP</a>
+  </footer>
 
   <script src="/app.js"></script>
 </body>

@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS trusted_peer (
 -- that delivered 40% of your blocks first for two months drops off the
 -- network for an evening, loses its slot, and is then indistinguishable from
 -- the thousands of addresses Core has ever seen. Parking it means the loop
--- can keep knocking on the door (a TCP handshake to the port that answered
+-- can keep knocking on the door (a version probe to the port that answered
 -- last time) and hand the slot straight back when it opens - which is the
 -- only reason retiring an offline peer relatively quickly is a safe thing to
 -- do at all.
@@ -114,7 +114,22 @@ CREATE TABLE IF NOT EXISTS parked_peer (
   last_probe_at INTEGER,          -- NULL until the first re-probe
   probe_failures INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_parked_peer_probe ON parked_peer(last_probe_at ASC);
+
+-- Address-book candidates the slot fill has put to Core, and whether Core
+-- connected to them. One that did not is left alone for a week; the rows are
+-- dropped after a month. The candidate on trial right now is in meta
+-- (slot_fill_trial), as one JSON value. Per address, the last trial: why it
+-- ended (ok, no_connection, no_services, height_unknown, height_wrong), when
+-- it began, and the network (clearnet, tor, i2p) - what the app log said, kept
+-- where a restart does not take it.
+CREATE TABLE IF NOT EXISTS slot_fill_tried (
+  address TEXT PRIMARY KEY,
+  tried_at INTEGER NOT NULL,
+  ok INTEGER NOT NULL,
+  reason TEXT,
+  started_at INTEGER,
+  network TEXT
+);
 
 CREATE TABLE IF NOT EXISTS relay_race (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -244,21 +259,20 @@ CREATE TABLE IF NOT EXISTS meta (
   value TEXT
 );
 
--- Audit trail for the automatic peer-rotation loop (src/lib/peer-rotation/).
--- One row per action it actually takes (kick or promote/swap), so the
--- dashboard can show what the toggle has been doing without the user having
--- to dig through container logs. Deliberately NOT time-pruned by
--- queries.pruneOldData - this is a small, slow-growing table (at most a
--- couple of rows per 10-minute tick) and its history is the whole point.
+-- Audit trail for the manual slots (src/lib/peer-rotation/log.js): a peer
+-- the slot fill added or retired, and one added or disconnected by hand, so
+-- the dashboard can show what changed without the user having to dig through
+-- container logs. Trimmed to its last thirty rows on every write, never by
+-- age. (The name is from the rotation it used to log.)
 CREATE TABLE IF NOT EXISTS rotation_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at INTEGER NOT NULL,
-  action TEXT NOT NULL,             -- kick | promote | swap | park | revive
+  action TEXT NOT NULL,             -- promote | retire | manual | disconnect
   address TEXT NOT NULL,
   first_pct REAL,
   eligible INTEGER,
-  replaced_address TEXT,            -- set only for 'swap'
-  replaced_first_pct REAL,          -- set only for 'swap'
+  replaced_address TEXT,            -- the peer a manual add pushed out
+  replaced_first_pct REAL,
   note TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rotation_log_at ON rotation_log(at DESC);
@@ -537,6 +551,15 @@ function runMigrations() {
       if (!hasColumn) db.prepare(`ALTER TABLE trusted_peer ADD COLUMN kept INTEGER NOT NULL DEFAULT 0`).run();
     });
 
+    // Why a slot-fill trial ended, and how long it ran: the reason used to be
+    // in the app log only, which a restart empties.
+    migrate('slot_fill_tried_reason_v1', 'added reason, started_at and network to slot_fill_tried', () => {
+      const has = new Set(db.prepare(`SELECT name FROM pragma_table_info('slot_fill_tried')`).all().map((c) => c.name));
+      if (!has.has('reason')) db.prepare(`ALTER TABLE slot_fill_tried ADD COLUMN reason TEXT`).run();
+      if (!has.has('started_at')) db.prepare(`ALTER TABLE slot_fill_tried ADD COLUMN started_at INTEGER`).run();
+      if (!has.has('network')) db.prepare(`ALTER TABLE slot_fill_tried ADD COLUMN network TEXT`).run();
+    });
+
     // Two numbers per block that were computed and then thrown away, and
     // together they turn a silent fault into a diagnosable one.
     //
@@ -679,6 +702,20 @@ function runMigrations() {
       if (!existing.has('block_size')) db.prepare(`ALTER TABLE relay_race ADD COLUMN block_size INTEGER`).run();
     });
 
+    // Whether the peer that delivered the block was one of Core's
+    // high-bandwidth peers just before it: such a peer sends a new block
+    // without being asked, half a ping; any other announces it first, a
+    // ping and a half. Read from the last poll, because Core makes the
+    // deliverer high-bandwidth the moment the block is valid
+    // (MaybeSetPeerAsAnnouncingHeaderAndIDs) - after it, every deliverer
+    // looks like one. NULL on older blocks and where it was not known.
+    migrate('relay_race_first_hb_v2_5_0', 'recorded whether the delivering peer was a high-bandwidth peer', () => {
+      const existing = new Set(
+        db.prepare(`SELECT name FROM pragma_table_info('relay_race')`).all().map((r) => r.name),
+      );
+      if (!existing.has('first_hb')) db.prepare(`ALTER TABLE relay_race ADD COLUMN first_hb INTEGER`).run();
+    });
+
     migrate('peer_session_services_v1_18_0', 'recorded what each peer offers and whether Core knows its chain', () => {
       const existing = new Set(
         db.prepare(`SELECT name FROM pragma_table_info('peer_session')`).all().map((r) => r.name),
@@ -686,6 +723,30 @@ function runMigrations() {
       for (const [name, type] of [['services', 'TEXT'], ['relay_txes', 'INTEGER'], ['synced_headers', 'INTEGER']]) {
         if (!existing.has(name)) db.prepare(`ALTER TABLE peer_session ADD COLUMN ${name} ${type}`).run();
       }
+    });
+
+    // Parking went with the rotation: the slot fill takes its candidates from
+    // Core's address book, which holds thousands. The table stays, empty, so
+    // older queries and the migrations above still find it.
+    // Slot Fill took over the old rotation's switch (peer_rotation_enabled),
+    // but it does something else - it adds peers from Core's address book.
+    // Whoever had the rotation on starts with Slot Fill off and chooses it
+    // themselves (11.11.2026). A fresh install has no row: off anyway.
+    migrate('slot_fill_off_once_v2_6_0', 'switched Slot Fill off once, to be chosen anew', () => {
+      db.prepare(`UPDATE meta SET value = '0' WHERE key = 'peer_rotation_enabled'`).run();
+    });
+
+    migrate('parked_peer_retired_v2_6_0', 'stopped keeping parked peers', () => {
+      db.prepare(`DELETE FROM parked_peer`).run();
+    });
+
+    // The log starts over with the slot fill: kicks, parks and swaps are moves
+    // it no longer makes, and their lines only needed code to show them. Once;
+    // the slot fill's own lines are kept from here on. The probe index went
+    // with the probing.
+    migrate('rotation_log_slot_fill_v2_6_0', 'started the log over for the slot fill', () => {
+      db.prepare(`DELETE FROM rotation_log`).run();
+      db.prepare(`DROP INDEX IF EXISTS idx_parked_peer_probe`).run();
     });
   } finally {
     db.pragma(`busy_timeout = ${previousTimeout}`);
@@ -863,6 +924,7 @@ function resetPeerData() {
                      AND peer_id IN (SELECT p.id FROM peer p JOIN trusted_peer tp ON tp.address = p.address))`,
       ).run();
       db.prepare(`DELETE FROM parked_peer`).run();
+      db.prepare(`DELETE FROM slot_fill_tried`).run();
       db.prepare(`DELETE FROM rotation_log`).run();
       // Goes with the rest, not on its own. Everything the funnel shows -
       // seen, judged, delivered - is derived from the tables above and returns
@@ -999,7 +1061,6 @@ module.exports = {
   resetPeerData,
   resetPoolHistory,
   PEER_DATA_TABLES,
-  POOL_HISTORY_TABLES,
   rebuildRelayStats,
   // Exported so the suite can run them a second time and assert they are
   // genuinely no-ops. Asserting a list of flag names instead proved nothing:

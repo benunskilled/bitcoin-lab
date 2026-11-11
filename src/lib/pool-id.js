@@ -22,12 +22,12 @@
  */
 
 const pools = require('../data/mining-pools.json');
-// Tags the list above lacks, most of them pools that run ckpool and so also
-// write "ckpool" into the coinbase: without their own tag they would all be
-// CKPool. See src/data/MINING-POOLS.md for where each one comes from.
+// Tags and payout addresses the list above lacks, most of them pools that
+// run ckpool and so also write "ckpool" into the coinbase: without their own
+// tag they would all be CKPool. See src/data/MINING-POOLS.md for where each one comes from.
 const extra = require('../data/mining-pools-extra.json');
 
-const ADDRESSES = pools.payout_addresses || {};
+const ADDRESSES = { ...(pools.payout_addresses || {}), ...(extra.payout_addresses || {}) };
 const TAGS = { ...(pools.coinbase_tags || {}), ...(extra.coinbase_tags || {}) };
 
 // Longest first: "Foundry USA Pool" has to win against any shorter tag that

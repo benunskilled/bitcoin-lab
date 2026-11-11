@@ -28,7 +28,20 @@ function otherChainOf(services, syncedHeaders = null, tip = 0) {
  */
 
 const config = require('../config');
+const network = require('../network');
 const { ipv4HostFromAddress, ipv4InCidr, unreachableNetwork } = require('../address');
+
+const REGION_NAMES = {
+  AF: 'Africa', AS: 'Asia', EU: 'Europe', NA: 'North America', OC: 'Oceania', SA: 'South America',
+};
+
+function whereOf(address) {
+  const hidden = unreachableNetwork(address);
+  if (hidden === 'Tor' || hidden === 'I2P') return { region: hidden.toUpperCase(), regionName: hidden, country: '', operator: '' };
+  if (hidden) return null;
+  const { region, country, operator } = network.lookup(address);
+  return region ? { region, regionName: REGION_NAMES[region], country, operator } : null;
+}
 const { peerScore } = require('../score');
 
 // Core's spelling of the network, turned into the display name this app uses.
@@ -131,6 +144,11 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
       localUmbrelPeer,
       privateNetwork,
       proxiedPrivatePeer,
+      // Where a manual or outbound peer is, for the dashboard: what the
+      // rotation spreads the slots by (peer-rotation/spread.js). Only for the
+      // two tables that show it, and never for an address that is not the
+      // peer's own.
+      where: (trusted || r.liveDirection === 'outbound') && !sourceObscured && !localUmbrelPeer && !proxiedPrivatePeer ? whereOf(r.address) : null,
       localAppName: localUmbrelPeer ? localAppNameFromSubver(r.client) : null,
       trusted,
       trustedLabel: r.trustedLabel,
@@ -198,7 +216,6 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
       hbFrom: r.liveHbFrom === 1,
       lastPingMs: r.liveLastPingMs,
       sessionsCount: r.sessionsCount,
-      totalConnectionMs: r.totalMs,
       status: statusFor(r, trusted),
       // Connection-type-only status, ignoring the manual/trusted override -
       // used where "MANUAL LIVE" would just be redundant noise (e.g. the
@@ -208,4 +225,4 @@ function mapRankingRow(now, recent = new Map(), graceFrom = 0, liveTip = 0) {
   };
 }
 
-module.exports = { mapRankingRow, otherChainOf };
+module.exports = { mapRankingRow, otherChainOf, whereOf };

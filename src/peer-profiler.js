@@ -438,6 +438,12 @@ async function main() {
     peerRotation.tick().catch((err) => logger.warn('peer rotation tick failed', { error: err.message }));
   }, PEER_SYNC_INTERVAL_MS);
 
+  // While a slot-fill candidate is on trial: look every minute, so it is judged
+  // at its own deadline. Does nothing without a trial.
+  setInterval(() => {
+    peerRotation.watchTrial().catch((err) => logger.warn('slot fill trial check failed', { error: err.message }));
+  }, 60 * 1000).unref?.();
+
   runMaintenance();
   setInterval(runMaintenance, MAINTENANCE_INTERVAL_MS);
 }

@@ -101,6 +101,15 @@ function newManualGraceStartedAt() {
   return row ? row.at : 0;
 }
 
+function slotFillTrialAddress() {
+  try {
+    const row = db.instance.prepare(`SELECT value FROM meta WHERE key = 'slot_fill_trial'`).get();
+    return row ? JSON.parse(row.value).address || null : null;
+  } catch {
+    return null;
+  }
+}
+
 function peerRanking() {
   const now = Date.now();
   if (!peerRankingStmt) {
@@ -115,7 +124,19 @@ function peerRanking() {
   const recent = recentRelayStats();
   const graceFrom = newManualGraceStartedAt();
   const liveTip = liveTipStmt.get()?.tip || 0;
-  const rows = peerRankingStmt.all({ now }).map(mapRankingRow(now, recent, graceFrom, liveTip));
+  const rows = peerRankingStmt.all().map(mapRankingRow(now, recent, graceFrom, liveTip));
+
+  // The manual peer the slot fill has on trial (peer-rotation/fill.js): in its
+  // slot, but only for good once Core has connected to it.
+  const onTrial = slotFillTrialAddress();
+  if (onTrial) {
+    for (const r of rows) {
+      if (r.trusted && r.address === onTrial) {
+        r.onTrial = true;
+        r.status = 'TESTING';
+      }
+    }
+  }
 
   // Ordered here rather than in SQL: the score combines two windows and one of
   // them is not in that statement. The set is the live peers plus the manual
@@ -175,15 +196,22 @@ function peerRankingSql() {
          -- Has Core ever actually held a manual connection to this peer? Not
          -- the same as being in the manual set: an address can sit there for
          -- days without Core ever getting a connection to stand up, which is
-         -- what a peer that only ever dialled IN looks like. The star's
-         -- protection against parking hangs on this, so a bad address cannot
+         -- what a peer that only ever dialled IN looks like. The padlock's
+         -- protection against retiring hangs on this, so a bad address cannot
          -- hold one of eight slots forever.
          EXISTS (SELECT 1 FROM peer_session s WHERE s.peer_id = p.id AND s.connection_type = 'manual') AS everManual,
-         (SELECT COALESCE(SUM(COALESCE(s.ended_at, @now) - s.started_at), 0)
-            FROM peer_session s WHERE s.peer_id = p.id) AS totalMs,
-         latest.subver AS client,
-         latest.services AS services,
-         latest.syncedHeaders AS syncedHeaders,
+         -- What the peer said about itself comes from a session in which it
+         -- said something: one that got as far as its version message (a
+         -- client name) or a ping, which Core only sends after the
+         -- handshake. A connection that never finished its handshake reports
+         -- no client and no services - not the same as a peer that announces
+         -- none. Taking "latest" by start time picked such a connection when
+         -- Core opened two in the same second, or retried a peer and failed,
+         -- and a working node read "offers no services" for hours. NULL when
+         -- no session ever finished: unknown, not "nothing".
+         COALESCE(os.subver, known.subver) AS client,
+         CASE WHEN os.subver IS NOT NULL OR os.min_ping_ms IS NOT NULL THEN os.services ELSE known.services END AS services,
+         COALESCE(os.synced_headers, latest.syncedHeaders) AS syncedHeaders,
          latest.latestEndedAt AS latestEndedAt
        FROM peer p
        LEFT JOIN trusted_peer tp ON tp.address = p.address
@@ -209,6 +237,13 @@ function peerRankingSql() {
            ORDER BY started_at DESC LIMIT 1
          )
        ) latest ON latest.peer_id = p.id
+       -- Driven by p.id, so it runs once per peer: newest first along
+       -- idx_peer_session_peer_started, stopping at the first that finished.
+       LEFT JOIN peer_session known ON known.id = (
+         SELECT k.id FROM peer_session k
+         WHERE k.peer_id = p.id AND (k.subver IS NOT NULL OR k.min_ping_ms IS NOT NULL)
+         ORDER BY k.started_at DESC LIMIT 1
+       )
        -- Only what anything actually consumes: live peers and manual ones.
        --
        -- Written as a subquery on p.id rather than as a predicate reading
@@ -231,9 +266,6 @@ function peerRankingSql() {
        `;
 }
 
-// recentRelayStats is exported for parking, which needs the same window
-// this ranking is built on but must not pay for the ranking itself. The
-// cache makes the second caller free.
-// RECENT_RELAY_STATS_SQL goes with it so the suite can assert the plan this
+// RECENT_RELAY_STATS_SQL is exported so the suite can assert the plan this
 // statement actually gets rather than a copy of it that has drifted.
-module.exports = { peerRanking, recentRelayStats, RECENT_RELAY_STATS_SQL };
+module.exports = { peerRanking, RECENT_RELAY_STATS_SQL };

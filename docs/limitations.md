@@ -14,7 +14,7 @@ If you connect Bitcoin Lab to Core on another machine, keep both clocks synchron
 
 ## Addresses Bitcoin Lab cannot dial
 
-Tor, I2P and CJDNS peers are measured, but Bitcoin Lab cannot add them as manual connections. The same applies to inbound IPv6 peers whose real address is hidden by Docker on Umbrel.
+Tor, I2P and CJDNS peers are measured, but you cannot add them by hand: the check before an add runs from the app's container, which has no way into those networks. Slot Fill can still pick Tor and I2P peers, because Core dials them itself. CJDNS it never picks. Inbound IPv6 peers whose real address is hidden by Docker on Umbrel cannot be added either.
 
 These peers remain part of the ranking while connected. See [Configuration](configuration.md#docker-and-umbrel-networking) for the networking settings.
 

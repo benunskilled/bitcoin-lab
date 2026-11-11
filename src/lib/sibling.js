@@ -98,6 +98,10 @@ const KINDS_MAX_BYTES = 16 * 1024 * 1024;
 const kindsTarget = () => target().replace(/\/api\/health$/, '/api/peers');
 let kinds = new Map();
 let kindsAtMs = 0;
+// Peer Map's names outlive a failed answer, but not by long: after ten
+// minutes without one they are its old word on peers that have moved on.
+const KINDS_STALE_MS = 10 * 60 * 1000;
+let kindsOkAtMs = 0;
 let kindsInFlight = false;
 
 function fetchKinds() {
@@ -126,15 +130,25 @@ function fetchKinds() {
   });
 }
 
-// Only the two kinds the ranking marks; everything else Peer Map says stays
-// in Peer Map, one click away on the address.
+// What the ranking needs to name a peer readably (09.11.2026: a raw user
+// agent, cut short, named nobody, and 22 wallets read as Core): its kind, the
+// name Peer Map gives it, why a disguise is one, whose pool, another chain,
+// and whether its software passes blocks on at all.
+// Only what is set; strings are Peer Map's and capped, shown escaped.
 function kindsOf(body) {
   const out = new Map();
   for (const p of (body && Array.isArray(body.peers)) ? body.peers : []) {
-    if (!p || typeof p.addr !== 'string') continue;
+    if (!p || typeof p.addr !== 'string' || typeof p.kind !== 'string') continue;
     const str = (v) => (typeof v === 'string' ? v.slice(0, 200) : '');
-    if (p.kind === 'Disguised') out.set(p.addr, { kind: 'Disguised', why: str(p.tell) });
-    else if (p.kind === 'Pool node') out.set(p.addr, { kind: 'Pool node', pool: str(p.pool) });
+    const m = { kind: str(p.kind) };
+    if (str(p.tell)) m.why = str(p.tell);
+    if (str(p.pool)) m.pool = str(p.pool);
+    if (str(p.label)) m.label = str(p.label);
+    if (str(p.fork)) m.fork = str(p.fork);
+    if (str(p.name)) m.name = str(p.name);
+    if (p.no_relay === true) m.noRelay = true;
+    if (p.linking_lion === true) m.lion = true;
+    out.set(p.addr, m);
   }
   return out;
 }
@@ -142,7 +156,7 @@ function kindsOf(body) {
 /**
  * Peer Map's word on each peer it marks, by address - from the last answer,
  * without waiting. An empty map when Peer Map is not installed or not yet
- * asked; a failed fetch keeps the previous answer until the next one.
+ * asked; a failed fetch keeps the previous answer for up to ten minutes.
  */
 function peerKinds() {
   if (target() === 'off') return new Map();
@@ -157,7 +171,8 @@ function peerKinds() {
     kindsInFlight = true;
     kindsAtMs = Date.now();
     fetchKinds().then((body) => {
-      if (body) kinds = kindsOf(body);
+      if (body) { kinds = kindsOf(body); kindsOkAtMs = Date.now(); }
+      else if (Date.now() - kindsOkAtMs > KINDS_STALE_MS) kinds = new Map();
     }).finally(() => { kindsInFlight = false; });
   }
   return kinds;
@@ -170,6 +185,7 @@ function reset() {
   inFlight = null;
   kinds = new Map();
   kindsAtMs = 0;
+  kindsOkAtMs = 0;
   kindsInFlight = false;
 }
 

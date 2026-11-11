@@ -92,4 +92,19 @@ function liveSummary() {
   return summary;
 }
 
-module.exports = { weakestTrustedPeer, offlineTrustedPeers, liveSummary };
+/**
+ * Whether this node has ever dialled exactly this address. If it has, the port
+ * in it is one the peer listens on - Core chose it and the connection worked -
+ * so "Add as Manual" keeps it. An inbound address carries the other side's
+ * source port instead, which is useless for addnode.
+ */
+function dialledBefore(address) {
+  return !!db.instance
+    .prepare(
+      `SELECT 1 FROM peer p JOIN peer_session ps ON ps.peer_id = p.id
+       WHERE p.address = ? AND ps.direction = 'outbound' LIMIT 1`,
+    )
+    .get(address);
+}
+
+module.exports = { weakestTrustedPeer, offlineTrustedPeers, liveSummary, dialledBefore };

@@ -14,7 +14,7 @@
 //   - "mempool": a compact block came in and nothing was asked for
 //   - "asked":   getblocktxn went out; missingBytes is what came back
 //   - "full":    no compact block, the whole block was downloaded instead
-//   - "unclear": both asked AND a whole block - see classify
+//   - "unclear": asked AND a whole block with no compact block - see classify
 // null when it cannot be told: no snapshot of the previous block (a block was
 // skipped, getpeerinfo failed at the start), or nothing arrived at all.
 // The app takes one snapshot when it starts, so the first block is told too.
@@ -56,6 +56,8 @@ function deltas(before, peers) {
     }
     out.push({
       addr: p.addr,
+      subver: p.subver,
+      connectionType: p.connection_type,
       getblocktxn: sent(p, 'getblocktxn') - base.getblocktxn,
       blocktxn: recv(p, 'blocktxn') - base.blocktxn,
       cmpctblock: recv(p, 'cmpctblock') - base.cmpctblock,
@@ -69,12 +71,33 @@ function classify(before, peers) {
   if (!before) return null;
   const d = deltas(before, peers);
   const asked = d.filter((x) => x.getblocktxn > 0);
-  const whole = d.some((x) => x.block > 0);
-  // Both at once has two readings the counters cannot tell apart: Core asked,
-  // the rebuild still failed and it fetched the whole block - or the answer
-  // to the previous block's getblocktxn came in after that block's snapshot
-  // and this one was downloaded whole. Calling it "asked" put the previous
-  // block's bytes on this one in the second case, so it is neither.
+  // Some peers push whole blocks nobody asked for (seen: ViaBTC's relay, an
+  // inbound /Satoshi:23.0.0/), and Core counts the bytes on receipt, before it
+  // drops the block it already has (net.cpp CNode::ReceiveMsgBytes). So once a
+  // compact block came in, a whole block does not count at all. Only counting
+  // one from the peer that sent the compact block (where Core fetches it after
+  // a failed rebuild, net_processing.cpp READ_STATUS_FAILED -> GETDATA to
+  // pfrom) was not enough: block 975133 still read "full" with it.
+  // Against Core's own cmpctblock log, 114 blocks from 8 to 9 November: 8
+  // whole blocks beside a compact block, every one rebuilt without it, and
+  // not one real full download. A failed rebuild now reads as "mempool" or
+  // "asked" - rare - instead of a push reading as "full" - common.
+  const compact = d.some((x) => x.cmpctblock > 0);
+  const pushed = compact ? d.filter((x) => x.block > 0) : [];
+  const whole = !compact && d.some((x) => x.block > 0);
+  // Who sent the ignored whole blocks, so the log can show where they come
+  // from. No address: the type of peer and its client are enough for that.
+  const ignored = pushed.map((x) => ({ subver: x.subver, connectionType: x.connectionType, bytes: x.block }));
+  const result = classifyCounters(asked, whole, d);
+  if (result && ignored.length) result.ignoredWholeBlocks = ignored;
+  return result;
+}
+
+function classifyCounters(asked, whole, d) {
+  // Asked, and a whole block with no compact block beside it: the counters
+  // cannot say whether the asking belongs to this block or the previous one,
+  // whose answer can come in after that block's snapshot. Calling it "asked"
+  // would put the previous block's bytes on this one, so it is neither.
   if (asked.length && whole) return { kind: 'unclear', missingBytes: null, askedPeers: asked.map((x) => x.addr) };
   if (asked.length) {
     // Core can ask more than one peer for the same missing transactions (one
@@ -83,9 +106,7 @@ function classify(before, peers) {
     const missing = Math.max(...asked.map((x) => Math.max(0, x.blocktxn - HEADER_BYTES)));
     return { kind: 'asked', missingBytes: missing, askedPeers: asked.map((x) => x.addr) };
   }
-  // A whole block is the stronger sign: near the tip Core only downloads one when the compact block did not
-  // work (no compact relay, or a rebuild that failed), and the slower of up to three high-bandwidth peers can
-  // send their cmpctblock after the snapshot, so a compact block alone may belong to the block before.
+  // With no compact block at all, a whole block is what Core downloaded.
   if (whole) return { kind: 'full', missingBytes: null, askedPeers: [] };
   if (d.some((x) => x.cmpctblock > 0)) return { kind: 'mempool', missingBytes: 0, askedPeers: [] };
   return null;

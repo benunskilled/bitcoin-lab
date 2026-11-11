@@ -57,17 +57,36 @@ test('a block downloaded whole, with no compact block, is told apart', () => {
   assert.equal(classify(before, [peer(1, { recv: { block: 1_500_000 } })]).kind, 'full');
 });
 
-test('a whole block counts as downloaded whole even with a late compact block beside it', () => {
+// Block 975049: Core's log said rebuilt from the mempool, nothing requested;
+// a peer had pushed the whole block unasked, and the counters said "full".
+// Block 975133 the same, with the whole block from a peer that had also sent
+// a compact block - so beside any compact block, a whole block never counts.
+test('a whole block beside a compact block does not count, whoever sent it', () => {
   const before = snapshot([peer(1), peer(2)], 2_000_000);
-  const after = [peer(1, { recv: { cmpctblock: 9000 } }), peer(2, { recv: { block: 1_500_000 } })];
-  assert.equal(classify(before, after).kind, 'full');
+  const pushed = { subver: '/Satoshi:23.0.0/', connectionType: 'inbound', bytes: 1_500_000 };
+  for (const after of [
+    [peer(1, { recv: { cmpctblock: 9000 } }), peer(2, { recv: { block: 1_500_000 } })],
+    [peer(1, { recv: { cmpctblock: 9000 } }), peer(2, { recv: { cmpctblock: 9000, block: 1_500_000 } })],
+  ]) {
+    after[1].subver = pushed.subver;
+    after[1].connection_type = pushed.connectionType;
+    assert.deepEqual(classify(before, after), { kind: 'mempool', missingBytes: 0, askedPeers: [], ignoredWholeBlocks: [pushed] });
+  }
+  const asked = [
+    peer(1, { sent: { getblocktxn: 60 }, recv: { cmpctblock: 9000, blocktxn: HEADER_BYTES + 800, block: 1_500_000 } }),
+    peer(2, { recv: { block: 1_500_000 } }),
+  ];
+  const r = classify(before, asked);
+  assert.equal(r.kind, 'asked', 'not "unclear" any more: Core asked, and that is what the log showed');
+  assert.equal(r.missingBytes, 800);
+  assert.equal(r.ignoredWholeBlocks.length, 2);
 });
 
 // Found by an outside review: a late blocktxn for the block before and a
 // whole block from another peer read as "asked", with the previous block's
 // bytes on this one. The counters cannot tell that from a rebuild that failed
 // after asking, so it is neither.
-test('asked and a whole block at once is unclear, with no bytes put on the block', () => {
+test('asked and a whole block with no compact block is unclear, with no bytes put on the block', () => {
   const before = snapshot([peer(1), peer(2)], 2_000_000);
   const after = [
     peer(1, { sent: { getblocktxn: 60 }, recv: { blocktxn: HEADER_BYTES + 10000 } }),

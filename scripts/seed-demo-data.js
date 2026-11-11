@@ -41,8 +41,6 @@ const CURRENT_HEIGHT = Number(process.env.MOCK_RPC_HEIGHT || 921845);
 // ranking has a long tail worth filtering ("showing 10 of 206"), and that a
 // full outbound table is mostly 0.0% peers waiting to be replaced.
 const LIVE_INBOUND = 188;
-const LIVE_OUTBOUND_NON_MANUAL = 10; // 8 full-relay + 2 block-relay-only
-const MANUAL_COUNT = 8;              // Core's MAX_ADDNODE_CONNECTIONS
 
 const CLIENTS = ['/Satoshi:29.0.0/', '/Satoshi:28.1.0/', '/Satoshi:28.0.0/', '/Satoshi:27.2.0/', '/Satoshi:27.1.0/', '/Satoshi:26.2.0/'];
 
@@ -262,38 +260,22 @@ for (let i = 0; i < STRATUM_RACE_COUNT; i++) {
     });
 }
 
-// --- Peer rotation -----------------------------------------------------------
-// The toggle on, plus a plausible day of activity, so the Peer Rotation panel
-// shows what it actually does rather than an empty table.
+// --- Manual slot fill ---------------------------------------------------------
+// The toggle on, plus a plausible week of changes, so the panel shows what it
+// actually does rather than an empty table - more than four, so the log opens.
 inst
   .prepare(`INSERT INTO meta (key, value) VALUES ('peer_rotation_enabled', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
   .run();
 
 const rotationLog = [
-  ['kick', '198.51.100.203:8333', 0, 197, null, null, '0/197 recent blocks first', 0.7],
-  ['revive', '203.0.113.140:8333', 18.9, 302, null, null, 'back, took a free manual slot', 2.1],
-  ['kick', '203.0.113.180:8333', 0, 161, null, null, '0/161 recent blocks first', 3.4],
-  ['park', '192.0.2.240:8333', 1.2, 188, null, null, 'offline 4h, allowed 1h; parked to re-test', 6.5],
-  ['swap', '198.51.100.20:8333', 22.6, 168, '192.0.2.240:8333', 4.1, 'replaced the weakest manual peer: 4/168 recent blocks first', 9.2],
-  ['kick', '192.0.2.19:8333', 0, 152, null, null, '0/152 recent blocks first', 14.8],
-  ['promote', '203.0.113.55:8333', 31.4, 221, null, null, 'free manual slot (6/8 taken, 6 live)', 22.1],
+  ['promote', '203.0.113.140:8333', null, null, null, null, 'Oceania had none', 0.7],
+  ['retire', '192.0.2.240:8333', 0, 188, null, null, 'offline 1h, allowed 1h', 1.4],
+  ['disconnect', '198.51.100.77:51344', 0, 96, null, null, 'inbound · 0 of 96 recent blocks first', 9.2],
+  ['promote', '198.51.100.20:8333', null, null, null, null, 'free slot', 22.5],
+  ['manual', '203.0.113.55:8333', 31.4, 221, null, null, null, 46.1],
+  ['retire', '192.0.2.19:8333', 2.1, 430, null, null, 'offline 24h, allowed 24h', 70.3],
 ];
 
-// Two peers that lost their manual slot to a long absence and are being
-// re-tested - one recently parked and still being checked often, one that has
-// been unreachable long enough for the backoff to have stretched out.
-const parked = [
-  ['192.0.2.240:8333', 1.2, 188, 6.5, 0.4, 1],
-  ['203.0.113.121:8333', 16.3, 264, 52, 5.5, 9],
-];
-for (const [address, firstPct, eligible, parkedHoursAgo, probeHoursAgo, failures] of parked) {
-  inst
-    .prepare(
-      `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
-       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
-    )
-    .run(address, firstPct, eligible, now - parkedHoursAgo * HOUR, now - probeHoursAgo * HOUR, failures);
-}
 for (const [action, address, firstPct, eligible, replacedAddress, replacedFirstPct, note, hoursAgo] of rotationLog) {
   inst
     .prepare(

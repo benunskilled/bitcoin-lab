@@ -201,11 +201,12 @@ tr:hover td { background: #17202a; }
    says "never first" (firstPctCell). */
 tr.weak td { color: var(--muted); }
 .never { display: inline-block; vertical-align: middle; font-size: 10.5px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 0 5px; }
-/* Before the client name: Disguised in Peer Map's red (red is kept for that
-   there too - orange is Bitcoin's and means something good here), a pool's
-   name plain (kindTag). */
+/* Before the client name: Disguised or LinkingLion in Peer Map's red (red is
+   kept for that there too - orange is Bitcoin's and means something good
+   here) (clientName). */
 .kind-tag { color: var(--muted); }
 .kind-tag.disg { color: var(--bad); }
+.lion-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
 
 .pill {
   display: inline-block;
@@ -225,21 +226,13 @@ tr.weak td { color: var(--muted); }
    separate - measured, not assumed. It is not a fault either; a wallet is doing
    what a wallet does, and the colour still says what kind of connection this is. */
 .pill.norelay { opacity: .7; }
-/* Peer Rotation's own action log - kick is a removal (bad-colored, even
-   though it's working as intended), promote/swap add a manual peer
-   (good-colored); swap gets the accent color since, unlike a plain
-   promote, it also displaces an existing manual peer. */
-.pill.rotation-kick { background: rgba(248,81,73,.15); color: #e5534b; }
+/* The manual slots' log: a peer the slot fill added is green, one added by
+   hand the blue that means manual in both apps. A peer that went - offline,
+   or disconnected by hand - is grey: nothing went wrong. */
 .pill.rotation-promote { background: rgba(63,185,80,.15); color: var(--good); }
-.pill.rotation-swap { background: rgba(63,185,80,.15); color: var(--good); }
-/* Added by hand: the blue that means manual in both apps. */
 .pill.rotation-manual { background: rgba(57,135,229,.15); color: #6aa8f0; }
-/* Parking is not a kick - the peer is kept and re-tested - so it gets the
-   neutral treatment rather than the red one a removal gets. */
-.pill.rotation-park { background: rgba(138,153,168,.15); color: var(--muted); }
-/* By hand, grey: it is not the rotation's red kick. */
-.pill.rotation-disconnect { background: rgba(138,153,168,.15); color: var(--muted); }
-.pill.rotation-revive { background: rgba(63,185,80,.15); color: var(--good); }
+.pill.rotation-retire { background: rgba(138,153,168,.15); color: var(--muted); }
+.pill.rotation-disconnect, .pill.rotation-unmanual { background: rgba(138,153,168,.15); color: var(--muted); }
 
 /* The Add-a-Peer result line. "not reachable" is a perfectly good answer
    rather than an error - Test exists to produce it - so it is coloured as
@@ -250,8 +243,6 @@ tr.weak td { color: var(--muted); }
 .result-ok { color: var(--good); }
 .result-error { color: var(--bad); }
 
-.parked-peers { margin-top: 14px; }
-.parked-peers h3 { color: var(--text); }
 
 .inline-form {
   display: flex;
@@ -358,21 +349,14 @@ button.secondary {
 @media (prefers-reduced-motion: reduce) { .how summary::after { transition: none; } .how[open] > :not(summary) { animation: none; } }
 
 .rotation-log-table .col-time { width: 14%; }
-.rotation-log-table .col-rot-action { width: 12%; }
-.rotation-log-table .col-address { width: 20%; }
-.rotation-log-table .col-pct { width: 10%; }
-/* The note is a sentence ("replaced the weakest manual peer: ..."). Kept
+.rotation-log-table .col-rot-action { width: 14%; }
+.rotation-log-table .col-address { width: 26%; }
+/* The note can be a sentence. Kept
    on one line it made this table about 900px wide, and as fitTables decides
    for all tables together, a laptop window of that width turned every panel
    into cards. It wraps instead - not cut with an ellipsis, as a tablet has
    no hover to show the rest. */
 .rotation-log-table td:last-child { white-space: normal; min-width: 12em; }
-/* A run of kicks that delivered nothing, as one line that opens to the kicks. */
-.rotation-log-table tr.kick-group { cursor: pointer; }
-.rotation-log-table tr.kick-member td { color: var(--muted); }
-.rotation-log-table tr.kick-member td:first-child { padding-left: 22px; }
-.fold-mark { color: var(--muted); margin-left: 4px; font-size: 13px; }
-
 .trophy { margin-left: 4px; } /* pool that won the single most recent race */
 
 /* Side by side, not stacked - stacking would double every row's height just
@@ -400,6 +384,10 @@ td.row-actions > * + * { margin-left: 6px; }
   box-sizing: border-box;
 }
 span.action-slot { visibility: hidden; } /* reserves the height, shows nothing */
+/* An empty slot has no line of text, so it reserved the padding alone: a row
+   with nothing to do (a local Umbrel app) was lower than the rest. A space
+   gives it the button's line. */
+span.action-slot:empty::before { content: "\00a0"; }
 /* The first slot holds "Remove" in one row and "Add as Manual" in the next,
    so it is as wide as the longer one - otherwise Disconnect beside it jumps
    from row to row. In the Manual table it holds the lock, at its right edge,
@@ -558,6 +546,12 @@ th.col-actions { padding-left: 20px; }
   color: var(--text);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
 }
+/* A phone is narrower than the toast: right-aligned at 420 px it began left
+   of the screen and the start of its message was cut off (10.11.2026). */
+@media (max-width: 480px) {
+  .action-toast { left: 16px; right: 16px; max-width: none; }
+}
+.action-toast { overflow-wrap: anywhere; }
 .action-toast.pending { color: var(--muted); border-color: var(--border); }
 .action-toast.success { border-color: var(--good); color: var(--good); }
 .action-toast.error { border-color: var(--bad); color: var(--bad); }
@@ -624,7 +618,7 @@ th.col-actions { padding-left: 20px; }
   background: rgba(247, 147, 26, .22);
   transition: background 1.2s ease;
 }
-tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: #56d364; }
+tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a.peer-jump { color: #56d364; }
 .table-wrap table tbody tr.row-first-block:hover { background: rgba(247, 147, 26, .3); }
 .table-wrap table tbody tr.row-first-block:hover td { background: none; }
 
@@ -709,7 +703,6 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-status { width: 140px; }
 .table-wrap[data-drops]:not([data-drops="0"]) table.peer-table th.col-pct { width: 140px; white-space: normal; }
 /* "First % (lifetime)" folds onto two lines before the note does. */
-.table-wrap[data-drops]:not([data-drops="0"]) .rotation-log-table th.col-pct { white-space: normal; }
 .table-wrap[data-drops="1"]:not(.cards) table.peer-table { min-width: 800px; }
 .table-wrap[data-drops="2"]:not(.cards) table.peer-table { min-width: 740px; }
 .table-wrap[data-drops="3"]:not(.cards) table.peer-table { min-width: 680px; }
@@ -718,6 +711,17 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    (app.js, withClientLine), and the two buttons one above the other - the
    red one below, where it is in every row. */
 .addr-client { display: none; }
+/* The raw user agent, on an opened card only (withClientLine). */
+.addr-client .ua-raw { display: none; }
+tr.open .addr-client .ua-raw { display: block; white-space: normal; overflow-wrap: anywhere; }
+/* On a touch screen the way over to Peer Map, inside the opened card. */
+.map-open { display: none; }
+tr.open .map-open { display: inline-block; max-width: 100%; box-sizing: border-box; margin-top: 8px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border); color: var(--text); font-size: 13px; text-decoration: none; white-space: nowrap; }
+/* Opened, the line is whole: the name and its reasons, however long. */
+.table-wrap[data-drops] tr.open .addr-client { white-space: normal; overflow: visible; }
+.addr-place { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addr-place .flag { margin-right: 6px; }
+.manual-spread { margin: -4px 0 10px; }
 .table-wrap[data-drops="4"] .addr-client { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-wrap[data-drops="4"]:not(.cards) td.row-actions { white-space: normal; }
 .table-wrap[data-drops="4"]:not(.cards) td.row-actions > * { display: flex; width: 112px; margin-left: auto; }
@@ -761,6 +765,14 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 /* The empty slot keeps a table's columns in line; on a card it would only push
    the buttons apart. Buttons a little tighter, so two fit beside the type. */
 .cards.cards table.peer-table td.row-actions > span.action-slot:not(.lock-slot) { display: none; }
+/* Every peer card one height (09.11.2026): the first line one line-height
+   whether it is a link, "Tor peer" or a local app's name, which keeps to one
+   line here like an address; the ⚡ beside a First % no taller than the
+   digits. */
+.cards.cards table.peer-table td.hint[data-col="col-address"] { white-space: nowrap; }
+.cards.cards table.peer-table td[data-col="col-address"] { line-height: 18px; }
+.cards.cards table.peer-table td[data-col="col-address"] small { line-height: 16px; }
+.cards.cards table.peer-table td[data-col="col-pct"] .hb { line-height: 1; }
 .cards.cards table.peer-table td.row-actions > .action-slot { min-width: 0; padding: 5px 6px; }
 /* Two buttons beside BLOCK RELAY on a 390 px phone: the last pixels come from
    a narrower gap and a tighter pill, not from smaller text. */
@@ -768,10 +780,6 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 .cards.cards table.peer-table td[data-col="col-status"] .pill { letter-spacing: .03em; }
 /* Big enough for a finger: Remove and Disconnect have consequences. */
 .cards.cards table.peer-table td.row-actions > button.action-slot { min-height: 34px; }
-/* A parked card: "Parked 6m ago" in one line under the address, where the
-   other cards have their type. */
-.cards.cards #parked-peer-table td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
-.cards.cards #parked-peer-table td:nth-child(3)::before { display: inline; margin: 0 6px 0 0; }
 /* The lock stands in the row, in front of Remove: hung outside the card's
    edge it was cut off by the card on a phone. */
 .cards.cards #manual-peer-table .lock-slot { padding: 0 4px 0 0; }
@@ -780,9 +788,11 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
    buttons no longer push first % left and cut the address short. */
 .cards.cards table.peer-table td.row-actions { grid-column: 1 / -1; justify-content: flex-end; }
 /* On the narrowest phones two buttons do not fit beside the type: they get
-   the second row to themselves, still ending at the right. */
+   the second row to themselves, still ending at the right - on an opened
+   card, where they show. A closed card kept the empty row, and was taller
+   than the rest. */
 @container cards (max-width: 289px) {
-  .cards.cards table.peer-table tr:has(td.row-actions > button + button) td.row-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
+  .cards.cards table.peer-table tr.open:has(td.row-actions > button + button) td.row-actions { grid-column: 1 / -1; grid-row: 3; justify-content: flex-end; }
   .cards.cards table.peer-table td[data-col="col-pct"] { min-width: 96px; }
 }
 /* First % is the point of the card: when its cell gets too narrow, the count
@@ -809,16 +819,20 @@ tr.row-delivered > td:first-child, tr.row-delivered > td:first-child a { color: 
 
 /* The rotation log's note is a sentence: on its own line, wrapping. */
 .cards.cards table tr td.hint { grid-column: 1 / -1; white-space: normal; }
-/* The rotation log is a log, not a table to compare: no labels, three short
-   lines - when, what, first % on top, the address under it, the note last. */
-.cards.cards #rotation-log-table tr { grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 8px 14px; }
+/* The log is a log, not a table to compare: no labels, three lines - what
+   and when, the address, then where and why in one grey line. */
+.log-card-line { display: none; }
+.cards.cards #rotation-log-table tr { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 10px; padding: 10px 14px; }
 .cards.cards #rotation-log-table tr td[data-label]::before { content: none; }
-.cards.cards #rotation-log-table tr td:first-child { grid-column: auto; order: 1; }
-.cards.cards #rotation-log-table tr td:nth-child(2) { order: 2; }
-.cards.cards #rotation-log-table tr td:nth-child(4) { order: 3; justify-self: end; }
-.cards.cards #rotation-log-table tr td:nth-child(3) { order: 4; }
-.cards.cards #rotation-log-table tr td:nth-child(5) { order: 5; font-size: 12px; }
-.cards.cards #rotation-log-table tr td[colspan] { grid-column: 1 / -1; }
+.cards.cards #rotation-log-table tr td:nth-child(2) { grid-column: 1; grid-row: 1; }
+.cards.cards #rotation-log-table tr td:first-child { grid-column: 2; grid-row: 1; justify-self: end; font-size: 12px; }
+.cards.cards #rotation-log-table tr td:nth-child(3) { grid-column: 1 / -1; grid-row: 2; }
+.cards.cards #rotation-log-table tr td:nth-child(4),
+.cards.cards #rotation-log-table .addr-place { display: none; }
+.cards.cards #rotation-log-table .log-card-line { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); white-space: normal; }
+.cards.cards #rotation-log-table .log-card-line > span { white-space: nowrap; }
+.cards.cards #rotation-log-table .log-card-line .flag { margin-right: 6px; }
+.cards.cards #rotation-log-table tr td[colspan] { grid-column: 1 / -1; grid-row: auto; justify-self: stretch; }
 
 /* ---- V2 design ---- */
 
@@ -1008,8 +1022,9 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 .hb { margin-left: 4px; }
 .cards.cards .hb { margin-left: 2px; }
 
-/* What the marks mean - phone only, folded; a wide screen says it on hover. */
-.key { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+/* What the marks mean - phone only, folded, right under the count line; a
+   wide screen says it on hover. */
+.key { display: none; margin: -4px 0 10px; color: var(--muted); font-size: 12px; }
 .key summary { cursor: pointer; }
 .key ul { list-style: none; margin: 8px 0 2px; padding: 0; display: grid; gap: 7px; }
 .key li { display: grid; grid-template-columns: 104px 1fr; align-items: center; gap: 10px; }
@@ -1017,6 +1032,8 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 .key .hb { font-size: 13px; }
 .key .key-new { padding: 1px 8px; border-radius: 6px; background: rgba(247, 147, 26, .22); }
 .key .key-green { color: #56d364; }
+.key .key-grey { color: var(--muted); }
+.key .key-grey .never { display: block; width: max-content; margin-top: 1px; }
 @media (max-width: 600px) { .key { display: block; } }
 /* Below 360 px four numbers do not fit a pool card: the average goes, the
    last block stays (04.11.2026). */
@@ -1024,3 +1041,7 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
   .cards.cards #pool-table tr { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr) minmax(0, 1.4fr); }
   .cards.cards #pool-table td[data-label="Avg"] { display: none; }
 }
+
+/* The licence line for the DB-IP data under the manual peers. */
+.foot { margin: 8px auto 28px; text-align: center; font-size: 12px; color: var(--muted); }
+.foot a { color: inherit; }

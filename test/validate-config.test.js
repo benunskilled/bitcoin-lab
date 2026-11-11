@@ -12,25 +12,15 @@ function good(overrides = {}) {
     maxManualPeers: 8,
     minEligibleForJudgement: 50,
     newManualGraceBlocks: 50,
-    minSwapMarginPct: 0.2,
+    manualPerRegion: 1,
     recentScoreWindowBlocks: 500,
-    offlineGraceMinHours: 1,
-    offlineGraceMaxHours: 24,
-    offlineGraceHoursPerPct: 1,
-    parkedPeerProbesPerTick: 3,
-    parkedPeerMinProbeIntervalMinutes: 30,
-    parkedPeerMaxProbeIntervalHours: 12,
-    parkedPeerSlowProbeIntervalHours: 48,
-    parkedPeerFullSpeedPct: 20,
-    parkedPeerRetentionDaysPerPct: 5,
-    parkedPeerMinRetentionDays: 2,
-    parkedPeerMaxRetentionDays: 180,
+    offlineGraceHours: 1,
+    offlineGraceDeliveredHours: 24,
     stratumRaceTimeoutMs: 8000,
     stratumIdleTimeoutMs: 6 * 60 * 60 * 1000,
     stratumHistoryRetentionDays: 365,
     feelerPeerRetentionDays: 14,
     peerPollIntervalMs: 15000,
-    rotationLogEntries: 30,
     trafficFlushMs: 3600000,
     neverFirstPeerRetentionDays: 30,
     ...overrides,
@@ -75,22 +65,9 @@ test('more manual peers than Core will hold is refused', () => {
 
 test('counts must be whole numbers, rates need not be', () => {
   assert.ok(checkConfig(good({ recentScoreWindowBlocks: 500.5 })).some((p) => /whole number/.test(p)));
-  assert.deepEqual(checkConfig(good({ minSwapMarginPct: 0.25 })), [], 'a fractional margin is the point of it');
 });
 
 test('values that are each fine but wrong together are caught', () => {
-  assert.ok(
-    checkConfig(good({ offlineGraceMinHours: 48, offlineGraceMaxHours: 24 }))
-      .some((p) => /OFFLINE_GRACE_MIN_HOURS must not exceed/.test(p)),
-  );
-  assert.ok(
-    checkConfig(good({ parkedPeerMinRetentionDays: 200, parkedPeerMaxRetentionDays: 180 }))
-      .some((p) => /PARKED_PEER_MIN_RETENTION_DAYS must not exceed/.test(p)),
-  );
-  assert.ok(
-    checkConfig(good({ parkedPeerMaxProbeIntervalHours: 72 }))
-      .some((p) => /PARKED_PEER_MAX_PROBE_INTERVAL_HOURS/.test(p)),
-  );
   assert.ok(
     checkConfig(good({ recentScoreWindowBlocks: 10 }))
       .some((p) => /no peer could ever fill the window/.test(p)),
@@ -98,7 +75,7 @@ test('values that are each fine but wrong together are caught', () => {
 });
 
 test('every problem is reported, not just the first', () => {
-  const problems = checkConfig(good({ dashboardPort: 0, rotationLogEntries: 0, stratumRaceTimeoutMs: 0 }));
+  const problems = checkConfig(good({ dashboardPort: 0, peerPollIntervalMs: 0, stratumRaceTimeoutMs: 0 }));
   assert.equal(problems.length, 3, 'somebody fixing a compose file should not go round the loop three times');
 });
 

@@ -1,5 +1,7 @@
 # Records from my node
 
+*From September and October 2026, when Bitcoin Lab's rotation still filled the manual slots with the peers that brought blocks first. Slot Fill no longer does that: it goes for spread, not speed.*
+
 I run Bitcoin Core on Umbrel with `maxconnections=200`. While I measured, it accepted incoming connections over IPv4, IPv6, Tor and I2P, around 190 inbound peers at any time. It no longer listens on IPv6. On 16 September 2026 I started measuring from scratch. These are the records since then: 2,328 blocks up to 2 October. The table below covers whole days up to 1 October.
 
 ## Who delivered first

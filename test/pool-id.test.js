@@ -51,7 +51,7 @@ test('binary bytes do not bridge two fragments', () => {
 // Block 974982: F2Pool paid to an address the list does not know yet, and
 // its only tag is the fish - outside ASCII, so it is matched as bytes.
 test('a tag outside ASCII still identifies the pool', () => {
-  const script = '0386e00e' + Buffer.from('🐟\t/f2pool/m', 'utf8').toString('hex') + '0000';
+  const script = '0386e00e' + Buffer.from('🐟\t', 'utf8').toString('hex') + '0000';
   const hit = poolId.identify({ coinbaseHex: script, addresses: ['1K6KoYC69NnafWJ7YgtrpwJxBLiijWqwa6'] });
   assert.equal(hit.name, 'F2Pool');
   assert.equal(hit.tag, '🐟');
@@ -110,4 +110,18 @@ test('a ckpool-run pool is named by its own tag, not as CKPool', () => {
   for (const [text, name] of Object.entries(cases)) {
     assert.equal(poolId.identify({ coinbaseHex: hex('\u0003abc' + text) })?.name, name, text);
   }
+});
+
+// Checked on 9 November 2026: blocks the list had no name for.
+test('F2Pool in lower case, and NiceHash by its payout addresses', () => {
+  for (const text of ['/f2pool/m', '/f2pool.kz/c']) {
+    const got = poolId.identify({ coinbaseHex: hex(`\u0003abc${text}\u0000\u0001`), addresses: ['1AfCc4F9c4VTYSE31PUe2kUEKs6ZxiDjxm'] });
+    assert.equal(got.name, 'F2Pool', text);
+    assert.equal(got.source, 'tag');
+  }
+  assert.equal(poolId.identify({ addresses: ['bc1q85z0lxe86pkcg2fmppfnykat2375s0pnxjx9sc'] }).name, 'NiceHash');
+  assert.equal(poolId.identify({ addresses: ['bc1qevfvr7n7hqu56eu5cqunk22nuwds0dkjgqqxe6'] }).name, 'NiceHash');
+  // EasyMining pays the finder first and keeps 3 % on its own address.
+  const easy = poolId.identify({ addresses: ['bc1qx0wsjmspd3tmfsxyl7jftxyhapcrzmzn7t7g58', 'bc1q28d6w54p3xc03a2j5ppmkua09akep9vtke20ny'] });
+  assert.deepEqual([easy.name, easy.source], ['NiceHash EasyMining', 'address']);
 });

@@ -236,6 +236,12 @@ async function main() {
     assert.ok(manual, `expected one manual peer, saw ${peers.map((p) => p.connection_type).join(', ')}`);
   });
 
+  await check('the add-peer probe gets a version message back from a real node', async () => {
+    const manualPeer = require('../../src/lib/manual-peer');
+    assert.equal(await manualPeer.probePort('127.0.0.1', NODES.miner.p2p), true, 'P2P port answers as a node');
+    assert.equal(await manualPeer.probePort('127.0.0.1', NODES.miner.rpc), false, 'the RPC port is open, but no node');
+  });
+
   await check('getaddednodeinfo lists what addnode was given', async () => {
     const added = await rpc.getAddedNodeInfo();
     assert.ok(Array.isArray(added), 'an array comes back');
@@ -381,7 +387,7 @@ async function main() {
   // tests mock rpc and the mock agreed with a wrong idea of Core:
   //  - a displaced manual peer left connected keeps one of Core's eight
   //    addnode grants, so the swapped-in peer could not be dialled at all;
-  //  - block-relay-only connections are Core's anchors and must never be kicked.
+  //  - block-relay-only connections are Core's anchors and must never be touched.
   const peerRotation = require('../../src/lib/peer-rotation');
   const helpers = [];
   for (let i = 0; i < 10; i += 1) {
@@ -411,7 +417,7 @@ async function main() {
   });
 
   await check('the swap path frees the slot: the swapped-in peer connects', async () => {
-    // What promote.js now does on a swap: removeTrustedPeer with its default,
+    // What the slot fill does on a swap: removeTrustedPeer with its default,
     // which disconnects. (The previous check left helper0 connected.)
     await rpc.addNode(hostOf(helpers[0]), 'add').catch(() => {});
     await peerSync.addTrustedPeer(hostOf(helpers[0]), null).catch(() => {});
@@ -421,7 +427,28 @@ async function main() {
     assert.equal(await connected(helpers[0]), undefined, 'the displaced peer is gone');
   });
 
-  await check('the kick takes a quiet full-relay peer and leaves a block-relay-only anchor alone', async () => {
+  await check('a fresh manual connection passes the slot fill\'s test once Core has the peer\'s headers', async () => {
+    // The trial (peer-rotation/fill.js) keeps a candidate only when Core's own
+    // session to it serves blocks and reports our tip in synced_headers. That
+    // rests on Core asking every new peer for headers from just below its tip;
+    // checked here on a real Core rather than taken on trust.
+    // A candidate from the address book is a node that is at the tip when
+    // Core dials it, so the helper syncs first, and is then dialled afresh.
+    const fill = require('../../src/lib/peer-rotation/fill');
+    const chain = await rpc.getBlockchainInfo();
+    const helper = helpers[7];
+    cli(helper, 'addnode', `127.0.0.1:${NODES.miner.p2p}`, 'onetry');
+    await waitFor('the helper to have our chain', () => Number(cli(helper, 'getblockcount')) >= chain.blocks, { timeoutMs: 60000 });
+    const before = await connected(helper);
+    await rpc.disconnectNode(before.id);
+    const session = await waitFor('Core to dial it again and see our tip', async () => {
+      const s = await connected(helper);
+      return s && s.id !== before.id && fill.works(s, chain) ? s : null;
+    }, { timeoutMs: 90000 });
+    assert.equal(session.connection_type, 'manual');
+  });
+
+  await check('a slot fill pass leaves Core\'s own outbound peers connected, quiet or not', async () => {
     // addconnection is regtest's way to make Core open exactly these types.
     const anchor = helpers[8];
     const fullRelay = helpers[9];
@@ -447,10 +474,19 @@ async function main() {
     assert.ok(rowOf(fullRelay).recentEligible >= minEligible && rowOf(fullRelay).recentFirst === 0,
       `the full-relay helper qualifies: ${JSON.stringify(rowOf(fullRelay) && { e: rowOf(fullRelay).recentEligible, f: rowOf(fullRelay).recentFirst })}`);
     assert.ok(rowOf(anchor).recentEligible >= minEligible && rowOf(anchor).recentFirst === 0, 'so would the anchor, by the numbers');
-    await peerRotation.kickDeadWeight(ranking);
-    await waitFor('the full-relay helper to be gone', async () => !(await connected(fullRelay)), { timeoutMs: 15000 });
-    const stillThere = await connected(anchor);
-    assert.equal(stillThere && stillThere.connection_type, 'block-relay-only', 'the anchor is still connected');
+    // There used to be a kick pass that dropped the full-relay one. Core picks
+    // and spreads its own outbound peers; the slot fill works on the manual
+    // slots only.
+    peerRotation.setEnabled(true);
+    try {
+      await peerRotation.tick();
+    } finally {
+      peerRotation.setEnabled(false);
+    }
+    const f = await connected(fullRelay);
+    const a = await connected(anchor);
+    assert.equal(f && f.connection_type, 'outbound-full-relay', 'the quiet full-relay peer is still connected');
+    assert.equal(a && a.connection_type, 'block-relay-only', 'and so is the anchor');
   });
 
   sub.stop();

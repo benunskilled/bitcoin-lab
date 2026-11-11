@@ -263,12 +263,11 @@ test('a malformed body is the callers mistake, not a 500', async () => {
   assert.equal(res.status, 400, 'answering 500 sends whoever is debugging this to the wrong place');
 });
 
-test('GET /api/rotation carries the toggle, the log and the parked peers', async () => {
+test('GET /api/rotation carries the toggle and the log', async () => {
   const { status, body } = await api('/api/rotation');
   assert.equal(status, 200);
   assert.equal(typeof body.enabled, 'boolean');
   assert.ok(Array.isArray(body.log));
-  assert.ok(Array.isArray(body.parked), 'the Parked table has no other source');
 });
 
 test('POST /api/rotation/toggle round-trips, and GET agrees afterwards', async () => {
@@ -402,7 +401,7 @@ test('a peer disconnected by hand is in the rotation log, with its recent record
     assert.equal(disconnect.mock.callCount(), 1);
     const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'disconnect' AND address = ?").get('203.0.113.88:8333');
     assert.ok(row, 'logged');
-    assert.equal(row.note, 'by hand · 0/0 recent blocks first');
+    assert.equal(row.note, null, 'no session, no direction; "by hand" is in the action\'s name');
   } finally {
     disconnect.mock.restore();
     db.instance.prepare("DELETE FROM rotation_log WHERE action = 'disconnect'").run();
@@ -422,7 +421,7 @@ test('a peer disconnected by hand says whether it had dialled in or was dialled'
       // eslint-disable-next-line no-await-in-loop
       await api('/api/peers/disconnect', { method: 'POST', body: JSON.stringify({ address }) });
       const row = db.instance.prepare("SELECT note FROM rotation_log WHERE action = 'disconnect' AND address = ?").get(address);
-      assert.equal(row.note, `by hand · ${direction} · 0/0 recent blocks first`);
+      assert.equal(row.note, direction);
     }
   } finally {
     disconnect.mock.restore();
@@ -455,6 +454,12 @@ test('a real trusted peer is still removable, and a missing address still says s
   });
   assert.equal(status, 200);
   assert.equal(db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer WHERE address = '203.0.113.77:8333'`).get().n, 0);
+  const row = db.instance.prepare("SELECT * FROM rotation_log WHERE action = 'unmanual' AND address = ?").get('203.0.113.77:8333');
+  assert.ok(row, 'a peer removed by hand is in the log');
+  assert.equal(row.note, null, 'no note: the place is under the address');
+  db.instance.prepare("DELETE FROM rotation_log WHERE action = 'unmanual'").run();
+  await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({ address: '203.0.113.78:8333' }) });
+  assert.equal(db.instance.prepare("SELECT COUNT(*) AS n FROM rotation_log WHERE action = 'unmanual'").get().n, 0, 'not one that was never manual');
 
   const missing = await api('/api/peers/untrust', { method: 'POST', body: JSON.stringify({}) });
   assert.equal(missing.status, 400, 'left out is still 400 - a different mistake from sent wrong');
@@ -587,4 +592,42 @@ test('the lock wants a real true or false, not a string', async () => {
 test('deleting a pool that does not exist says so', async () => {
   const { status } = await api('/api/pools/987654', { method: 'DELETE' });
   assert.equal(status, 404);
+});
+
+// Found by an outside review: the button cut every address to its host and
+// tried 8333/9333, so a peer this node had dialled on another port could not
+// be added, or 8333 found a different node on the same IP.
+test('Add as Manual keeps the port of a peer this node dialled, and only then', async () => {
+  const net = require('net');
+  const { mock } = require('node:test');
+  const peerSync = require('../src/lib/peer-sync');
+  const { versionMessage, MAGIC } = require('../src/lib/manual-peer');
+  const node = net.createServer((socket) => {
+    socket.once('data', () => socket.write(versionMessage(MAGIC.mainnet)));
+    socket.on('error', () => {});
+  });
+  await new Promise((resolve) => node.listen(0, '127.0.0.1', resolve));
+  const address = `127.0.0.1:${node.address().port}`;
+  const added = [];
+  const add = mock.method(peerSync, 'addTrustedPeer', async (addr) => { added.push(addr); return { ok: true }; });
+  try {
+    const peer = db.getOrCreatePeer(address);
+    db.instance
+      .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+      .run(peer.id, 'inbound', 'inbound', Date.now() - 60000, Date.now() - 30000);
+    // Seen only as inbound: the port is its source port, so 8333/9333 are tried.
+    let res = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+    assert.equal(res.status, 422);
+    assert.deepEqual(added, []);
+    db.instance
+      .prepare('INSERT INTO peer_session (peer_id, direction, connection_type, started_at, ended_at) VALUES (?, ?, ?, ?, ?)')
+      .run(peer.id, 'outbound', 'outbound-full-relay', Date.now() - 20000, Date.now() - 10000);
+    res = await api('/api/peers/add-manual', { method: 'POST', body: JSON.stringify({ address }) });
+    assert.equal(res.status, 200);
+    assert.deepEqual(added, [address]);
+  } finally {
+    add.mock.restore();
+    node.close();
+    db.instance.prepare('DELETE FROM rotation_log').run();
+  }
 });

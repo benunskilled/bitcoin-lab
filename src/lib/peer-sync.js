@@ -6,6 +6,7 @@ const config = require('./config');
 const queries = require('./queries');
 const { hostFromAddress, addressKey } = require('./address');
 const { evictableTrusted } = require('./peer-rotation/rules');
+const spread = require('./peer-rotation/spread');
 const logger = require('./logger').make('peer-sync');
 
 const keyOf = (address) => addressKey(address, config.bitcoin.network);
@@ -162,6 +163,12 @@ async function adoptExternalManualPeers() {
       }
       continue;
     }
+    // Taken out a moment ago, by this process: Core's list was read before
+    // that, or the remove is still on its way. Not somebody else's addnode.
+    if (removedJustNow(keyOf(addednode))) continue;
+    // The slot fill's candidate, between its addnode and its row: the slot
+    // fill's to settle, not somebody else's addnode to adopt and padlock.
+    if (slotFillCandidate() === keyOf(addednode)) continue;
     // Never past the limit. Core keeps its own list either way; what does not
     // fit is only left out of ours, and said so in the log.
     if (known.size >= config.maxManualPeers) {
@@ -264,33 +271,6 @@ async function disconnectIfLiveNonManual(address) {
 }
 
 /**
- * Drops inbound sessions to hosts this node already holds as manual peers.
- *
- * Doing it once when the peer is added is not enough: the other node dialled
- * in, and it will dial in again. Every reconnect recreates the pair, and the
- * pair is not harmless - the two connections split that peer's record between
- * two rows, and only whichever one carried a block is credited with it.
- *
- * Runs from the rotation pass, on the peer info it already has.
- */
-async function dropDuplicateInboundSessions(peers) {
-  const manualHosts = new Set(
-    peers.filter((p) => p.connection_type === 'manual').map((p) => hostFromAddress(p.addr)),
-  );
-  let dropped = 0;
-  for (const peer of peers) {
-    if (peer.connection_type === 'manual') continue;
-    // Inbound only, as the name says. An outbound connection to the same IP is
-    // Core's own choice, and often a second node behind one shared address.
-    if (peer.connection_type !== 'inbound') continue;
-    if (SHARED_PROXY_NETWORKS.has(String(peer.network || '').toLowerCase())) continue;
-    if (!manualHosts.has(hostFromAddress(peer.addr))) continue;
-    if (await disconnectSession(peer)) dropped += 1;
-  }
-  return dropped;
-}
-
-/**
  * Adds an address to the manual set. Nothing changes until the step that can
  * actually fail has succeeded.
  *
@@ -315,21 +295,23 @@ async function dropDuplicateInboundSessions(peers) {
  * RPCs, and then nothing is written and the addnode is taken back - and
  * finally take the slot back from the peer being replaced, if there is one.
  *
- * `evictToFit` is off by default because the rotation loop does its own,
- * stricter capacity arithmetic (a promotion must beat the peer it replaces);
- * it must not silently get a second, laxer eviction path underneath it.
+ * `evictToFit` is off by default because the slot fill does its own,
+ * stricter capacity arithmetic (only a surplus peer leaves, only for a
+ * missing region); it must not silently get a second, laxer eviction path
+ * underneath it.
  */
 async function addTrustedPeer(address, label, options = {}) {
   // `kept` is the star: set for anything a person typed in, unset for anything
-  // the rotation promoted. Typing an address in is already the decision - the
-  // loop's own promotions are not, and must stay swappable or it would freeze
-  // itself out of every slot it ever filled.
-  // `replace` is the rotation's own swap: it has already chosen whom the new
-  // peer displaces, by its stricter rule, and only needs the order done right
-  // - the new peer in first, the old one out only once that has worked.
-  // `parkEvicted` is false for a displaced peer that is still connected,
-  // which promote.js does not park.
-  const { evictToFit = false, kept = false, replace = null, parkEvicted = true } = options;
+  // the slot fill added. Typing an address in is already the decision - the
+  // slot fill's own additions are not, and must stay swappable or it would
+  // freeze itself out of every slot it ever filled.
+  // `neverDisconnect` is the slot fill's: it only ever adds addresses Core is
+  // not connected to, and if one turns out to be connected after all it is
+  // left alone rather than dropped and redialled - Core's own connections are
+  // not the slot fill's to touch. Nor is an addnode entry somebody else made:
+  // "already added" is a refusal there, not a success, or a failed trial would
+  // later remove that entry.
+  const { evictToFit = false, kept = false, neverDisconnect = false } = options;
   // The same node under another spelling is already in the set: adding it
   // again would take a second slot for one connection.
   const sameNode = db.instance
@@ -350,18 +332,23 @@ async function addTrustedPeer(address, label, options = {}) {
   let toEvict = null;
   if (!alreadyTrusted) {
     const count = countTrusted();
-    if (count >= config.maxManualPeers && replace && replace.address !== address) {
-      toEvict = replace;
-    } else if (count >= config.maxManualPeers) {
+    if (count >= config.maxManualPeers) {
       if (!evictToFit) {
         return { ok: false, count, max: config.maxManualPeers, error: `all ${config.maxManualPeers} manual slots are taken` };
       }
       // Only a peer the rotation itself could displace: not one with the
       // padlock, not one still inside its new-slot grace. Typing an address in
       // used to take the weakest of all eight, a protected one included - the
-      // one thing the padlock promises cannot happen.
-      toEvict = queries.weakestTrustedPeer(
-        evictableTrusted(queries.peerRanking().filter((p) => p.trusted)).filter((p) => p.address !== address),
+      // one thing the padlock promises cannot happen. Of those, the one the
+      // spread misses least (spread.leastMissed).
+      const ranking = queries.peerRanking();
+      const trusted = ranking.filter((p) => p.trusted);
+      toEvict = spread.leastMissed(
+        { address },
+        evictableTrusted(trusted).filter((p) => p.address !== address),
+        trusted,
+        ranking,
+        queries.weakestTrustedPeer,
       );
       if (!toEvict) {
         return {
@@ -386,7 +373,19 @@ async function addTrustedPeer(address, label, options = {}) {
   // it is accepted because the old order did not work for this case at all.
   // The exposure is small - this runs only when there IS such a session, and
   // the handshake that found the listening address ran moments earlier.
-  await disconnectIfLiveNonManual(address);
+  if (neverDisconnect) {
+    let peers = [];
+    try {
+      peers = await rpc.getPeerInfo();
+    } catch (err) {
+      return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: `could not ask Core: ${err.message}` };
+    }
+    if (liveNonManualSessionsForHost(peers, address).length) {
+      return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: `${address} is already connected to Core` };
+    }
+  } else {
+    await disconnectIfLiveNonManual(address);
+  }
 
   // The one step that can be refused.
   let alreadyInCore = false;
@@ -398,7 +397,7 @@ async function addTrustedPeer(address, label, options = {}) {
     // -addnode=, a bitcoin-cli call, or our own previous sync), so this is a
     // success, not a failure. Anything else is a genuine refusal, and at this
     // point nothing of ours has moved.
-    if (!/already added/i.test(err.message || '')) {
+    if (!/already added/i.test(err.message || '') || neverDisconnect) {
       logger.warn('addnode refused, nothing changed', { address, error: err.message });
       return { ok: false, count: countTrusted(), max: config.maxManualPeers, error: err.message };
     }
@@ -413,12 +412,13 @@ async function addTrustedPeer(address, label, options = {}) {
   // lock first, so no other writer can slip between this count and the
   // insert.
   //
-  // The peer being replaced is claimed in the same transaction: its row goes
-  // here, not after the RPCs below. It was chosen before two RPCs too, and
-  // in that time another replacement can have chosen and freed the same slot
-  // (both then wrote their row: one manual peer too many), or the padlock can
-  // have gone on it. So it only frees a slot if it is still there and still
-  // unlocked now; otherwise this add has to fit on its own.
+  // The peer being displaced (a person adding to a full set) is claimed in
+  // the same transaction: its row goes here, not after the RPCs below. It was
+  // chosen before two RPCs too, and in that time another add can have chosen
+  // and freed the same slot (both then wrote their row: one manual peer too
+  // many), or the padlock can have gone on it. So it only frees a slot if it
+  // is still there and still unlocked now; otherwise this add has to fit on
+  // its own.
   let claimed = false;
   const written = db.instance.transaction(() => {
     const exists = db.instance.prepare(`SELECT 1 FROM trusted_peer WHERE address = ?`).get(address);
@@ -474,22 +474,10 @@ async function addTrustedPeer(address, label, options = {}) {
   // service on 8333, a peer that rejects us, Core's own slots full).
   db.getOrCreatePeer(address);
 
-  // Only now is the parked entry safe to drop. Doing it before the addnode
-  // meant a refused call destroyed the record of a peer we had spent months
-  // ranking - the precise loss parking exists to prevent.
-  db.instance.prepare(`DELETE FROM parked_peer WHERE address = ?`).run(address);
-
   let evicted = null;
-  let evictedParked = false;
   if (claimed) {
     // The row is already gone (above); this tells Core and drops the session.
     await removeTrustedPeer(toEvict.address);
-    // parkPeer declines a peer with no record; then it is simply gone, and
-    // the caller must not tell anyone it will be re-tested.
-    // Parking is for a peer that is gone. One still connected keeps being
-    // measured as an ordinary peer and earns a slot again like any other;
-    // parked, it would come back on the record it just lost on.
-    if (parkEvicted && !toEvict.live) evictedParked = parkPeer(toEvict);
     evicted = toEvict;
     logger.info('freed a manual slot to stay within the cap', {
       removed: evicted.address,
@@ -503,7 +491,7 @@ async function addTrustedPeer(address, label, options = {}) {
     ok: true,
     count: countTrusted(),
     max: config.maxManualPeers,
-    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct, parked: evictedParked, live: Boolean(evicted.live) } : null,
+    evicted: evicted ? { address: evicted.address, firstPct: evicted.firstPct, live: Boolean(evicted.live) } : null,
   };
 }
 
@@ -511,58 +499,6 @@ function countTrusted() {
   return db.instance.prepare(`SELECT COUNT(*) AS n FROM trusted_peer`).get().n;
 }
 
-/**
- * Remembers a peer that just lost its manual slot, so the rotation loop can
- * keep re-testing it and hand the slot back if it returns (see peer-rotation's
- * reviveParkedPeers). Losing a slot is meant to be reversible - that is the
- * entire reason this app can afford to reclaim an offline peer's slot in hours
- * rather than never.
- *
- * Never parks a peer that has no record worth keeping: an address that was
- * never once connected when a block landed is not a peer this app has an
- * opinion about, and re-probing it forever would be busywork.
- */
-function parkPeer(peer) {
-  if (!peer || !peer.address) return false;
-  if (!peer.eligible) return false;
-  db.instance
-    .prepare(
-      `INSERT INTO parked_peer (address, label, first_pct, eligible, parked_at, last_probe_at, probe_failures)
-       VALUES (@address, @label, @firstPct, @eligible, @parkedAt, NULL, 0)
-       ON CONFLICT(address) DO UPDATE SET
-         first_pct = excluded.first_pct,
-         eligible = excluded.eligible,
-         parked_at = excluded.parked_at,
-         last_probe_at = NULL,
-         probe_failures = 0`,
-    )
-    .run({
-      address: peer.address,
-      label: peer.trustedLabel || peer.label || null,
-      firstPct: peer.firstPct == null ? null : peer.firstPct,
-      eligible: peer.eligible == null ? null : peer.eligible,
-      parkedAt: Date.now(),
-    });
-  return true;
-}
-
-/**
- * Take an address out of the manual set.
- *
- * `disconnect` is false for one caller only: the rotation displacing a peer
- * for a better one. Everywhere else - the Remove button, a peer retiring
- * offline - dropping the connection is the point.
- *
- * A displaced peer has done nothing wrong; it was simply beaten. Forcing it
- * off the node meant it stopped being measured at the exact moment the
- * measurement was going against it, and the only way back was the parked
- * table - which revives on the lifetime record, the very number the peer had
- * just been displaced despite. That is a loop, and it ran on a real node:
- * a peer swapped out at 5h43m was back in ten minutes later, two disconnects
- * and two addnodes for no change. Leaving the connection up instead, it goes
- * back to being an ordinary outbound peer, keeps accumulating a record, and
- * has to earn a slot again the same way everyone else does.
- */
 // Addresses this app took out of the manual set while Core refused the
 // matching `addnode remove` (Core restarting, an RPC timeout). Core still has
 // the entry, and the next sync would read it as somebody else's addnode and
@@ -588,9 +524,40 @@ function savePendingRemovals(map) {
     .run(PENDING_REMOVAL_KEY, JSON.stringify(map));
 }
 
+function slotFillCandidate() {
+  try {
+    const row = db.instance.prepare(`SELECT value FROM meta WHERE key = 'slot_fill_trial'`).get();
+    return row ? keyOf(JSON.parse(row.value).address) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Removed in this process within the last few minutes (see removeTrustedPeer).
+const RECENTLY_REMOVED_MS = 5 * 60 * 1000;
+const recentlyRemoved = new Map();
+function removedJustNow(key) {
+  const at = recentlyRemoved.get(key);
+  if (at == null) return false;
+  if (Date.now() - at < RECENTLY_REMOVED_MS) return true;
+  recentlyRemoved.delete(key);
+  return false;
+}
+
 const notAdded = (err) => /not been added|not added/i.test((err && err.message) || '');
 
+/**
+ * Take an address out of the manual set, and out of Core's addnode list.
+ *
+ * `disconnect` (on by default) also drops the connection. It has to for any
+ * swap: a manual connection left up keeps its addnode grant, and with eight
+ * of them Core never dials the newcomer (test/integration/regtest.js).
+ */
 async function removeTrustedPeer(address, { disconnect = true } = {}) {
+  // Noted before the row goes: an adoption pass already holding Core's list
+  // from a moment ago would otherwise see the entry there and none here, and
+  // take it back in as somebody else's addnode - padlocked.
+  recentlyRemoved.set(keyOf(address), Date.now());
   db.instance.prepare(`DELETE FROM trusted_peer WHERE address = ?`).run(address);
   try {
     // Also tell Core to drop it as a manual/addnode entry - otherwise Core
@@ -611,18 +578,28 @@ async function removeTrustedPeer(address, { disconnect = true } = {}) {
     }
   }
   if (!disconnect) return;
+  // `addnode remove` only stops FUTURE reconnect attempts - Core does not
+  // drop an already-open manual connection just because it left the addnode
+  // list, so getpeerinfo would keep reporting connection_type 'manual' for it
+  // (and our own "effective trust" logic in ranking-row.js would keep
+  // treating it as trusted) until it disconnects on its own. So it is dropped
+  // here - the manual session only, by Core's peer id. disconnectnode by
+  // address drops whatever connection carries that name, and Core may have
+  // dialled the same address on its own meanwhile.
+  let peers = [];
   try {
-    // `addnode remove` only stops FUTURE reconnect attempts - Core does not
-    // drop an already-open manual connection just because it left the
-    // addnode list, so getpeerinfo would keep reporting connection_type
-    // 'manual' for it (and our own "effective trust" logic in ranking-row.js
-    // would keep treating it as trusted) until it disconnects on its own.
-    // Force that now so Remove has an immediate, visible effect instead of
-    // silently doing nothing until the peer happens to drop by itself.
-    await rpc.disconnectNode(address);
+    peers = await rpc.getPeerInfo();
   } catch (err) {
-    // Not currently connected, or already gone - not an error worth failing over.
-    logger.debug('disconnect while untrusting peer', { address, error: err.message });
+    logger.warn('could not ask Core which session to drop; the manual one stays until it ends', { address, error: err.message });
+    return;
+  }
+  for (const peer of peers.filter((p) => p.connection_type === 'manual' && keyOf(p.addr) === keyOf(address))) {
+    try {
+      await rpc.disconnectNode(peer.id);
+    } catch (err) {
+      // Already gone - not an error worth failing over.
+      logger.debug('disconnect while untrusting peer', { address, error: err.message });
+    }
   }
 }
 
@@ -651,7 +628,4 @@ module.exports = {
   adoptExternalManualPeers,
   addTrustedPeer,
   removeTrustedPeer,
-  disconnectIfLiveNonManual,
-  dropDuplicateInboundSessions,
-  parkPeer,
 };

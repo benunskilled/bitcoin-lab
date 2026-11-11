@@ -27,7 +27,7 @@ Bitcoin Lab listens for new blocks through Core's ZMQ interface and records the 
 
 Core updates a peer's `last_block` timestamp when it processes a newly accepted block from that peer. Later copies of the same block from other peers do not update their timestamps. Bitcoin Lab matches this signal to the block event to record First.
 
-Core notes each peer's last new block only to the second, so Bitcoin Lab looks for a peer whose time falls within a short window around the arrival. If two peers fall in that window, the block before arrived only a moment earlier and one of the two times belongs to it. Which one can't be told apart, so neither gets a First, and the block counts as unclear. On my node that happened 3 times in 4,994 blocks. Your own count stands in the dashboard's status line.
+Core notes each peer's last new block only to the second, so Bitcoin Lab looks for a peer whose time falls within a short window around the arrival. If two peers fall in that window, the block before arrived only a moment earlier and one of the two times belongs to it. Which one can't be told apart, so neither gets a First, and the block counts as unclear. On my node that happened 3 times in 4,994 blocks.
 
 Blocks your node fetches while catching up after being offline are not counted: they arrive several a second from many peers and say nothing about who relays a new block quickly.
 
@@ -41,11 +41,9 @@ Wallets, crawlers and indexers connect to your node for different reasons. They 
 
 Bitcoin Lab marks software categories that are not expected to relay blocks.
 
-## From ranking to selection
+## What the ranking is for
 
-The ranking updates as new blocks arrive. With rotation enabled, Bitcoin Lab uses these scores to choose candidates for your manual slots.
-
-See [grace period](grace-period.md), [clear lead](swap-margin.md) and [protected peers](protected-peers.md) for what happens after the ranking.
+The ranking updates as new blocks arrive. It is for you to read: Slot Fill picks manual peers for spread, not by score. The score only decides which unlocked manual peer makes room when you add one by hand and all eight slots are taken, among the peers the spread misses least. See [manual slots](manual-slots.md).
 
 ---
 

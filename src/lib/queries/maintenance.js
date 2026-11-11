@@ -89,7 +89,6 @@ function pruneNeverFirstPeers({ days = config.neverFirstPeerRetentionDays, maxSt
       WHERE s.first = 0
         AND p.first_seen_at < @cutoff
         AND p.address NOT IN (SELECT address FROM trusted_peer)
-        AND p.address NOT IN (SELECT address FROM parked_peer)
         AND NOT EXISTS (SELECT 1 FROM peer_session x WHERE x.peer_id = p.id
                          AND (x.direction <> 'inbound' OR x.ended_at IS NULL OR x.ended_at >= @cutoff))
         -- Around for a block lately (a peer back after a month has no session
