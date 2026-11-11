@@ -116,6 +116,8 @@ const AGENTS = [
   '/Floresta:0.9.1/', '/Floresta:0.9.1/mandacaru:0.15.2/',
   // Clients identified in public source on 29 October.
   '/BitcoinRocks:31.1.1/', '/bip110-observer:0.1/', '/EMPORION:0.3/', '/SYMMARTYS:0.3/',
+  // Identified in public sources on 11 November.
+  '/Bitflash:btc-light/', '/21datalab-crawler:0.1/', 'nebula/2.4.1-65580d4', '/nebula:v3.0.0-20261019105927-e59406bbe71e/',
   // Names with no public source stay with what relays; names that say probe,
   // peers or bip157 get the kind they say (3 November).
   '/your-fork:0.1/', '/cryptexplorer:0.1.0/', '/BlockSail:0.1/', '/trinetra:0.1/', '/multiseed:0.1/',
@@ -169,6 +171,9 @@ test('the reason shown names the family the Go side named', () => {
     ['/electrumx:1.16/', 'indexer'],
     ['/EMPORION:0.3/', 'light client'],
     ['/SYMMARTYS:0.3/', 'light client'],
+    ['/Bitflash:btc-light/', 'light client'],
+    ['/21datalab-crawler:0.1/', 'crawler'],
+    ['nebula/2.4.1-65580d4', 'crawler'],
     ['/bip110-observer:0.1/', 'crawler'],
   ];
   for (const [agent, fragment] of expectations) {

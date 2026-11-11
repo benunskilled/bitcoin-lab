@@ -167,8 +167,9 @@ const KIND_RULES = [
   // validators follow the chain the same way for a chain of their own: headers,
   // some blocks, no transactions.
   // EMPORION and its new name SYMMARTYS fetch headers for OpenTimestamps
-  // verification (bitcoin_headers.py in alexar76/emporion).
-  [/BIP-157|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:/i, 'a light client'],
+  // verification (bitcoin_headers.py in alexar76/emporion). Bitflash's
+  // wallet loads only headers and filter hashes (docs.bitflash.network).
+  [/BIP-157|^\/bip157-fetch:|kyoto|^Yuki \/|^\/VerifiedX:|^\/nakamoto:|^\/bitcoin-s:|^Stacks\/|\/CaribouSPV:|^\/EMPORION:|^\/SYMMARTYS:|^\/Bitflash:btc-light\//i, 'a light client'],
 ];
 
 // Rules marked 'whole' read the whole agent: a pool or another chain may be
