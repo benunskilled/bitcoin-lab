@@ -8,7 +8,7 @@ Turn on Slot Fill and your node gets up to eight extra outgoing connections, to 
 
 Stratum Race times how fast your own pool turns a new block into fresh work, side by side with public solo pools. No miner needed, just a pool app on your Umbrel.
 
-![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=4)
+![Bitcoin Lab dashboard](https://raw.githubusercontent.com/benunskilled/bitcoin-lab-community-store/main/bitcoinlab-node/overview.png?v=5)
 
 ## How Slot Fill works
 
