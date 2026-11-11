@@ -105,36 +105,6 @@
       </div>
     </section>
 
-    <!--
-      Its own section, sitting directly above the panel it writes into. It used
-      to live inside Live Peer Ranking, where it looked like a filter for that
-      table rather than what it is: the way you add a peer you found somewhere
-      else entirely.
-
-      Test answers "is anything listening there, and on which port" and changes
-      nothing at all - no row, no addnode, no disconnected session.
-    -->
-    <section class="card">
-      <h2>Add a Peer</h2>
-      <p class="panel-note">
-        <strong>Add &amp; Keep</strong> makes a peer manual and locks it, so it keeps its slot even while
-        offline. The lock below undoes that.
-      </p>
-      <form id="manual-add-form" class="inline-form">
-        <input
-          type="text"
-          id="manual-add-input"
-          aria-label="Peer IP address"
-          placeholder="IP address, e.g. 203.0.113.5"
-          title="A bare IP is probed on 8333, then 9333. Add an explicit :port to use only that one. IPv6 goes in brackets: [2001:db8::1]"
-          required
-        />
-        <button type="button" id="manual-test-button" class="secondary">Test</button>
-        <button type="submit">Add &amp; Keep</button>
-      </form>
-      <div id="manual-add-result" class="hint"></div>
-    </section>
-
     <section class="card panel">
       <h2>Manual Peers <span id="manual-slots" class="hint"></span></h2>
       <p id="manual-spread" class="hint manual-spread" hidden></p>
@@ -155,6 +125,37 @@
           <tbody><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr><tr class="skeleton" aria-hidden="true"><td colspan="8"><i></i><i></i></td></tr></tbody>
         </table>
       </div>
+    </section>
+
+    <!--
+      Its own section, right under the panel it writes into, next to Slot Fill:
+      the two ways a peer gets into the manual slots. It used to live inside
+      Live Peer Ranking, where it looked like a filter for that
+      table rather than what it is: the way you add a peer you found somewhere
+      else entirely.
+
+      Test answers "is anything listening there, and on which port" and changes
+      nothing at all - no row, no addnode, no disconnected session.
+    -->
+    <section class="card">
+      <h2>Add a Peer</h2>
+      <p class="panel-note">
+        <strong>Add &amp; Keep</strong> makes a peer manual and locks it, so it keeps its slot even while
+        offline. The lock above undoes that.
+      </p>
+      <form id="manual-add-form" class="inline-form">
+        <input
+          type="text"
+          id="manual-add-input"
+          aria-label="Peer IP address"
+          placeholder="IP address, e.g. 203.0.113.5"
+          title="A bare IP is probed on 8333, then 9333. Add an explicit :port to use only that one. IPv6 goes in brackets: [2001:db8::1]"
+          required
+        />
+        <button type="button" id="manual-test-button" class="secondary">Test</button>
+        <button type="submit">Add &amp; Keep</button>
+      </form>
+      <div id="manual-add-result" class="hint"></div>
     </section>
 
     <section class="card panel">
