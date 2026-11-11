@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.6.0 – 2026-11-11
+
+Rotation is now Slot Fill. It fills your node's free manual slots with peers from Core's own address book, placed where your node has the fewest connections – other regions and other providers – and it never touches Core's own peers. It only fills free slots and only removes peers that stay offline, so if your eight slots are already full, remove a few by hand to make room. After this update Slot Fill starts switched off, so you choose it yourself. The log shows every peer it adds and why, and every peer that leaves: offline for too long, or disconnected by you. Peer names are readable, outbound peers show where they are, and the legend explains every mark. Bitcoin Lab also notes whether the peer that delivered a block was a high-bandwidth peer, which Peer Map 2.8.0 uses for its route.
+
 ## 2.5.0 – 2026-11-08
 
 Blocks name their pool in full, and a block with no known pool and no name of its own reads "Unknown". F2Pool's new fish tag is recognised. Stratum Race only counts a block your node knows, and its range is a switch: 10 blocks, 100 blocks or all time. Compact-block shares cover the last 100 blocks, and a block that can't be told apart reads as unclear. The rotation log keeps 1,000 entries and says more clearly why a peer was dropped.

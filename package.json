@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-lab",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "description": "Measures which of your peers brings you new blocks first and ranks them. Slot Fill fills Core's manual slots where your node has the fewest connections. Stratum Race times your own mining pool against public ones. Umbrel app.",
   "license": "MIT",
   "private": true,
