@@ -1275,11 +1275,21 @@ for (const type of ['touchend', 'touchcancel']) {
 }
 window.addEventListener('scroll', () => { scrolledAt = Date.now(); settle(); }, { passive: true });
 
+let selectedSince = 0;
 function interactionInProgress(selector) {
   if (actionsInFlight > 0 || folding > 0 || pressing() || moving()) return true;
-  // Text being selected - an address to copy - is not redrawn from under the
-  // reader, as in Peer Map. The sweep below lets it through in the end.
-  if (String(window.getSelection && window.getSelection()).length) return true;
+  // Text being selected in this table - an address to copy - is not redrawn
+  // from under the reader, as in Peer Map; for half a minute at most. A
+  // selection elsewhere, or one left standing in an open tab, froze every
+  // table with no sign that it was stale (review 11.11.2026).
+  const sel = window.getSelection && window.getSelection();
+  if (sel && String(sel).length && sel.anchorNode) {
+    const el = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+    if (el && el.closest && el.closest(selector)) {
+      if (!selectedSince) selectedSince = Date.now();
+      if (Date.now() - selectedSince < 30000) return true;
+    } else selectedSince = 0;
+  } else selectedSince = 0;
   // Keyboard focus only. A mouse click leaves the focus on the button in
   // Chrome, and the tables then stayed frozen until a click elsewhere.
   const active = document.activeElement;
@@ -1305,6 +1315,10 @@ function flushDeferredRenders() {
 document.addEventListener('focusout', () => {
   // After focus actually lands somewhere else, not while it is in transit.
   setTimeout(flushDeferredRenders, 0);
+});
+// A selection let go of: what waited for it is drawn now, not at the next update.
+document.addEventListener('selectionchange', () => {
+  if (deferredRenders.size && !String(window.getSelection()).length) setTimeout(flushDeferredRenders, 0);
 });
 
 /**

@@ -728,6 +728,14 @@ function runMigrations() {
     // Parking went with the rotation: the slot fill takes its candidates from
     // Core's address book, which holds thousands. The table stays, empty, so
     // older queries and the migrations above still find it.
+    // Slot Fill took over the old rotation's switch (peer_rotation_enabled),
+    // but it does something else - it adds peers from Core's address book.
+    // Whoever had the rotation on starts with Slot Fill off and chooses it
+    // themselves (Ben 11.11.2026). A fresh install has no row: off anyway.
+    migrate('slot_fill_off_once_v2_6_0', 'switched Slot Fill off once, to be chosen anew', () => {
+      db.prepare(`UPDATE meta SET value = '0' WHERE key = 'peer_rotation_enabled'`).run();
+    });
+
     migrate('parked_peer_retired_v2_6_0', 'stopped keeping parked peers', () => {
       db.prepare(`DELETE FROM parked_peer`).run();
     });
