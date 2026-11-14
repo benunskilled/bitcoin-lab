@@ -20,7 +20,7 @@ The app does not access wallet files, private keys or Core's block files, and do
 
 On Umbrel, the app proxy handles dashboard authentication. The dashboard has no login of its own, so direct access to its internal port also gives access to its peer-management controls.
 
-The dashboard only accepts changes from its own page. A reset, a disconnect or a rotation switch must arrive as a JSON request from the dashboard itself, so another website you have open cannot trigger them through your Umbrel login.
+The dashboard only accepts changes from its own page. A reset, a disconnect or a Slot Fill switch must arrive as a JSON request from the dashboard itself, so another website you have open cannot trigger them through your Umbrel login.
 
 ## Connections to mining pools
 
