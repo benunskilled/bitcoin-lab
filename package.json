@@ -16,7 +16,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.1.1",
     "zeromq": "^6.8.0"
   },
   "repository": {
