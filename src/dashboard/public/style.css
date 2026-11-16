@@ -1045,3 +1045,18 @@ tr.skeleton i + i { width: 55%; margin-top: 8px; }
 /* The licence line for the DB-IP data under the manual peers. */
 .foot { margin: 8px auto 28px; text-align: center; font-size: 12px; color: var(--muted); }
 .foot a { color: inherit; }
+
+/* Peer Lab replaces this app (16 November 2026): a thank-you and the way over,
+   always shown, in the accent colour rather than as a warning. */
+.farewell {
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: rgba(247, 147, 26, .08);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.farewell p { margin: 0; }
+.farewell p + p { margin-top: 6px; }
+.farewell a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.farewell a:hover { text-decoration: underline; }
