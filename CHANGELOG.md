@@ -2,6 +2,10 @@
 
 The release notes of every Bitcoin Lab version published on GitHub, newest first, as on the [releases page](https://github.com/benunskilled/bitcoin-lab/releases). GitHub releases start at 1.13.0.
 
+## 2.6.1 – 2026-11-16
+
+A thank-you banner at the top: Peer Lab replaces this app, in the same store. Thank you for running it!
+
 ## 2.6.0 – 2026-11-11
 
 Rotation is now Slot Fill. It fills your node's free manual slots with peers from Core's own address book, placed where your node has the fewest connections – other regions and other providers – and it never touches Core's own peers. It only fills free slots and only removes peers that stay offline, so if your eight slots are already full, remove a few by hand to make room. After this update Slot Fill starts switched off, so you choose it yourself. The log shows every peer it adds and why, and every peer that leaves: offline for too long, or disconnected by you. Peer names are readable, outbound peers show where they are, and the legend explains every mark. Bitcoin Lab also notes whether the peer that delivered a block was a high-bandwidth peer, which Peer Map 2.8.0 uses for its route.
