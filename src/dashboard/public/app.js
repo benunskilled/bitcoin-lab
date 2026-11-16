@@ -2638,3 +2638,14 @@ document.addEventListener('keydown', (e) => {
   const storage = document.getElementById('storage-card');
   if (storage && storage.open) { storage.open = false; e.preventDefault(); }
 });
+
+// Peer Lab replaces this app (16 November 2026): the banner's link opens Peer
+// Lab's page in the umbrelOS App Store, on the host this page came from minus
+// this app's port. Over Tor every app has its own .onion, so the link there
+// stays on GitHub.
+(function farewellLink() {
+  const a = document.getElementById('farewell-link');
+  if (!a || !/^https?:$/.test(location.protocol) || /\.onion$/i.test(location.hostname)) return;
+  a.href = `${location.protocol}//${location.hostname}/community-app-store/bitcoinlab/bitcoinlab-peerlab`;
+  a.textContent = 'Open Peer Lab in the App Store \u2192';
+})();
