@@ -2,6 +2,8 @@
 
 [![Tests](https://github.com/benunskilled/bitcoin-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/benunskilled/bitcoin-lab/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/benunskilled/bitcoin-lab)](https://github.com/benunskilled/bitcoin-lab/releases)
 
+> **Peer Lab replaces this app.** It does what Bitcoin Lab and Peer Map did, in one app, in the same store. Bitcoin Lab gets no more updates. → [Peer Lab](https://github.com/benunskilled/peer-lab)
+
 Every new block reaches your node through one of your peers. Bitcoin Lab notes for every block who was first and ranks your peers by it.
 
 Turn on Slot Fill and your node gets up to eight extra outgoing connections, to peers in places its own connections don't reach. It works without an open port, and Core keeps managing its regular peers. It is off on a fresh install.
